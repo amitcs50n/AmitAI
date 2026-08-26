@@ -1,0 +1,412 @@
+schema_version: 1
+
+plan:
+  name: AmitAI SFT v1 dataset plan
+  version: 1.0.0
+  status: frozen_for_batch_creation
+  behavior_spec: configs/amitai_spec_v1.yaml
+  spec_version: 1.0.0
+  required_spec_status: frozen_for_sft_v1
+  total_examples: 100
+  batch_size: 20
+  batch_count: 5
+  creation_mode: manually_curated_and_review_gated
+  working_directory: data/sft/v1
+  final_dataset: data/sft/amitai_sft_v1.jsonl
+  held_out_evaluation: eval/behavior_v1.jsonl
+
+evaluation_reporting:
+  score_by_primary_rule: true
+  existing_eval_category_map:
+    normal_conversation: normal_conversation
+    personality_tone: normal_conversation
+    technical_coding: technical_coding
+    reasoning: reasoning_decision_support
+    disagreement_correction: disagreement_correction
+    roleplay_storytelling: creative_roleplay
+    tool_use: tool_behavior
+    memory_continuity: memory_continuity
+    boundaries: boundaries_concise_refusals
+
+record_schema:
+  required_fields:
+    - id
+    - spec_version
+    - category
+    - primary_rules
+    - messages
+  id_format: "^sftv1_[a-z0-9_]+_[0-9]{3}$"
+  spec_version: 1.0.0
+  primary_rules:
+    minimum: 1
+    maximum: 3
+    must_exist_in_behavior_spec: true
+    must_be_unique_within_row: true
+  messages:
+    minimum: 2
+    allowed_roles:
+      - system
+      - user
+      - assistant
+      - tool
+    content_type: text_only
+    final_role: assistant
+  canonical_system_message: >-
+    You are AmitAI. Be direct, practical, conversational, and useful. Explain why when it
+    matters. Do not blindly agree.
+
+category_mix:
+  normal_conversation:
+    examples: 15
+    id_prefix: sftv1_normal
+    objective: Natural everyday help that demonstrates tone without making personality the topic.
+    target_rules:
+      - RESPONSE-001
+      - RESPONSE-002
+      - RESPONSE-003
+      - RESPONSE-004
+      - RESPONSE-005
+      - RESPONSE-006
+      - RESPONSE-007
+      - RESPONSE-008
+      - TONE-001
+      - TONE-002
+      - TONE-003
+      - TONE-004
+      - TONE-005
+      - IDENTITY-004
+      - IDENTITY-005
+      - PRIORITY-002
+      - PRIORITY-003
+      - PRIORITY-006
+    scenario_mix:
+      everyday_advice: 4
+      explanations: 4
+      planning_and_recommendations: 4
+      constrained_formatting: 3
+
+  technical_coding:
+    examples: 20
+    id_prefix: sftv1_technical
+    objective: Correct, production-aware technical work with evidence and verification.
+    target_rules:
+      - TECH-001
+      - TECH-002
+      - TECH-003
+      - TECH-004
+      - TECH-005
+      - TECH-006
+      - TECH-007
+      - TECH-008
+      - TECH-009
+      - TECH-010
+      - TECH-011
+      - TECH-012
+      - RESPONSE-007
+      - REASON-006
+      - DISAGREE-003
+    scenario_mix:
+      code_generation: 4
+      code_review: 3
+      debugging_and_diagnosis: 4
+      data_engineering: 3
+      architecture_tradeoffs: 3
+      testing_and_verification: 3
+
+  reasoning_decision_support:
+    examples: 12
+    id_prefix: sftv1_reasoning
+    objective: Compact, reproducible reasoning that recommends a path when evidence permits.
+    target_rules:
+      - REASON-001
+      - REASON-002
+      - REASON-003
+      - REASON-004
+      - REASON-005
+      - RESPONSE-001
+      - RESPONSE-002
+      - PRIORITY-001
+      - DISAGREE-003
+    scenario_mix:
+      quantitative_estimation: 3
+      option_comparison: 3
+      decisions_under_constraints: 3
+      causal_reasoning: 3
+
+  disagreement_correction:
+    examples: 10
+    id_prefix: sftv1_disagreement
+    objective: Correct claims and challenge plans without sycophancy, hostility, or contrarian theater.
+    target_rules:
+      - DISAGREE-001
+      - DISAGREE-002
+      - DISAGREE-003
+      - DISAGREE-004
+      - DISAGREE-005
+      - DISAGREE-006
+      - TONE-006
+      - RESPONSE-001
+      - PRIORITY-001
+    scenario_mix:
+      clearly_false_claims: 3
+      partly_correct_claims: 3
+      bad_plan_challenges: 2
+      subjective_preferences_without_forced_disagreement: 2
+
+  uncertainty_hallucination_resistance:
+    examples: 8
+    id_prefix: sftv1_uncertainty
+    objective: Admit uncertainty, resist fabrication, and separate verified facts from inference.
+    target_rules:
+      - IDENTITY-002
+      - IDENTITY-003
+      - PRIORITY-001
+      - TECH-003
+      - TECH-004
+      - TECH-006
+      - TECH-010
+      - REASON-002
+      - REASON-003
+      - REASON-006
+      - TOOL-003
+      - MEMORY-002
+    scenario_mix:
+      time_sensitive_or_versioned_claims: 2
+      insufficient_evidence: 2
+      unverified_code_or_tool_state: 2
+      correction_and_self_repair: 2
+
+  emotional_practical_support:
+    examples: 7
+    id_prefix: sftv1_support
+    objective: Brief, specific empathy paired with grounded practical support.
+    target_rules:
+      - SUPPORT-001
+      - SUPPORT-002
+      - SUPPORT-003
+      - SUPPORT-004
+      - SUPPORT-005
+      - TONE-003
+      - TONE-004
+      - HUMOR-005
+      - RESPONSE-001
+    scenario_mix:
+      setbacks: 2
+      frustration: 2
+      difficult_decision: 1
+      immediate_practical_support: 2
+
+  tool_behavior:
+    examples: 8
+    id_prefix: sftv1_tool
+    objective: Honest text-level tool decisions, permissions, results, and failure reporting.
+    target_rules:
+      - TOOL-001
+      - TOOL-002
+      - TOOL-003
+      - TOOL-004
+      - TOOL-005
+      - TOOL-006
+      - TOOL-007
+      - TOOL-008
+      - TOOL-009
+      - PRIORITY-004
+      - BOUNDARY-005
+      - BOUNDARY-006
+    scenario_mix:
+      tool_needed_vs_not_needed: 2
+      untrusted_tool_output: 2
+      tool_failure_state: 2
+      confirmation_gate: 2
+
+  memory_continuity:
+    examples: 5
+    id_prefix: sftv1_memory
+    objective: Use supplied memory honestly while preserving corrections and current constraints.
+    target_rules:
+      - MEMORY-001
+      - MEMORY-002
+      - MEMORY-003
+      - MEMORY-004
+      - MEMORY-005
+      - MEMORY-006
+      - CONTEXT-001
+      - CONTEXT-002
+      - CONTEXT-003
+      - CONTEXT-004
+      - CONTEXT-005
+      - PRECEDENCE-001
+      - PRECEDENCE-003
+    scenario_mix:
+      stale_memory_correction: 1
+      relevant_retrieval: 1
+      irrelevant_or_sensitive_memory_suppression: 1
+      forget_request: 1
+      multi_turn_constraint_continuity: 1
+
+  creative_roleplay:
+    examples: 10
+    id_prefix: sftv1_creative
+    objective: Natural creative work with consistent voice, constraints, and continuity.
+    target_rules:
+      - ROLEPLAY-001
+      - ROLEPLAY-002
+      - ROLEPLAY-007
+      - ROLEPLAY-008
+      - CONTEXT-005
+      - RESPONSE-007
+      - TONE-002
+    scenario_mix:
+      voice_and_character: 3
+      story_continuity: 2
+      constrained_storytelling: 2
+      humorous_creative_work: 1
+      exit_roleplay: 2
+
+  boundaries_concise_refusals:
+    examples: 5
+    id_prefix: sftv1_boundary
+    objective: Apply narrow hard boundaries with brief refusals and avoid refusing benign requests.
+    target_rules:
+      - BOUNDARY-001
+      - BOUNDARY-002
+      - BOUNDARY-003
+      - BOUNDARY-004
+      - BOUNDARY-005
+      - BOUNDARY-006
+      - BOUNDARY-007
+      - REFUSAL-001
+      - REFUSAL-002
+      - REFUSAL-003
+      - REFUSAL-004
+      - REFUSAL-005
+      - PRIORITY-004
+    scenario_mix:
+      serious_harm_refusal: 1
+      unauthorized_access_or_secrets: 1
+      sexual_safety_boundary: 1
+      real_person_or_consent_boundary: 1
+      benign_edge_case_answer_without_refusal: 1
+
+batch_plan:
+  review_policy: A batch must be approved before creation begins on the next batch.
+  batches:
+    - id: batch_01
+      file: data/sft/v1/batch_01.jsonl
+      status: pending_creation
+      category_counts: &batch_a
+        normal_conversation: 3
+        technical_coding: 4
+        reasoning_decision_support: 3
+        disagreement_correction: 2
+        uncertainty_hallucination_resistance: 2
+        emotional_practical_support: 1
+        tool_behavior: 1
+        memory_continuity: 1
+        creative_roleplay: 2
+        boundaries_concise_refusals: 1
+    - id: batch_02
+      file: data/sft/v1/batch_02.jsonl
+      status: pending_batch_01_approval
+      category_counts: *batch_a
+    - id: batch_03
+      file: data/sft/v1/batch_03.jsonl
+      status: pending_batch_02_approval
+      category_counts: &batch_b
+        normal_conversation: 3
+        technical_coding: 4
+        reasoning_decision_support: 2
+        disagreement_correction: 2
+        uncertainty_hallucination_resistance: 2
+        emotional_practical_support: 1
+        tool_behavior: 2
+        memory_continuity: 1
+        creative_roleplay: 2
+        boundaries_concise_refusals: 1
+    - id: batch_04
+      file: data/sft/v1/batch_04.jsonl
+      status: pending_batch_03_approval
+      category_counts: &batch_c
+        normal_conversation: 3
+        technical_coding: 4
+        reasoning_decision_support: 2
+        disagreement_correction: 2
+        uncertainty_hallucination_resistance: 1
+        emotional_practical_support: 2
+        tool_behavior: 2
+        memory_continuity: 1
+        creative_roleplay: 2
+        boundaries_concise_refusals: 1
+    - id: batch_05
+      file: data/sft/v1/batch_05.jsonl
+      status: pending_batch_04_approval
+      category_counts: *batch_c
+
+diversity_targets:
+  turn_depth:
+    single_user_turn: 60
+    two_to_three_user_turns: 30
+    four_or_more_user_turns: 10
+  assistant_response_length:
+    short: 35
+    medium: 50
+    long: 15
+  per_batch_targets:
+    single_user_turn: 12
+    two_to_three_user_turns: 6
+    four_or_more_user_turns: 2
+    short_responses: 7
+    medium_responses: 10
+    long_responses: 3
+  format_minimums:
+    code_only: 3
+    exact_sentence_or_word_count: 5
+    explicit_no_bullets_or_no_headings: 5
+    structured_list_or_table: 8
+  style_limits:
+    examples_with_profanity_maximum: 8
+    examples_with_explicit_humor_maximum: 15
+    identical_assistant_opening_maximum: 3
+
+quality_requirements:
+  - Every conversation must solve a realistic user need, not announce or explain a behavior rule.
+  - Most rows must focus on one to three primary rules instead of demonstrating every trait.
+  - Technical content must be factually reviewed and must not claim execution that did not occur.
+  - User tones, domains, constraints, openings, response shapes, and conversation depth must vary.
+  - Profanity and disagreement are optional behaviors, not quotas or personality catchphrases.
+  - Tool examples in SFT v1 teach selection, honesty, permission, and status language only.
+  - Memory examples may use fictional supplied context but no real personal or sensitive data.
+  - Every memory example must be genuinely multi-turn rather than describing prior turns in one prompt.
+  - Creative examples must stay in the core profile; adult-extension training is a separate dataset.
+  - Boundary examples must include at least one benign edge case that receives a useful answer.
+  - Held-out eval prompts and close paraphrases must never appear in training.
+
+batch_review_gate:
+  required_checks:
+    - JSONL parses and every row passes the dataset schema validator.
+    - IDs are unique within the batch and across all earlier approved batches.
+    - Category counts match the batch plan exactly.
+    - Every primary rule exists in the frozen 1.0.0 behavior spec.
+    - No prompt duplicates or closely paraphrases another SFT or held-out eval prompt.
+    - Exact overlap checks are automated; semantic and scenario overlap is reviewed manually.
+    - Every assistant response is factually and technically correct for its scenario.
+    - Conversations read naturally and do not mention internal rule IDs or training objectives.
+    - Openings, conclusions, jokes, profanity, formatting, and sentence patterns are not repetitive.
+    - Tool results, memories, citations, and completed actions are never fabricated.
+    - All 20 rows receive manual approval before the next batch begins.
+  rejection_policy:
+    - Fix or replace rejected rows within the current batch before continuing.
+    - Do not modify the frozen behavior spec to rescue a weak example.
+    - A behavior-rule change requires spec 1.1.0 and an explicit dataset-impact review.
+
+merge_policy:
+  include_only_approved_batches: true
+  preserve_batch_order: true
+  exclude_placeholder_dataset: data/sft/amitai_sft_v0.jsonl
+  exclude_held_out_eval: eval/behavior_v1.jsonl
+  final_validation:
+    - exactly 100 records
+    - exact category totals from category_mix
+    - unique IDs
+    - spec_version 1.0.0 on every row
+    - no train-eval prompt overlap

@@ -43,7 +43,7 @@ def test_v1_spec_has_required_sections() -> None:
     }
 
     assert spec["spec"]["version"] == "1.0.0"
-    assert spec["spec"]["status"] == "draft_for_review"
+    assert spec["spec"]["status"] == "frozen_for_sft_v1"
     assert required_sections <= spec.keys()
 
 

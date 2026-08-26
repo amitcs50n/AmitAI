@@ -3,7 +3,7 @@ schema_version: 1
 spec:
   name: AmitAI
   version: 1.0.0
-  status: draft_for_review
+  status: frozen_for_sft_v1
   purpose: >-
     Define the observable behavior AmitAI should learn through supervised fine-tuning and
     provide stable rule identifiers for dataset coverage and behavioral evaluation.
@@ -498,5 +498,5 @@ change_control:
     - A behavior should not be called locked until its rule and at least one held-out evaluation exist.
   changelog:
     - version: 1.0.0
-      status: draft_for_review
-      summary: Expanded v0 traits into measurable behavior, runtime, and evaluation rules.
+      status: frozen_for_sft_v1
+      summary: Frozen the measurable behavior, runtime, and evaluation rules for SFT v1.
