@@ -72,6 +72,7 @@ def train(config_path: str) -> None:
             optim=train_cfg.get("optim", "adamw_8bit"),
             seed=int(train_cfg.get("seed", 3407)),
             report_to=train_cfg.get("report_to", "none"),
+            bf16=bool(train_cfg["bf16"]),
             remove_unused_columns=False,
             dataset_text_field="",
             dataset_kwargs={"skip_prepare_dataset": True},
