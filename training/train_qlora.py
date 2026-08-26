@@ -26,10 +26,12 @@ def train(config_path: str) -> None:
     from trl import SFTConfig, SFTTrainer
 
     dataset = load_sft_dataset(train_cfg["dataset"])
+    max_length = int(train_cfg.get("max_length", 4096))
 
     model, tokenizer = FastVisionModel.from_pretrained(
         model_name=model_cfg["name"],
-        load_in_4bit=bool(model_cfg.get("load_in_4bit", True)),
+        load_in_4bit=bool(model_cfg.get("load_in_4bit", False)),
+        max_seq_length=max_length,
         full_finetuning=False,
         use_gradient_checkpointing=model_cfg.get("gradient_checkpointing", "unsloth"),
     )
@@ -53,7 +55,7 @@ def train(config_path: str) -> None:
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=UnslothVisionDataCollator(model, tokenizer),
         train_dataset=dataset,
         args=SFTConfig(
@@ -73,7 +75,7 @@ def train(config_path: str) -> None:
             remove_unused_columns=False,
             dataset_text_field="",
             dataset_kwargs={"skip_prepare_dataset": True},
-            max_length=int(train_cfg.get("max_length", 4096)),
+            max_length=max_length,
         ),
     )
 
@@ -93,7 +95,7 @@ def train(config_path: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train AmitAI QLoRA adapter")
+    parser = argparse.ArgumentParser(description="Train AmitAI BF16 LoRA adapter")
     parser.add_argument(
         "--config",
         default="configs/qlora_sft.yaml",

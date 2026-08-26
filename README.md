@@ -4,7 +4,7 @@ AmitAI is a personal assistant fine-tune built on **OBLITERATUS/Qwen3.8-27B-OBLI
 
 ## v0 goal
 
-Train a text-only QLoRA adapter that changes behavior/personality while preserving the base
+Train a text-only BF16 LoRA adapter that changes behavior/personality while preserving the base
 model's general capability. Vision is deliberately frozen in v0.
 
 ## Why the training code uses `FastVisionModel`
@@ -41,14 +41,20 @@ Each JSONL line is one conversation. AmitAI v0 accepts text only, but stores eac
 multimodal-compatible content-part format:
 
 ```json
-{"messages":[
+{
+  "id": "tech_001",
+  "spec_version": "1.0.0",
+  "category": "technical",
+  "primary_rules": ["TECH-002", "DISAGREE-001"],
+  "messages": [
   {"role":"system","content":[{"type":"text","text":"You are AmitAI..."}]},
   {"role":"user","content":[{"type":"text","text":"Question"}]},
   {"role":"assistant","content":[{"type":"text","text":"Answer"}]}
-]}
+  ]
+}
 ```
 
-Every SFT example must end with an `assistant` message.
+Every SFT example must include the four metadata fields and end with an `assistant` message.
 
 ## Local development
 
@@ -93,7 +99,7 @@ python -m training.train_qlora --config configs/qlora_sft.yaml
 
 The first config is intentionally conservative:
 
-- 4-bit QLoRA
+- BF16 LoRA
 - LoRA rank 16 / alpha 32
 - 4096 max length
 - batch size 1
