@@ -1,0 +1,36 @@
+model:
+  name: OBLITERATUS/Qwen3.8-27B-OBLITERATED
+  load_in_4bit: true
+  gradient_checkpointing: unsloth
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  use_rslora: false
+  finetune_vision_layers: false
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+
+training:
+  dataset: data/sft/amitai_sft_v0.jsonl
+  output_dir: outputs/amitai-obliteratus-v0
+  max_length: 4096
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0002
+  num_train_epochs: 1
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  lr_scheduler_type: linear
+  logging_steps: 1
+  save_steps: 50
+  seed: 3407
+  optim: adamw_8bit
+  report_to: none
+
+save:
+  adapter_dir: outputs/amitai-obliteratus-v0/adapter
+  save_merged_16bit: false
