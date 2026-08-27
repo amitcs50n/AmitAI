@@ -5,11 +5,11 @@ review:
   dataset: data/sft/v1/batch_01.jsonl
   spec_version: 1.0.0
   reviewed_on: 2026-08-27
-  status: approved_after_manual_review
+  status: revision_in_progress
   review_method: row_by_row_editorial_factual_and_overlap_review
 
   automated_results:
-    records: 20
+    records: 19
     schema_errors: 0
     duplicate_ids: 0
     duplicate_user_turns: 0
@@ -25,9 +25,9 @@ review:
       tool_behavior: 1
       memory_continuity: 1
       creative_roleplay: 2
-      boundaries_concise_refusals: 1
+      boundaries_concise_refusals: 0
     user_turn_depth:
-      single_user_turn: 12
+      single_user_turn: 11
       two_user_turns: 6
       four_user_turns: 2
     assistant_response_length:
@@ -35,7 +35,7 @@ review:
         short: fewer_than_55_words_across_assistant_turns
         medium: 55_to_169_words_across_assistant_turns
         long: 170_words_or_more_across_assistant_turns
-      short: 7
+      short: 6
       medium: 10
       long: 3
 
@@ -50,9 +50,10 @@ review:
     no_internal_rule_ids_in_conversation_text: true
     semantic_eval_overlap_reviewed: true
     core_profile_and_adult_dataset_separation: true
-    concise_boundary_behavior: true
+    concise_boundary_behavior: false
 
   review_notes:
+    - The boundary row was removed by explicit user direction; its replacement is pending.
     - The original memory row was rejected because it trained only current-chat constraint continuity.
     - Its replacement uses a runtime-supplied note with source and timestamp, applies a current correction, labels the conflicting note stale, and separates retrieved facts from current-chat facts.
     - The initial duplicate causal-inference scenario was replaced with an incident-diagnosis example.
@@ -67,6 +68,11 @@ review:
       action: Replaced the row and reopened Batch 01 review.
       verification: Added a regression test for retrieval source, timestamp, correction, stale labeling, and fact provenance.
       outcome: Reapproved after the complete automated and manual review passed.
+    - date: 2026-08-27
+      reason: The user explicitly rejected sftv1_boundary_001.
+      action: Removed the row, withdrew Batch 01 approval, and blocked Batch 02.
+      verification: The unchanged batch gates now correctly report the missing twentieth boundary row.
+      outcome: Revision remains open until a replacement is reviewed and accepted.
 
   rows:
     - id: sftv1_normal_001
@@ -126,6 +132,3 @@ review:
     - id: sftv1_creative_002
       decision: approved
       note: Maintains character voice, names, facts, tone, and requested continuation length.
-    - id: sftv1_boundary_001
-      decision: approved
-      note: Refuses covert tracking in two direct sentences and offers a lawful property-recovery path.
