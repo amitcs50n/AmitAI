@@ -24,7 +24,8 @@ The existence of a training scaffold is not evidence that training is necessary.
 Qwen3.8-27B uses the Qwen3.5 multimodal architecture (`Qwen3_5ForConditionalGeneration`).
 Even for text-only SFT, using Unsloth's multimodal training path avoids architecture-specific
 collator/template problems. The LoRA config freezes vision layers and trains language,
-attention and MLP modules only.
+attention and MLP modules only. Baseline inference is separate: it unwraps the text backbone
+through `AutoModelForCausalLM`. This does not change the `FastVisionModel` training path.
 
 ## Repository structure
 
@@ -149,9 +150,14 @@ per-rule results. A complete review produces one of three decisions:
 
 The default run disables Qwen thinking mode and uses greedy decoding with repetition penalty
 1.15 so base-versus-adapter comparisons are stable. The model revision is pinned in the eval
-config. The text-only harness uses the checkpoint's tokenizer chat template and requires
-Transformers 5.2 or newer for Qwen3.5 support. Change generation settings or the checkpoint
-only by creating a new named baseline run.
+config. The text-only harness uses `AutoTokenizer` with `AutoModelForCausalLM` and requires
+Transformers 5.2 or newer for Qwen3.5 support.
+
+`configs/baseline_eval.yaml` has a dedicated `runtime_system_prompt`. It is intentionally more
+complete than the short `canonical_system_message` used in SFT records: the baseline should
+measure the strongest prompt-only AmitAI behavior before LoRA is considered. Do not copy the
+runtime prompt into every training example. Change that prompt, generation settings, or the
+checkpoint only by creating a new named baseline run.
 
 ## Fine-tuning, only if the baseline misses the gate
 

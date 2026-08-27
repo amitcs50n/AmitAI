@@ -1,6 +1,8 @@
 import json
+import sys
 import tomllib
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import yaml
@@ -14,15 +16,16 @@ from evaluation.baseline import (
     validate_reviews_against_cases,
     validate_reviews_against_responses,
 )
+from evaluation.hf_backend import TransformersGenerator
 from evaluation.run_baseline import load_config, run
 from evaluation.summarize import summarize_run
-from evaluation.hf_backend import TransformersGenerator
 
 
 EVAL_PATH = Path("eval/behavior_v1.jsonl")
 BASELINE_CONFIG_PATH = Path("configs/baseline_eval.yaml")
 TRAINING_CONFIG_PATH = Path("configs/qlora_sft.yaml")
 SPEC_PATH = Path("configs/amitai_spec_v1.yaml")
+SFT_PLAN_PATH = Path("configs/sft_v1_dataset_plan.yaml")
 
 
 def _case(case_id: str, category: str = "technical_coding") -> dict:
@@ -56,6 +59,7 @@ def test_baseline_config_uses_the_same_untouched_bf16_base_model() -> None:
     baseline = load_config(BASELINE_CONFIG_PATH)
     training = yaml.safe_load(TRAINING_CONFIG_PATH.read_text(encoding="utf-8"))
     spec = yaml.safe_load(SPEC_PATH.read_text(encoding="utf-8"))
+    sft_plan = yaml.safe_load(SFT_PLAN_PATH.read_text(encoding="utf-8"))
 
     assert baseline["model"]["name"] == training["model"]["name"]
     assert baseline["model"]["revision"] == training["model"]["revision"]
@@ -71,6 +75,10 @@ def test_baseline_config_uses_the_same_untouched_bf16_base_model() -> None:
     )
     assert baseline["decision_gate"]["maximum_critical_failures"] == 0
     assert len(load_eval_cases(EVAL_PATH)) == 20
+    canonical_sft_message = sft_plan["record_schema"]["canonical_system_message"]
+    assert "system_prompt" not in baseline
+    assert baseline["runtime_system_prompt"] != canonical_sft_message
+    assert len(baseline["runtime_system_prompt"]) > len(canonical_sft_message)
 
 
 def test_project_install_discovers_only_python_packages() -> None:
@@ -112,6 +120,80 @@ def test_generate_case_builds_checkpoint_template_strings_and_review_template() 
     review["prompt"] = "changed"
     with pytest.raises(ValueError, match="differs from the eval case"):
         validate_reviews_against_cases([review], [case])
+
+
+def test_hf_backend_loads_the_text_only_causal_lm(monkeypatch) -> None:
+    fake_torch = ModuleType("torch")
+    fake_torch.bfloat16 = "bfloat16"
+    fake_torch.float16 = "float16"
+    fake_torch.float32 = "float32"
+    fake_torch.__version__ = "test-torch"
+    fake_torch.manual_seed = lambda _seed: None
+    fake_torch.cuda = SimpleNamespace(
+        is_available=lambda: False,
+        manual_seed_all=lambda _seed: None,
+    )
+
+    fake_tokenizer = object()
+    fake_model = SimpleNamespace(
+        config=SimpleNamespace(_commit_hash="resolved-revision"),
+        eval=lambda: None,
+    )
+    tokenizer_calls = []
+    model_calls = []
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, model_name, **kwargs):
+            tokenizer_calls.append((model_name, kwargs))
+            return fake_tokenizer
+
+    class FakeAutoModelForCausalLM:
+        @classmethod
+        def from_pretrained(cls, model_name, **kwargs):
+            model_calls.append((model_name, kwargs))
+            return fake_model
+
+    fake_transformers = ModuleType("transformers")
+    fake_transformers.__version__ = "test-transformers"
+    fake_transformers.AutoTokenizer = FakeAutoTokenizer
+    fake_transformers.AutoModelForCausalLM = FakeAutoModelForCausalLM
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    backend = TransformersGenerator(
+        {
+            "name": "fake/qwen3.5",
+            "revision": "pinned-revision",
+            "dtype": "bfloat16",
+            "load_in_4bit": False,
+            "device_map": "auto",
+            "trust_remote_code": False,
+        },
+        seed=3407,
+    )
+
+    assert backend.tokenizer is fake_tokenizer
+    assert backend.model is fake_model
+    assert tokenizer_calls == [
+        (
+            "fake/qwen3.5",
+            {"revision": "pinned-revision", "trust_remote_code": False},
+        )
+    ]
+    assert model_calls == [
+        (
+            "fake/qwen3.5",
+            {
+                "revision": "pinned-revision",
+                "trust_remote_code": False,
+                "device_map": "auto",
+                "dtype": "bfloat16",
+                "low_cpu_mem_usage": True,
+            },
+        )
+    ]
+    assert backend.resolved_revision == "resolved-revision"
 
 
 def test_hf_backend_uses_the_text_only_tokenizer_template_path() -> None:
@@ -227,7 +309,7 @@ def test_run_writes_resumable_artifacts_without_repeating_completed_cases(
                 "baseline_eval": {
                     "eval_file": str(eval_path),
                     "output_dir": str(output_dir),
-                    "system_prompt": "System instruction",
+                    "runtime_system_prompt": "System instruction",
                     "model": {
                         "name": "fake/model",
                         "dtype": "bfloat16",
@@ -258,8 +340,21 @@ def test_run_writes_resumable_artifacts_without_repeating_completed_cases(
     assert manifest["resolved_model_revision"] == "fake-revision"
     assert manifest["dependency_versions"] == {"fake-backend": "1.0"}
     assert manifest["case_ids"] == ["eval_test_001", "eval_test_002"]
+    assert manifest["runtime_system_prompt"] == "System instruction"
+    assert "system_prompt" not in manifest
     assert manifest["responses_sha256"]
     assert manifest["code_sha256"]
+
+    original_config = config_path.read_text(encoding="utf-8")
+    changed_runtime_prompt = original_config.replace(
+        "runtime_system_prompt: System instruction",
+        "runtime_system_prompt: Different runtime instruction",
+    )
+    assert changed_runtime_prompt != original_config
+    config_path.write_text(changed_runtime_prompt, encoding="utf-8")
+    with pytest.raises(ValueError, match="config or evaluation set changed"):
+        run(config_path, resume=True)
+    config_path.write_text(original_config, encoding="utf-8")
 
     scored_reviews = load_jsonl(output_dir / "reviews.jsonl")
     for review in scored_reviews:
@@ -275,7 +370,6 @@ def test_run_writes_resumable_artifacts_without_repeating_completed_cases(
     assert summary_path == output_dir / "summary.json"
     assert summary["decision"] == "baseline_meets_gate"
 
-    original_config = config_path.read_text(encoding="utf-8")
     config_path.write_text(
         original_config.replace(
             "minimum_rule_compliance_rate: 0.9",

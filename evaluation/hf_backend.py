@@ -4,12 +4,12 @@ from typing import Any
 
 
 class TransformersGenerator:
-    """Lazy Hugging Face backend for the full Qwen3.5 multimodal checkpoint."""
+    """Lazy Hugging Face backend for text-only Qwen3.5 baseline inference."""
 
     def __init__(self, model_config: dict[str, Any], seed: int) -> None:
         try:
             import torch
-            from transformers import AutoModelForImageTextToText, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
                 "Baseline inference dependencies are missing. Install with "
@@ -47,7 +47,7 @@ class TransformersGenerator:
 
         model_name = str(model_config["name"])
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, **common_kwargs)
-        self.model = AutoModelForImageTextToText.from_pretrained(model_name, **model_kwargs)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
         self.model.eval()
         self.torch = torch
         self.resolved_revision = getattr(self.model.config, "_commit_hash", None)

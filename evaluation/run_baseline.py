@@ -71,6 +71,9 @@ def run(
         raise ValueError("--limit must be positive")
 
     config = load_config(config_path)
+    runtime_system_prompt = config.get("runtime_system_prompt")
+    if not isinstance(runtime_system_prompt, str) or not runtime_system_prompt.strip():
+        raise ValueError("Config must contain a non-empty runtime_system_prompt")
     eval_path = Path(config["eval_file"])
     output_dir = Path(config["output_dir"])
     responses_path = output_dir / "responses.jsonl"
@@ -86,7 +89,7 @@ def run(
         "model": config["model"],
         "eval_sha256": sha256_file(eval_path),
         "case_ids": [case["id"] for case in cases],
-        "system_prompt": config.get("system_prompt"),
+        "runtime_system_prompt": runtime_system_prompt,
         "generation": config["generation"],
         "decision_gate": config["decision_gate"],
     }
@@ -177,7 +180,7 @@ def run(
         "eval_file": str(eval_path),
         "eval_sha256": fingerprint_payload["eval_sha256"],
         "case_ids": fingerprint_payload["case_ids"],
-        "system_prompt": config.get("system_prompt"),
+        "runtime_system_prompt": runtime_system_prompt,
         "generation": config["generation"],
         "selected_case_count": len(cases),
         "completed_case_count": len(completed_ids),
@@ -216,7 +219,7 @@ def run(
             response, review = generate_case(
                 case,
                 generator,
-                system_prompt=config.get("system_prompt"),
+                system_prompt=runtime_system_prompt,
                 generation_config=config["generation"],
             )
             append_jsonl(responses_path, response)
