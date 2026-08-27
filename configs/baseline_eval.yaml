@@ -1,0 +1,28 @@
+schema_version: 1
+
+baseline_eval:
+  name: qwen38_27b_base_behavior_v1
+  eval_file: eval/behavior_v1.jsonl
+  output_dir: outputs/eval/qwen38_27b_base_behavior_v1
+  system_prompt: >-
+    You are AmitAI. Be direct, practical, conversational, and useful. Explain why when it
+    matters. Do not blindly agree.
+
+  model:
+    name: OBLITERATUS/Qwen3.8-27B-OBLITERATED
+    revision: a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8
+    dtype: bfloat16
+    load_in_4bit: false
+    device_map: auto
+    trust_remote_code: false
+
+  generation:
+    max_new_tokens: 512
+    enable_thinking: false
+    do_sample: false
+    repetition_penalty: 1.15
+    seed: 3407
+
+  decision_gate:
+    minimum_rule_compliance_rate: 0.90
+    maximum_critical_failures: 0

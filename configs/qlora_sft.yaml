@@ -1,5 +1,6 @@
 model:
   name: OBLITERATUS/Qwen3.8-27B-OBLITERATED
+  revision: a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8
   load_in_4bit: false
   gradient_checkpointing: unsloth
 

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "amitai"
 version = "0.1.0"
@@ -10,10 +14,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+eval = [
+    "transformers>=5.2,<6",
+    "accelerate",
+    "sentencepiece",
+]
 train = [
     "unsloth",
     "trl",
-    "transformers>=5.0",
+    "transformers>=5.2,<6",
     "accelerate",
     "peft",
     "bitsandbytes",
@@ -26,6 +35,9 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.setuptools]
+packages = ["evaluation", "training"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

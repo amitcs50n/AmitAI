@@ -30,6 +30,7 @@ def train(config_path: str) -> None:
 
     model, tokenizer = FastVisionModel.from_pretrained(
         model_name=model_cfg["name"],
+        revision=model_cfg.get("revision"),
         load_in_4bit=bool(model_cfg.get("load_in_4bit", False)),
         max_seq_length=max_length,
         full_finetuning=False,

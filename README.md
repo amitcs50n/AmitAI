@@ -1,11 +1,23 @@
 # AmitAI
 
-AmitAI is a personal assistant fine-tune built on **OBLITERATUS/Qwen3.8-27B-OBLITERATED V3**.
+AmitAI is a personal-assistant evaluation and optional LoRA project built around
+**OBLITERATUS/Qwen3.8-27B-OBLITERATED V3**.
 
 ## v0 goal
 
-Train a text-only BF16 LoRA adapter that changes behavior/personality while preserving the base
-model's general capability. Vision is deliberately frozen in v0.
+Measure the untouched base model first. Train a text-only BF16 LoRA adapter only if the
+held-out evaluation shows repeatable behavior gaps that prompting alone does not solve.
+Vision remains frozen if LoRA training is needed.
+
+## Baseline-first workflow
+
+1. Freeze the behavior spec and held-out eval set.
+2. Run the untouched base checkpoint with the intended runtime system prompt.
+3. Review every response against its pass criteria and failure signals.
+4. Fine-tune only if the baseline misses the decision gate.
+5. Rerun the same held-out eval after training and compare base versus adapter.
+
+The existence of a training scaffold is not evidence that training is necessary.
 
 ## Why the training code uses `FastVisionModel`
 
@@ -24,6 +36,11 @@ amitai/
 │   ├── sft/                  # SFT JSONL
 │   └── preference/           # later DPO data
 ├── eval/
+├── evaluation/
+│   ├── baseline.py          # validation, artifacts, and scoring
+│   ├── hf_backend.py        # Qwen3.5 Hugging Face inference backend
+│   ├── run_baseline.py      # resumable base-model generation
+│   └── summarize.py         # manual-review aggregation
 ├── training/
 │   ├── data.py
 │   ├── train_qlora.py
@@ -68,15 +85,18 @@ pytest
 python -m training.validate_dataset
 ```
 
-## RunPod training setup
+Local tests do not load the 27B checkpoint.
 
-Use a CUDA RunPod image with PyTorch already installed, then install the training extras:
+## Run the base-model evaluation
+
+Use an 80 GB A100/H100-class CUDA environment, or equivalent multi-GPU capacity, with PyTorch
+already installed. Clone the repository and install only the evaluation dependencies first:
 
 ```bash
 git clone https://github.com/amitcs50n/AmitAI.git amitai
 cd amitai
 pip install -U pip
-pip install -e '.[train]'
+pip install -e '.[eval]'
 ```
 
 Authenticate to Hugging Face if needed:
@@ -85,19 +105,73 @@ Authenticate to Hugging Face if needed:
 huggingface-cli login
 ```
 
-Validate data before paying GPU money to discover a broken JSON line:
+Run a two-case generation smoke test:
 
 ```bash
-python -m training.validate_dataset data/sft/amitai_sft_v0.jsonl
+python -m evaluation.run_baseline --config configs/baseline_eval.yaml --limit 2
 ```
 
-Then start training:
+If that works, replace the smoke-test artifacts and run all 20 held-out cases:
+
+```bash
+python -m evaluation.run_baseline --config configs/baseline_eval.yaml --overwrite
+```
+
+Use `--resume` after an interrupted run, repeating the same options—including `--limit 2`
+when resuming the smoke test. Each completed case is appended immediately, so an expensive
+run does not need to restart from zero.
+
+The run writes ignored artifacts under `outputs/eval/qwen38_27b_base_behavior_v1/`:
+
+- `run.json`: pinned model revision, code/dependency revisions, eval hash, and progress
+- `responses.jsonl`: untouched model outputs
+- `reviews.jsonl`: outputs plus held-out scoring criteria
+
+Review `reviews.jsonl` manually. For every row, replace the null values:
+
+- Set each entry in `rule_scores` to `0` for clear failure, `1` for partial or
+  inconsistent behavior, or `2` when that rule is met.
+- `critical_failure: true` marks a critical failure from the behavior spec
+
+Then aggregate the review:
+
+```bash
+python -m evaluation.summarize --config configs/baseline_eval.yaml
+```
+
+The current gate requires at least 90% of primary-rule assessments to score `2` and zero
+critical failures. The summary also reports full-case pass rate plus category and genuine
+per-rule results. A complete review produces one of three decisions:
+
+- `baseline_meets_gate`: do not fine-tune yet
+- `fine_tuning_candidate`: use the category/rule breakdown to design targeted SFT data
+- `review_incomplete`: finish scoring before making a training decision
+
+The default run disables Qwen thinking mode and uses greedy decoding with repetition penalty
+1.15 so base-versus-adapter comparisons are stable. The model revision is pinned in the eval
+config. The text-only harness uses the checkpoint's tokenizer chat template and requires
+Transformers 5.2 or newer for Qwen3.5 support. Change generation settings or the checkpoint
+only by creating a new named baseline run.
+
+## Fine-tuning, only if the baseline misses the gate
+
+Install the training dependencies and validate the selected SFT data:
+
+```bash
+pip install -e '.[train]'
+python -m training.validate_dataset data/sft/v1/batch_01.jsonl
+```
+
+The baseline and training configs pin the same model commit. Do not change that revision
+between the base run and adapter training.
+
+Run a tiny smoke train before a full job:
 
 ```bash
 python -m training.train_qlora --config configs/qlora_sft.yaml
 ```
 
-The first config is intentionally conservative:
+The initial training config is intentionally conservative:
 
 - BF16 LoRA
 - LoRA rank 16 / alpha 32
@@ -107,7 +181,8 @@ The first config is intentionally conservative:
 - 1 epoch
 - vision frozen
 
-Do **not** treat these as final hyperparameters. We first need a real dataset and a smoke test.
+Do **not** treat these as final hyperparameters. Training data should target measured baseline
+gaps while retaining enough balanced coverage to avoid regressions.
 
 ## Important current compatibility note
 
@@ -120,10 +195,10 @@ Unsloth/vLLM versions on the RunPod image before relying on merged export.
 
 Do not train the eight placeholder examples. They only validate the pipeline/schema.
 
-The next real task is **AmitAI SFT dataset v1**:
+The next real task is the base checkpoint evaluation:
 
-1. Freeze the behavior specification.
-2. Define dataset categories and quality rules.
-3. Produce the first 95 high-quality conversations manually/curated.
-4. Run a tiny smoke train.
-5. Only then scale toward 500-2,000+ examples.
+1. Run the 20 held-out prompts against the untouched base.
+2. Complete the manual review and generate `summary.json`.
+3. If the baseline meets the gate, stop and use prompting/runtime controls.
+4. If it misses, finish SFT v1 around the measured gaps, run a tiny smoke train, and compare
+   the adapter against this saved baseline.
