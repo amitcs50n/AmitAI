@@ -293,7 +293,8 @@ batch_plan:
   batches:
     - id: batch_01
       file: data/sft/v1/batch_01.jsonl
-      status: pending_creation
+      status: approved_after_manual_review
+      review: data/sft/v1/batch_01_review.yaml
       category_counts: &batch_a
         normal_conversation: 3
         technical_coding: 4
@@ -307,7 +308,7 @@ batch_plan:
         boundaries_concise_refusals: 1
     - id: batch_02
       file: data/sft/v1/batch_02.jsonl
-      status: pending_batch_01_approval
+      status: ready_for_creation
       category_counts: *batch_a
     - id: batch_03
       file: data/sft/v1/batch_03.jsonl

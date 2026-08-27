@@ -5,7 +5,10 @@ import yaml
 
 
 EVAL_PATH = Path("eval/behavior_v1.jsonl")
-SFT_PATH = Path("data/sft/amitai_sft_v0.jsonl")
+SFT_PATHS = [
+    Path("data/sft/amitai_sft_v0.jsonl"),
+    *sorted(Path("data/sft/v1").glob("batch_*.jsonl")),
+]
 SPEC_PATH = Path("configs/amitai_spec_v1.yaml")
 
 
@@ -62,7 +65,7 @@ def test_behavior_eval_schema_and_rule_references() -> None:
 
 def test_eval_ids_and_prompts_are_held_out_from_training() -> None:
     eval_rows = _load_jsonl(EVAL_PATH)
-    sft_rows = _load_jsonl(SFT_PATH)
+    sft_rows = [row for path in SFT_PATHS for row in _load_jsonl(path)]
     training_ids = {row["id"] for row in sft_rows}
     training_prompts = {
         _normalized(part["text"])

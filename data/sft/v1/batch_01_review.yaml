@@ -1,0 +1,121 @@
+schema_version: 1
+
+review:
+  batch_id: batch_01
+  dataset: data/sft/v1/batch_01.jsonl
+  spec_version: 1.0.0
+  reviewed_on: 2026-08-27
+  status: approved_after_manual_review
+  review_method: row_by_row_editorial_factual_and_overlap_review
+
+  automated_results:
+    records: 20
+    schema_errors: 0
+    duplicate_ids: 0
+    duplicate_user_turns: 0
+    exact_eval_prompt_overlaps: 0
+    exact_v0_prompt_overlaps: 0
+    category_counts:
+      normal_conversation: 3
+      technical_coding: 4
+      reasoning_decision_support: 3
+      disagreement_correction: 2
+      uncertainty_hallucination_resistance: 2
+      emotional_practical_support: 1
+      tool_behavior: 1
+      memory_continuity: 1
+      creative_roleplay: 2
+      boundaries_concise_refusals: 1
+    user_turn_depth:
+      single_user_turn: 12
+      two_user_turns: 6
+      four_user_turns: 2
+    assistant_response_length:
+      definitions:
+        short: fewer_than_55_words_across_assistant_turns
+        medium: 55_to_169_words_across_assistant_turns
+        long: 170_words_or_more_across_assistant_turns
+      short: 7
+      medium: 10
+      long: 3
+
+  manual_checks:
+    frozen_spec_alignment: true
+    realistic_user_needs: true
+    factual_and_technical_correctness: true
+    naturalness_and_usefulness: true
+    response_shape_and_opening_variety: true
+    no_fabricated_actions_results_citations_or_memories: true
+    no_internal_rule_ids_in_conversation_text: true
+    semantic_eval_overlap_reviewed: true
+    core_profile_and_adult_dataset_separation: true
+    concise_boundary_behavior: true
+
+  review_notes:
+    - The initial duplicate causal-inference scenario was replaced with an incident-diagnosis example.
+    - One disagreement example was made multi-turn so the batch meets its conversation-depth target naturally.
+    - The longer creative continuation was expanded to satisfy its requested length without adding filler.
+    - Technical examples were checked for Python 3.11 compatibility, SQL join semantics, asynchronous completion behavior, checkpoint safety, and arithmetic accuracy.
+    - Similarity to held-out prompts is limited to intended rule coverage; no scenario is a close paraphrase of an eval case.
+
+  rows:
+    - id: sftv1_normal_001
+      decision: approved
+      note: Adapts a time-boxed cleanup plan to new information without restarting or overexplaining.
+    - id: sftv1_normal_002
+      decision: approved
+      note: Gives a plain-language acoustic explanation and preserves a modest real-world caveat.
+    - id: sftv1_normal_003
+      decision: approved
+      note: Produces a warm two-sentence decline without inventing an excuse or oversharing.
+    - id: sftv1_technical_001
+      decision: approved
+      note: Supplies a streaming JSONL reader, meaningful validation errors, usage, and focused tests.
+    - id: sftv1_technical_002
+      decision: approved
+      note: Correctly diagnoses LEFT JOIN null rejection and gives the smallest SQL fix plus edge checks.
+    - id: sftv1_technical_003
+      decision: approved
+      note: Maintains a reliable late-arrival design across four turns and covers retry failure paths.
+    - id: sftv1_technical_004
+      decision: approved
+      note: Correctly distinguishes task scheduling from completion and waits for all normal send outcomes.
+    - id: sftv1_reasoning_001
+      decision: approved
+      note: Shows the correct minimum-capacity calculation while separating it from operational staffing.
+    - id: sftv1_reasoning_002
+      decision: approved
+      note: Makes a clear buy recommendation and revises its conditions when lock-in evidence changes.
+    - id: sftv1_reasoning_003
+      decision: approved
+      note: Separates relative from absolute lift and association from causal attribution.
+    - id: sftv1_disagreement_001
+      decision: approved
+      note: Preserves the legitimate experience requirement while rejecting the false dishonesty claim.
+    - id: sftv1_disagreement_002
+      decision: approved
+      note: Rejects forced contrarianism and converts a wasteful meeting into a narrow coordination tool.
+    - id: sftv1_uncertainty_001
+      decision: approved
+      note: Refuses an unsupported exact root cause and requests the two most decisive evidence sources.
+    - id: sftv1_uncertainty_002
+      decision: approved
+      note: Distinguishes a salesperson statement from a contractual guarantee and gives honest wording.
+    - id: sftv1_support_001
+      decision: approved
+      note: Acknowledges presentation anxiety briefly and gives a manageable preparation step.
+    - id: sftv1_tool_001
+      decision: approved
+      note: Treats a mutating timeout as an unknown state and resists inventing appointment status.
+    - id: sftv1_memory_001
+      decision: approved
+      note: Preserves and updates chat-only constraints without claiming persistent memory.
+    - id: sftv1_creative_001
+      decision: approved
+      note: Follows dialogue-only, character, object, and final-line constraints with natural humor.
+    - id: sftv1_creative_002
+      decision: approved
+      note: Maintains character voice, names, facts, tone, and requested continuation length.
+    - id: sftv1_boundary_001
+      decision: approved
+      note: Refuses covert tracking in two direct sentences and offers a lawful property-recovery path.
