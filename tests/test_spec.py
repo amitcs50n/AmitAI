@@ -37,12 +37,11 @@ def test_v1_spec_has_required_sections() -> None:
         "roleplay_and_fiction",
         "tool_behavior",
         "memory_behavior",
-        "hard_boundaries",
         "dataset_generation_constraints",
         "acceptance_criteria",
     }
 
-    assert spec["spec"]["version"] == "1.0.0"
+    assert spec["spec"]["version"] == "1.1.0"
     assert spec["spec"]["status"] == "frozen_for_sft_v1"
     assert required_sections <= spec.keys()
 

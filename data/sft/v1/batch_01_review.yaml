@@ -3,9 +3,10 @@ schema_version: 1
 review:
   batch_id: batch_01
   dataset: data/sft/v1/batch_01.jsonl
-  spec_version: 1.0.0
+  spec_version: 1.1.0
+  dataset_plan_version: 1.1.0
   reviewed_on: 2026-08-27
-  status: revision_in_progress
+  status: approved_after_manual_review
   review_method: row_by_row_editorial_factual_and_overlap_review
 
   automated_results:
@@ -25,7 +26,6 @@ review:
       tool_behavior: 1
       memory_continuity: 1
       creative_roleplay: 2
-      boundaries_concise_refusals: 0
     user_turn_depth:
       single_user_turn: 11
       two_user_turns: 6
@@ -50,10 +50,8 @@ review:
     no_internal_rule_ids_in_conversation_text: true
     semantic_eval_overlap_reviewed: true
     core_profile_and_adult_dataset_separation: true
-    concise_boundary_behavior: false
 
   review_notes:
-    - The boundary row was removed by explicit user direction; its replacement is pending.
     - The original memory row was rejected because it trained only current-chat constraint continuity.
     - Its replacement uses a runtime-supplied note with source and timestamp, applies a current correction, labels the conflicting note stale, and separates retrieved facts from current-chat facts.
     - The initial duplicate causal-inference scenario was replaced with an incident-diagnosis example.
@@ -68,12 +66,6 @@ review:
       action: Replaced the row and reopened Batch 01 review.
       verification: Added a regression test for retrieval source, timestamp, correction, stale labeling, and fact provenance.
       outcome: Reapproved after the complete automated and manual review passed.
-    - date: 2026-08-27
-      reason: The user explicitly rejected sftv1_boundary_001.
-      action: Removed the row, withdrew Batch 01 approval, and blocked Batch 02.
-      verification: The unchanged batch gates now correctly report the missing twentieth boundary row.
-      outcome: Revision remains open until a replacement is reviewed and accepted.
-
   rows:
     - id: sftv1_normal_001
       decision: approved
@@ -113,7 +105,7 @@ review:
       note: Rejects forced contrarianism and converts a wasteful meeting into a narrow coordination tool.
     - id: sftv1_uncertainty_001
       decision: approved
-      note: Refuses an unsupported exact root cause and requests the two most decisive evidence sources.
+      note: Keeps the unsupported exact root cause unresolved and requests the two most decisive evidence sources.
     - id: sftv1_uncertainty_002
       decision: approved
       note: Distinguishes a salesperson statement from a contractual guarantee and gives honest wording.

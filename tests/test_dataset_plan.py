@@ -40,28 +40,27 @@ def test_sft_v1_category_and_scenario_totals() -> None:
         "tool_behavior": 8,
         "memory_continuity": 5,
         "creative_roleplay": 10,
-        "boundaries_concise_refusals": 5,
     }
 
     assert plan["status"] == "frozen_for_batch_creation"
-    assert plan["spec_version"] == "1.0.0"
+    assert plan["spec_version"] == "1.1.0"
     assert {name: value["examples"] for name, value in categories.items()} == expected_counts
-    assert sum(expected_counts.values()) == plan["total_examples"] == 100
+    assert sum(expected_counts.values()) == plan["total_examples"] == 95
     for category in categories.values():
         assert sum(category["scenario_mix"].values()) == category["examples"]
 
     diversity = document["diversity_targets"]
-    assert sum(diversity["turn_depth"].values()) == 100
-    assert sum(diversity["assistant_response_length"].values()) == 100
+    assert sum(diversity["turn_depth"].values()) == 95
+    assert sum(diversity["assistant_response_length"].values()) == 95
     per_batch = diversity["per_batch_targets"]
-    assert sum(value for key, value in per_batch.items() if "user_turn" in key) == 20
-    assert sum(value for key, value in per_batch.items() if "responses" in key) == 20
+    assert sum(value for key, value in per_batch.items() if "user_turn" in key) == 19
+    assert sum(value for key, value in per_batch.items() if "responses" in key) == 19
 
     eval_map = document["evaluation_reporting"]["existing_eval_category_map"]
     assert set(eval_map.values()) <= set(categories)
 
 
-def test_sft_v1_batches_are_twenty_rows_and_match_category_mix() -> None:
+def test_sft_v1_batches_are_nineteen_rows_and_match_category_mix() -> None:
     document = _load_yaml(PLAN_PATH)
     plan = document["plan"]
     categories = document["category_mix"]
@@ -71,7 +70,7 @@ def test_sft_v1_batches_are_twenty_rows_and_match_category_mix() -> None:
     assert len(batches) == plan["batch_count"] == 5
     for batch in batches:
         assert set(batch["category_counts"]) == set(categories)
-        assert sum(batch["category_counts"].values()) == plan["batch_size"] == 20
+        assert sum(batch["category_counts"].values()) == plan["batch_size"] == 19
         aggregate.update(batch["category_counts"])
 
     assert aggregate == Counter(

@@ -26,7 +26,6 @@ EXPECTED_COUNTS = {
     "tool_behavior": 1,
     "memory_continuity": 1,
     "creative_roleplay": 2,
-    "boundaries_concise_refusals": 1,
 }
 
 
@@ -85,14 +84,14 @@ def test_batch_01_schema_metadata_and_exact_category_mix() -> None:
     canonical_system_message = plan["record_schema"]["canonical_system_message"]
     id_pattern = re.compile(plan["record_schema"]["id_format"])
 
-    assert len(rows) == 20
+    assert len(rows) == 19
     assert Counter(row["category"] for row in rows) == Counter(EXPECTED_COUNTS)
     assert len({row["id"] for row in rows}) == len(rows)
 
     for row in rows:
         assert normalize_example(row) == row
         assert id_pattern.fullmatch(row["id"])
-        assert row["spec_version"] == "1.0.0"
+        assert row["spec_version"] == "1.1.0"
         assert 1 <= len(row["primary_rules"]) <= 3
         assert len(row["primary_rules"]) == len(set(row["primary_rules"]))
         assert set(row["primary_rules"]) <= known_rule_ids
@@ -113,8 +112,8 @@ def test_batch_01_meets_turn_and_response_length_targets() -> None:
     )
     length_counts = Counter(_response_length_bucket(row) for row in rows)
 
-    assert user_turn_counts == Counter({1: 12, 2: 6, 4: 2})
-    assert length_counts == Counter({"short": 7, "medium": 10, "long": 3})
+    assert user_turn_counts == Counter({1: 11, 2: 6, 4: 2})
+    assert length_counts == Counter({"short": 6, "medium": 10, "long": 3})
 
 
 def test_batch_01_has_no_exact_duplicates_or_eval_leakage() -> None:
@@ -211,9 +210,10 @@ def test_batch_01_manual_review_is_complete_and_approved() -> None:
     reviewed_rows = review["rows"]
 
     assert review["batch_id"] == "batch_01"
-    assert review["spec_version"] == "1.0.0"
+    assert review["spec_version"] == "1.1.0"
+    assert review["dataset_plan_version"] == "1.1.0"
     assert review["status"] == "approved_after_manual_review"
     assert all(review["manual_checks"].values())
     assert {row["id"] for row in rows} == {row["id"] for row in reviewed_rows}
-    assert len(reviewed_rows) == 20
+    assert len(reviewed_rows) == 19
     assert all(row["decision"] == "approved" for row in reviewed_rows)

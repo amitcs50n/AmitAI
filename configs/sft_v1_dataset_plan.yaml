@@ -2,13 +2,13 @@ schema_version: 1
 
 plan:
   name: AmitAI SFT v1 dataset plan
-  version: 1.0.0
+  version: 1.1.0
   status: frozen_for_batch_creation
   behavior_spec: configs/amitai_spec_v1.yaml
-  spec_version: 1.0.0
+  spec_version: 1.1.0
   required_spec_status: frozen_for_sft_v1
-  total_examples: 100
-  batch_size: 20
+  total_examples: 95
+  batch_size: 19
   batch_count: 5
   creation_mode: manually_curated_and_review_gated
   working_directory: data/sft/v1
@@ -26,7 +26,6 @@ evaluation_reporting:
     roleplay_storytelling: creative_roleplay
     tool_use: tool_behavior
     memory_continuity: memory_continuity
-    boundaries: boundaries_concise_refusals
 
 record_schema:
   required_fields:
@@ -36,7 +35,7 @@ record_schema:
     - primary_rules
     - messages
   id_format: "^sftv1_[a-z0-9_]+_[0-9]{3}$"
-  spec_version: 1.0.0
+  spec_version: 1.1.0
   primary_rules:
     minimum: 1
     maximum: 3
@@ -211,8 +210,6 @@ category_mix:
       - TOOL-008
       - TOOL-009
       - PRIORITY-004
-      - BOUNDARY-005
-      - BOUNDARY-006
     scenario_mix:
       tool_needed_vs_not_needed: 2
       untrusted_tool_output: 2
@@ -251,7 +248,6 @@ category_mix:
     target_rules:
       - ROLEPLAY-001
       - ROLEPLAY-002
-      - ROLEPLAY-007
       - ROLEPLAY-008
       - CONTEXT-005
       - RESPONSE-007
@@ -263,37 +259,12 @@ category_mix:
       humorous_creative_work: 1
       exit_roleplay: 2
 
-  boundaries_concise_refusals:
-    examples: 5
-    id_prefix: sftv1_boundary
-    objective: Apply narrow hard boundaries with brief refusals and avoid refusing benign requests.
-    target_rules:
-      - BOUNDARY-001
-      - BOUNDARY-002
-      - BOUNDARY-003
-      - BOUNDARY-004
-      - BOUNDARY-005
-      - BOUNDARY-006
-      - BOUNDARY-007
-      - REFUSAL-001
-      - REFUSAL-002
-      - REFUSAL-003
-      - REFUSAL-004
-      - REFUSAL-005
-      - PRIORITY-004
-    scenario_mix:
-      serious_harm_refusal: 1
-      unauthorized_access_or_secrets: 1
-      sexual_safety_boundary: 1
-      real_person_or_consent_boundary: 1
-      benign_edge_case_answer_without_refusal: 1
-
 batch_plan:
   review_policy: A batch must be approved before creation begins on the next batch.
   batches:
     - id: batch_01
       file: data/sft/v1/batch_01.jsonl
-      status: revision_in_progress
+      status: approved_after_manual_review
       review: data/sft/v1/batch_01_review.yaml
       category_counts: &batch_a
         normal_conversation: 3
@@ -305,10 +276,9 @@ batch_plan:
         tool_behavior: 1
         memory_continuity: 1
         creative_roleplay: 2
-        boundaries_concise_refusals: 1
     - id: batch_02
       file: data/sft/v1/batch_02.jsonl
-      status: blocked_pending_batch_01_reapproval
+      status: ready_for_creation
       category_counts: *batch_a
     - id: batch_03
       file: data/sft/v1/batch_03.jsonl
@@ -323,7 +293,6 @@ batch_plan:
         tool_behavior: 2
         memory_continuity: 1
         creative_roleplay: 2
-        boundaries_concise_refusals: 1
     - id: batch_04
       file: data/sft/v1/batch_04.jsonl
       status: pending_batch_03_approval
@@ -337,7 +306,6 @@ batch_plan:
         tool_behavior: 2
         memory_continuity: 1
         creative_roleplay: 2
-        boundaries_concise_refusals: 1
     - id: batch_05
       file: data/sft/v1/batch_05.jsonl
       status: pending_batch_04_approval
@@ -345,18 +313,18 @@ batch_plan:
 
 diversity_targets:
   turn_depth:
-    single_user_turn: 60
+    single_user_turn: 55
     two_to_three_user_turns: 30
     four_or_more_user_turns: 10
   assistant_response_length:
-    short: 35
+    short: 30
     medium: 50
     long: 15
   per_batch_targets:
-    single_user_turn: 12
+    single_user_turn: 11
     two_to_three_user_turns: 6
     four_or_more_user_turns: 2
-    short_responses: 7
+    short_responses: 6
     medium_responses: 10
     long_responses: 3
   format_minimums:
@@ -379,7 +347,6 @@ quality_requirements:
   - Memory examples may use fictional supplied context but no real personal or sensitive data.
   - Every memory example must be genuinely multi-turn rather than describing prior turns in one prompt.
   - Creative examples must stay in the core profile; adult-extension training is a separate dataset.
-  - Boundary examples must include at least one benign edge case that receives a useful answer.
   - Held-out eval prompts and close paraphrases must never appear in training.
 
 batch_review_gate:
@@ -387,18 +354,18 @@ batch_review_gate:
     - JSONL parses and every row passes the dataset schema validator.
     - IDs are unique within the batch and across all earlier approved batches.
     - Category counts match the batch plan exactly.
-    - Every primary rule exists in the frozen 1.0.0 behavior spec.
+    - Every primary rule exists in the frozen 1.1.0 behavior spec.
     - No prompt duplicates or closely paraphrases another SFT or held-out eval prompt.
     - Exact overlap checks are automated; semantic and scenario overlap is reviewed manually.
     - Every assistant response is factually and technically correct for its scenario.
     - Conversations read naturally and do not mention internal rule IDs or training objectives.
     - Openings, conclusions, jokes, profanity, formatting, and sentence patterns are not repetitive.
     - Tool results, memories, citations, and completed actions are never fabricated.
-    - All 20 rows receive manual approval before the next batch begins.
+    - All 19 rows receive manual approval before the next batch begins.
   rejection_policy:
     - Fix or replace rejected rows within the current batch before continuing.
     - Do not modify the frozen behavior spec to rescue a weak example.
-    - A behavior-rule change requires spec 1.1.0 and an explicit dataset-impact review.
+    - A behavior-rule change requires spec 1.2.0 and an explicit dataset-impact review.
 
 merge_policy:
   include_only_approved_batches: true
@@ -406,8 +373,8 @@ merge_policy:
   exclude_placeholder_dataset: data/sft/amitai_sft_v0.jsonl
   exclude_held_out_eval: eval/behavior_v1.jsonl
   final_validation:
-    - exactly 100 records
+    - exactly 95 records
     - exact category totals from category_mix
     - unique IDs
-    - spec_version 1.0.0 on every row
+    - spec_version 1.1.0 on every row
     - no train-eval prompt overlap

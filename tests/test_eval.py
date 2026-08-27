@@ -55,7 +55,7 @@ def test_behavior_eval_schema_and_rule_references() -> None:
     assert len({row["id"] for row in rows}) == len(rows)
     for row in rows:
         assert required_fields <= row.keys()
-        assert row["spec_version"] == "1.0.0"
+        assert row["spec_version"] == "1.1.0"
         assert row["primary_rules"]
         assert set(row["primary_rules"]) <= known_rule_ids
         assert row["prompt"].strip()

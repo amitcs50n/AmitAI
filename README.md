@@ -43,7 +43,7 @@ multimodal-compatible content-part format:
 ```json
 {
   "id": "tech_001",
-  "spec_version": "1.0.0",
+  "spec_version": "1.1.0",
   "category": "technical",
   "primary_rules": ["TECH-002", "DISAGREE-001"],
   "messages": [
@@ -124,6 +124,6 @@ The next real task is **AmitAI SFT dataset v1**:
 
 1. Freeze the behavior specification.
 2. Define dataset categories and quality rules.
-3. Produce the first 100 high-quality conversations manually/curated.
+3. Produce the first 95 high-quality conversations manually/curated.
 4. Run a tiny smoke train.
 5. Only then scale toward 500-2,000+ examples.
