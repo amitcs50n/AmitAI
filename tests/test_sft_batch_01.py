@@ -174,6 +174,37 @@ def test_batch_01_avoids_repetitive_assistant_scaffolding() -> None:
         assert "let me know if you need" not in lowered
 
 
+def test_batch_01_memory_row_uses_retrieved_memory_semantics() -> None:
+    rows = _load_jsonl(BATCH_PATH)
+    memory_rows = [row for row in rows if row["category"] == "memory_continuity"]
+
+    assert len(memory_rows) == 1
+    row = memory_rows[0]
+    assert row["id"] == "sftv1_memory_001"
+    assert set(row["primary_rules"]) == {"MEMORY-002", "MEMORY-004", "MEMORY-006"}
+    assert sum(message["role"] == "user" for message in row["messages"]) == 4
+
+    user_text = "\n".join(
+        _message_text(message)
+        for message in row["messages"]
+        if message["role"] == "user"
+    ).casefold()
+    assistant_text = "\n".join(
+        _message_text(message)
+        for message in row["messages"]
+        if message["role"] == "assistant"
+    ).casefold()
+
+    assert "retrieved memory supplied by the runtime" in user_text
+    assert "source: prior conversation" in user_text
+    assert "recorded_at:" in user_text
+    assert "correction for this purchase" in user_text
+    assert "stale where it conflicts" in assistant_text
+    assert "retrieved memory contributed only" in assistant_text
+    assert "came from this conversation" in assistant_text
+    assert "anything else as remembered" in assistant_text
+
+
 def test_batch_01_manual_review_is_complete_and_approved() -> None:
     rows = _load_jsonl(BATCH_PATH)
     review = yaml.safe_load(REVIEW_PATH.read_text(encoding="utf-8"))["review"]

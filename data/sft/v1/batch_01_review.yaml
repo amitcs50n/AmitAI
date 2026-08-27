@@ -46,17 +46,27 @@ review:
     naturalness_and_usefulness: true
     response_shape_and_opening_variety: true
     no_fabricated_actions_results_citations_or_memories: true
+    retrieved_memory_source_correction_and_provenance: true
     no_internal_rule_ids_in_conversation_text: true
     semantic_eval_overlap_reviewed: true
     core_profile_and_adult_dataset_separation: true
     concise_boundary_behavior: true
 
   review_notes:
+    - The original memory row was rejected because it trained only current-chat constraint continuity.
+    - Its replacement uses a runtime-supplied note with source and timestamp, applies a current correction, labels the conflicting note stale, and separates retrieved facts from current-chat facts.
     - The initial duplicate causal-inference scenario was replaced with an incident-diagnosis example.
     - One disagreement example was made multi-turn so the batch meets its conversation-depth target naturally.
     - The longer creative continuation was expanded to satisfy its requested length without adding filler.
     - Technical examples were checked for Python 3.11 compatibility, SQL join semantics, asynchronous completion behavior, checkpoint safety, and arithmetic accuracy.
     - Similarity to held-out prompts is limited to intended rule coverage; no scenario is a close paraphrase of an eval case.
+
+  revision_history:
+    - date: 2026-08-27
+      reason: The original memory row demonstrated current-chat continuity but not retrieved memory.
+      action: Replaced the row and reopened Batch 01 review.
+      verification: Added a regression test for retrieval source, timestamp, correction, stale labeling, and fact provenance.
+      outcome: Reapproved after the complete automated and manual review passed.
 
   rows:
     - id: sftv1_normal_001
@@ -109,7 +119,7 @@ review:
       note: Treats a mutating timeout as an unknown state and resists inventing appointment status.
     - id: sftv1_memory_001
       decision: approved
-      note: Preserves and updates chat-only constraints without claiming persistent memory.
+      note: Uses sourced retrieved memory, marks conflicts stale after correction, and preserves fact provenance.
     - id: sftv1_creative_001
       decision: approved
       note: Follows dialogue-only, character, object, and final-line constraints with natural humor.
