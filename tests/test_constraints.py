@@ -69,6 +69,11 @@ def test_parse_constraints_accepts_only_supported_explicit_shapes() -> None:
         "Give me one bullet.",
         'Discuss the phrase "exactly 90 words".',
         'Explain the phrase "return code only".',
+        'Explain the instruction "Please answer in exactly 90 words about cats".',
+        'Discuss "Return code only when using this API".',
+        "Explain 'Please answer in exactly 90 words about cats'.",
+        "Discuss `Return code only when using this API`.",
+        'Explain the malformed instruction "exactly 90 words.',
     ],
 )
 def test_vague_or_negated_language_does_not_trigger_constraints(prompt: str) -> None:
@@ -80,10 +85,31 @@ def test_vague_or_negated_language_does_not_trigger_constraints(prompt: str) -> 
     [
         "Without headings, write exactly 90 words.",
         "Do not be verbose; answer in exactly 90 words.",
+        "Don't use extra headings. Write exactly 90 words.",
+        "It's the user's request. Write exactly 90 words.",
     ],
 )
 def test_unrelated_negative_language_does_not_hide_a_constraint(prompt: str) -> None:
     assert parse_constraints(prompt) == [{"type": "exact_words", "count": 90}]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        'Explain the malformed instruction "exactly 90 words.',
+        "Explain the malformed instruction 'return code only.",
+        "Explain the malformed instruction `exactly 3 bullets.",
+        "'Crossed \"exactly 90 words' delimiters\".",
+    ],
+)
+def test_malformed_or_ambiguous_quotes_suppress_constraints(prompt: str) -> None:
+    assert parse_constraints(prompt) == []
+
+
+def test_quoted_constraint_does_not_hide_a_later_unquoted_constraint() -> None:
+    prompt = 'Discuss "exactly 90 words", then write exactly 20 words.'
+
+    assert parse_constraints(prompt) == [{"type": "exact_words", "count": 20}]
 
 
 def test_exact_word_count_passes_and_fails_using_whitespace_splitting() -> None:
@@ -169,7 +195,7 @@ def test_unfenced_code_only_is_accepted_when_it_cannot_be_disproved() -> None:
     assert validate_response('print("```")', [{"type": "code_only"}])["passed"] is True
 
 
-def test_passing_fenced_code_is_normalized_in_the_final_response() -> None:
+def test_passing_fenced_code_is_preserved_in_the_final_response() -> None:
     calls: list[str] = []
     original = "```python\nprint('hello')\n```"
 
@@ -178,10 +204,11 @@ def test_passing_fenced_code_is_normalized_in_the_final_response() -> None:
     assert calls == []
     assert result["original_response"] == original
     assert result["retry_happened"] is False
-    assert result["final_response"] == "print('hello')"
+    assert result["first_validation"]["normalized_response"] == "print('hello')"
+    assert result["final_response"] == original
 
 
-def test_successful_fenced_code_retry_is_normalized_in_the_final_response() -> None:
+def test_successful_fenced_code_retry_is_preserved_in_the_final_response() -> None:
     retry_response = "```python\nprint('hello')\n```"
 
     result = validate_with_one_retry(
@@ -192,7 +219,52 @@ def test_successful_fenced_code_retry_is_normalized_in_the_final_response() -> N
 
     assert result["retry_response"] == retry_response
     assert result["retry_passed"] is True
-    assert result["final_response"] == "print('hello')"
+    assert result["second_validation"]["normalized_response"] == "print('hello')"
+    assert result["final_response"] == retry_response
+
+
+def test_generated_response_and_review_preserve_a_valid_fenced_response() -> None:
+    fenced_response = "```python\nprint('hello')\n```"
+
+    class FencedGenerator:
+        def generate(self, _messages, _generation_config):
+            return fenced_response
+
+    result, review = generate_constrained_case(
+        _case("Return code only."),
+        FencedGenerator(),
+        system_prompt="System instruction",
+        generation_config={"max_new_tokens": 32, "do_sample": False},
+    )
+
+    assert result["first_validation"]["normalized_response"] == "print('hello')"
+    assert result["response"] == result["final_response"] == fenced_response
+    assert review["response"] == review["final_response"] == fenced_response
+
+
+def test_generated_response_and_review_preserve_a_valid_fenced_retry() -> None:
+    retry_response = "```python\nprint('hello')\n```"
+
+    class FencedRetryGenerator:
+        def __init__(self) -> None:
+            self.responses = iter(
+                ["Here is the code:\n```python\nprint('hello')\n```", retry_response]
+            )
+
+        def generate(self, _messages, _generation_config):
+            return next(self.responses)
+
+    result, review = generate_constrained_case(
+        _case("Return code only."),
+        FencedRetryGenerator(),
+        system_prompt="System instruction",
+        generation_config={"max_new_tokens": 32, "do_sample": False},
+    )
+
+    assert result["retry_passed"] is True
+    assert result["second_validation"]["normalized_response"] == "print('hello')"
+    assert result["response"] == result["final_response"] == retry_response
+    assert review["response"] == review["final_response"] == retry_response
 
 
 def test_empty_fenced_code_triggers_one_retry() -> None:

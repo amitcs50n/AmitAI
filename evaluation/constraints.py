@@ -46,6 +46,7 @@ _FENCED_CODE_PATTERN = re.compile(
     r"(?P<fence>`{3,}|~{3,})[^\r\n]*\r?\n(?P<code>.*?)\r?\n(?P=fence)",
     re.DOTALL,
 )
+_QUOTE_DELIMITERS = ('"', "'", "`")
 
 
 def _is_negated(prompt: str, start: int) -> bool:
@@ -53,12 +54,41 @@ def _is_negated(prompt: str, start: int) -> bool:
     return _NEGATED_DIRECTIVE_PATTERN.search(prefix) is not None
 
 
+def _is_word_apostrophe(text: str, index: int) -> bool:
+    return (
+        text[index] == "'"
+        and index > 0
+        and index + 1 < len(text)
+        and text[index - 1].isalnum()
+        and text[index + 1].isalnum()
+    )
+
+
+def _paired_quote_spans(prompt: str) -> list[tuple[int, int]] | None:
+    spans: list[tuple[int, int]] = []
+    for delimiter in _QUOTE_DELIMITERS:
+        positions = [
+            index
+            for index, character in enumerate(prompt)
+            if character == delimiter and not _is_word_apostrophe(prompt, index)
+        ]
+        if len(positions) % 2:
+            return None
+        spans.extend(zip(positions[::2], positions[1::2]))
+
+    spans.sort()
+    for index, (_, closing) in enumerate(spans):
+        for later_opening, later_closing in spans[index + 1 :]:
+            if later_opening < closing < later_closing:
+                return None
+    return spans
+
+
 def _is_quoted(prompt: str, start: int, end: int) -> bool:
-    left = prompt[:start].rstrip()
-    right = prompt[end:].lstrip()
-    if not left or left[-1] not in {'"', "'", "`"}:
-        return False
-    return right.startswith(left[-1])
+    spans = _paired_quote_spans(prompt)
+    if spans is None:
+        return True
+    return any(opening < start and end <= closing for opening, closing in spans)
 
 
 def _is_metalinguistic(prompt: str, start: int) -> bool:
@@ -251,9 +281,6 @@ def validate_with_one_retry(
 ) -> dict[str, Any]:
     constraints = parse_constraints(original_prompt)
     first_validation = validate_response(original_response, constraints)
-    first_final_response = first_validation["normalized_response"]
-    if first_final_response is None:
-        first_final_response = original_response
     result: dict[str, Any] = {
         "original_user_prompt": original_prompt,
         "original_response": original_response,
@@ -265,7 +292,7 @@ def validate_with_one_retry(
         "retry_response": None,
         "second_validation": None,
         "retry_passed": None,
-        "final_response": first_final_response,
+        "final_response": original_response,
     }
     if not constraints or first_validation["passed"]:
         return result
@@ -280,9 +307,6 @@ def validate_with_one_retry(
         raise ValueError("Corrective model retry returned an empty response")
     retry_response = retry_response.strip()
     second_validation = validate_response(retry_response, constraints)
-    final_response = retry_response
-    if second_validation["passed"] and second_validation["normalized_response"] is not None:
-        final_response = second_validation["normalized_response"]
     result.update(
         retry_happened=True,
         retry_reason="\n".join(first_validation["failures"]),
@@ -290,6 +314,6 @@ def validate_with_one_retry(
         retry_response=retry_response,
         second_validation=second_validation,
         retry_passed=second_validation["passed"],
-        final_response=final_response,
+        final_response=retry_response,
     )
     return result

@@ -135,12 +135,13 @@ python -m evaluation.run_baseline \
 ```
 
 That path parses only explicit `exactly N words`, `exactly N bullets`, `at most N bullets`,
-and `code only` / `return code only` instructions. Passing responses are kept unchanged except
-that an accepted outer code fence is removed. A mechanical failure gets exactly one corrective
-generation containing the original request, previous response, and measured miss. The retry
-becomes the final response even if it still fails, and both attempts plus validation results
-remain in the response and review artifacts. Sentence counts, spelled-out numeric limits,
-semantic "one item" checks, and subjective scoring are intentionally excluded.
+and `code only` / `return code only` instructions. Passing responses stay unchanged, including
+valid outer code fences; normalized inner code is validation metadata only. A mechanical failure
+gets exactly one corrective generation containing the original request, previous response, and
+measured miss. The retry becomes the final response even if it still fails, and both attempts
+plus validation results remain in the response and review artifacts. Sentence counts,
+spelled-out numeric limits, semantic "one item" checks, and subjective scoring are intentionally
+excluded.
 Unfenced output is accepted as mechanically unverified rather than classified as code or prose.
 
 Use `--resume` after an interrupted run, repeating the same selection options—including
