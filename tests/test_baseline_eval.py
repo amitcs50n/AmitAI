@@ -1,4 +1,6 @@
+import hashlib
 import json
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -17,15 +19,19 @@ from evaluation.baseline import (
     validate_reviews_against_responses,
 )
 from evaluation.hf_backend import TransformersGenerator
-from evaluation.run_baseline import load_config, run
+from evaluation.run_baseline import load_config, run, select_eval_cases
 from evaluation.summarize import summarize_run
 
 
 EVAL_PATH = Path("eval/behavior_v1.jsonl")
 BASELINE_CONFIG_PATH = Path("configs/baseline_eval.yaml")
+BASELINE_V2_CONFIG_PATH = Path("configs/baseline_eval_v2.yaml")
 TRAINING_CONFIG_PATH = Path("configs/qlora_sft.yaml")
 SPEC_PATH = Path("configs/amitai_spec_v1.yaml")
 SFT_PLAN_PATH = Path("configs/sft_v1_dataset_plan.yaml")
+BASELINE_V1_NORMALIZED_SHA256 = (
+    "11026d34398165b8810ec125fe1d107880d571165ab94e302965ce719b99bfee"
+)
 
 
 def _case(case_id: str, category: str = "technical_coding") -> dict:
@@ -79,6 +85,110 @@ def test_baseline_config_uses_the_same_untouched_bf16_base_model() -> None:
     assert "system_prompt" not in baseline
     assert baseline["runtime_system_prompt"] != canonical_sft_message
     assert len(baseline["runtime_system_prompt"]) > len(canonical_sft_message)
+
+
+def test_baseline_v2_copies_v1_and_only_appends_the_three_prompt_patches() -> None:
+    v1_text = BASELINE_CONFIG_PATH.read_text(encoding="utf-8")
+    v1_document = yaml.safe_load(v1_text)
+    v2_document = yaml.safe_load(BASELINE_V2_CONFIG_PATH.read_text(encoding="utf-8"))
+    v1 = v1_document["baseline_eval"]
+    v2 = v2_document["baseline_eval"]
+
+    assert hashlib.sha256(v1_text.encode("utf-8")).hexdigest() == (
+        BASELINE_V1_NORMALIZED_SHA256
+    )
+    assert v1_document["schema_version"] == v2_document["schema_version"] == 1
+    assert v1["name"] == "qwen38_27b_base_behavior_v1"
+    assert v1["output_dir"] == "outputs/eval/qwen38_27b_base_behavior_v1"
+    assert v2["name"] == "qwen38_27b_base_behavior_v2"
+    assert "run_name" not in v2
+    assert v2["output_dir"] == "outputs/eval/qwen38_27b_base_behavior_v2"
+    assert v2["eval_file"] == v1["eval_file"] == "eval/behavior_v1.jsonl"
+    assert v2["model"] == v1["model"]
+    assert v2["generation"] == v1["generation"]
+    assert v2["decision_gate"] == v1["decision_gate"]
+
+    v1_prompt = v1["runtime_system_prompt"]
+    v2_prompt = v2["runtime_system_prompt"]
+    assert v2_prompt.startswith(v1_prompt)
+    appended_prompt = v2_prompt[len(v1_prompt) :]
+    assert "CONSTRAINTS" in appended_prompt
+    assert "Treat explicit counts and limit words as hard constraints" in appended_prompt
+    assert 'If they asked for code only, output only code.' in appended_prompt
+    assert "INSUFFICIENT EVIDENCE" in appended_prompt
+    assert "cannot be determined from the given facts" in appended_prompt
+    assert "battery Wh alone does not determine runtime" in appended_prompt
+    assert "EMOTIONAL SUPPORT" in appended_prompt
+    assert "Acknowledge only the emotions the user actually named" in appended_prompt
+    assert "Do not psychoanalyze" in appended_prompt
+
+
+def test_select_eval_cases_filters_ids_in_eval_file_order_and_trims_whitespace() -> None:
+    cases = [_case(f"eval_test_{index:03d}") for index in (1, 2, 3)]
+
+    selected = select_eval_cases(
+        cases,
+        ids=" eval_test_003,  eval_test_001 ",
+    )
+
+    assert [case["id"] for case in selected] == ["eval_test_001", "eval_test_003"]
+
+
+def test_select_eval_cases_applies_ids_before_limit() -> None:
+    cases = [_case(f"eval_test_{index:03d}") for index in (1, 2, 3)]
+
+    selected = select_eval_cases(
+        cases,
+        ids="eval_test_003,eval_test_002",
+        limit=1,
+    )
+
+    assert [case["id"] for case in selected] == ["eval_test_002"]
+
+
+def test_select_eval_cases_without_ids_preserves_current_behavior() -> None:
+    cases = [_case(f"eval_test_{index:03d}") for index in (1, 2, 3)]
+
+    assert select_eval_cases(cases) == cases
+    assert select_eval_cases(cases, limit=2) == cases[:2]
+
+
+def test_select_eval_cases_rejects_unknown_ids_clearly() -> None:
+    cases = [_case("eval_test_001")]
+
+    with pytest.raises(ValueError, match=r"Unknown eval ID\(s\): eval_missing_999"):
+        select_eval_cases(cases, ids="eval_missing_999")
+
+
+@pytest.mark.parametrize("ids", ["", "   ", ",eval_test_001", "eval_test_001,,x"])
+def test_select_eval_cases_rejects_empty_id_tokens(ids: str) -> None:
+    with pytest.raises(ValueError, match="empty eval ID token"):
+        select_eval_cases([_case("eval_test_001")], ids=ids)
+
+
+def test_select_eval_cases_rejects_an_empty_effective_selection() -> None:
+    with pytest.raises(ValueError, match="produced zero cases"):
+        select_eval_cases([])
+
+
+def test_cli_unknown_id_exits_nonzero_before_model_loading() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "evaluation.run_baseline",
+            "--config",
+            str(BASELINE_V2_CONFIG_PATH),
+            "--ids",
+            "eval_missing_999",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "Unknown eval ID(s): eval_missing_999" in result.stderr
 
 
 def test_project_install_discovers_only_python_packages() -> None:

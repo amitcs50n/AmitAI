@@ -106,23 +106,30 @@ Authenticate to Hugging Face if needed:
 huggingface-cli login
 ```
 
-Run a two-case generation smoke test:
+Baseline v1 and its output directory have already been generated and are frozen. Do not rerun or
+overwrite `configs/baseline_eval.yaml` or `outputs/eval/qwen38_27b_base_behavior_v1/`.
+`configs/baseline_eval_v2.yaml` keeps the same model, generation settings, and held-out eval file
+while appending three prompt-only patches for constraint obedience, insufficient evidence, and
+emotional support. Target specific cases with:
 
 ```bash
-python -m evaluation.run_baseline --config configs/baseline_eval.yaml --limit 2
+python -m evaluation.run_baseline \
+  --config configs/baseline_eval_v2.yaml \
+  --ids eval_normal_001,eval_reasoning_002
 ```
 
-If that works, replace the smoke-test artifacts and run all 20 held-out cases:
+`--ids` trims surrounding whitespace, preserves the eval-file order, and may be combined with
+`--limit`; ID filtering happens before the limit. Omitting `--ids` retains the existing full-set
+behavior. Targeted runs are for response inspection, not the complete 20-case decision-gate
+summary.
 
-```bash
-python -m evaluation.run_baseline --config configs/baseline_eval.yaml --overwrite
-```
+Use `--resume` after an interrupted run, repeating the same selection options—including
+`--limit` and `--ids`. Each completed case is appended immediately, so an expensive run does
+not need to restart from zero.
 
-Use `--resume` after an interrupted run, repeating the same options—including `--limit 2`
-when resuming the smoke test. Each completed case is appended immediately, so an expensive
-run does not need to restart from zero.
-
-The run writes ignored artifacts under `outputs/eval/qwen38_27b_base_behavior_v1/`:
+Artifacts are written under the selected config's `output_dir`. V1 remains frozen at
+`outputs/eval/qwen38_27b_base_behavior_v1/`; v2 writes to
+`outputs/eval/qwen38_27b_base_behavior_v2/`. Each run directory contains:
 
 - `run.json`: pinned model revision, code/dependency revisions, eval hash, and progress
 - `responses.jsonl`: untouched model outputs
@@ -134,10 +141,10 @@ Review `reviews.jsonl` manually. For every row, replace the null values:
   inconsistent behavior, or `2` when that rule is met.
 - `critical_failure: true` marks a critical failure from the behavior spec
 
-Then aggregate the review:
+Then aggregate a complete 20-case review with its matching config, for example v2:
 
 ```bash
-python -m evaluation.summarize --config configs/baseline_eval.yaml
+python -m evaluation.summarize --config configs/baseline_eval_v2.yaml
 ```
 
 The current gate requires at least 90% of primary-rule assessments to score `2` and zero

@@ -58,17 +58,45 @@ def load_config(path: str | Path) -> dict[str, Any]:
     return config["baseline_eval"]
 
 
+def select_eval_cases(
+    cases: list[dict[str, Any]],
+    *,
+    ids: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    if limit is not None and limit < 1:
+        raise ValueError("--limit must be positive")
+
+    selected = list(cases)
+    if ids is not None:
+        requested_tokens = [token.strip() for token in ids.split(",")]
+        if any(not token for token in requested_tokens):
+            raise ValueError("--ids contains an empty eval ID token")
+
+        requested_ids = set(requested_tokens)
+        available_ids = {case["id"] for case in cases}
+        unknown_ids = sorted(requested_ids - available_ids)
+        if unknown_ids:
+            raise ValueError(f"Unknown eval ID(s): {', '.join(unknown_ids)}")
+        selected = [case for case in cases if case["id"] in requested_ids]
+
+    if limit is not None:
+        selected = selected[:limit]
+    if not selected:
+        raise ValueError("Evaluation case selection produced zero cases")
+    return selected
+
+
 def run(
     config_path: str | Path,
     *,
+    ids: str | None = None,
     limit: int | None = None,
     resume: bool = False,
     overwrite: bool = False,
 ) -> Path:
     if resume and overwrite:
         raise ValueError("--resume and --overwrite cannot be used together")
-    if limit is not None and limit < 1:
-        raise ValueError("--limit must be positive")
 
     config = load_config(config_path)
     runtime_system_prompt = config.get("runtime_system_prompt")
@@ -81,8 +109,7 @@ def run(
     manifest_path = output_dir / "run.json"
     summary_path = output_dir / "summary.json"
     cases = load_eval_cases(eval_path)
-    if limit is not None:
-        cases = cases[:limit]
+    cases = select_eval_cases(cases, ids=ids, limit=limit)
 
     fingerprint_payload = {
         "run_name": config.get("name"),
@@ -259,6 +286,10 @@ def main() -> None:
         default="configs/baseline_eval.yaml",
         help="Path to the baseline evaluation YAML",
     )
+    parser.add_argument(
+        "--ids",
+        help="Comma-separated evaluation case IDs",
+    )
     parser.add_argument("--limit", type=int, help="Run only the first N cases")
     run_mode = parser.add_mutually_exclusive_group()
     run_mode.add_argument("--resume", action="store_true")
@@ -267,6 +298,7 @@ def main() -> None:
 
     output_dir = run(
         args.config,
+        ids=args.ids,
         limit=args.limit,
         resume=args.resume,
         overwrite=args.overwrite,
