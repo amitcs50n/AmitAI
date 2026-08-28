@@ -6,6 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
+from evaluation.constraints import validate_with_one_retry
+
 
 EVAL_REQUIRED_FIELDS = {
     "id",
@@ -127,6 +129,53 @@ def generate_case(
     return result, review
 
 
+def generate_constrained_case(
+    case: dict[str, Any],
+    generator: TextGenerator,
+    *,
+    system_prompt: str | None,
+    generation_config: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    original_response = generator.generate(
+        build_messages(case["prompt"], system_prompt),
+        generation_config,
+    )
+    if not isinstance(original_response, str) or not original_response.strip():
+        raise ValueError(f"{case['id']}: model returned an empty response")
+    original_response = original_response.strip()
+
+    def retry(corrective_prompt: str) -> str:
+        return generator.generate(
+            build_messages(corrective_prompt, system_prompt),
+            generation_config,
+        )
+
+    constraint_metadata = validate_with_one_retry(
+        case["prompt"],
+        original_response,
+        retry,
+    )
+    result = {
+        "schema_version": 1,
+        "id": case["id"],
+        "spec_version": case["spec_version"],
+        "category": case["category"],
+        "primary_rules": case["primary_rules"],
+        "prompt": case["prompt"],
+        "response": constraint_metadata["final_response"],
+        **constraint_metadata,
+    }
+    review = {
+        **result,
+        "pass_criteria": case["pass_criteria"],
+        "failure_signals": case["failure_signals"],
+        "rule_scores": {rule_id: None for rule_id in case["primary_rules"]},
+        "critical_failure": None,
+        "notes": "",
+    }
+    return result, review
+
+
 def append_jsonl(path: str | Path, row: dict[str, Any]) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -201,18 +250,10 @@ def validate_reviews_against_responses(
     if set(review_by_id) != set(response_by_id):
         raise ValueError("Review ids do not exactly match response ids")
 
-    immutable_fields = (
-        "schema_version",
-        "spec_version",
-        "category",
-        "primary_rules",
-        "prompt",
-        "response",
-    )
     for case_id, review in review_by_id.items():
         response = response_by_id[case_id]
-        for field in immutable_fields:
-            if review.get(field) != response.get(field):
+        for field in response:
+            if field not in review or review[field] != response[field]:
                 raise ValueError(
                     f"{case_id}: review field {field} differs from generated responses"
                 )

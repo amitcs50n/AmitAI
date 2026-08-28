@@ -12,13 +12,22 @@ import yaml
 from evaluation.baseline import (
     append_jsonl,
     generate_case,
+    generate_constrained_case,
     load_eval_cases,
     load_jsonl,
     sha256_file,
     stable_fingerprint,
     write_json,
 )
+from evaluation.constraints import SUPPORTED_CONSTRAINT_TYPES
 from evaluation.hf_backend import TransformersGenerator
+
+
+MECHANICAL_CONSTRAINT_SETTINGS = {
+    "enabled": True,
+    "max_retries": 1,
+    "supported_constraints": list(SUPPORTED_CONSTRAINT_TYPES),
+}
 
 
 def utc_now() -> str:
@@ -87,6 +96,17 @@ def select_eval_cases(
     return selected
 
 
+def mechanical_constraints_enabled(config: dict[str, Any]) -> bool:
+    settings = config.get("mechanical_constraints")
+    if settings is None:
+        return False
+    if not isinstance(settings, dict) or set(settings) != {"enabled"}:
+        raise ValueError("mechanical_constraints must contain only an enabled boolean")
+    if not isinstance(settings["enabled"], bool):
+        raise ValueError("mechanical_constraints.enabled must be a boolean")
+    return settings["enabled"]
+
+
 def run(
     config_path: str | Path,
     *,
@@ -110,6 +130,7 @@ def run(
     summary_path = output_dir / "summary.json"
     cases = load_eval_cases(eval_path)
     cases = select_eval_cases(cases, ids=ids, limit=limit)
+    constraints_enabled = mechanical_constraints_enabled(config)
 
     fingerprint_payload = {
         "run_name": config.get("name"),
@@ -120,6 +141,8 @@ def run(
         "generation": config["generation"],
         "decision_gate": config["decision_gate"],
     }
+    if constraints_enabled:
+        fingerprint_payload["mechanical_constraints"] = MECHANICAL_CONSTRAINT_SETTINGS
     fingerprint = stable_fingerprint(fingerprint_payload)
     output_files = (responses_path, reviews_path, manifest_path, summary_path)
 
@@ -214,6 +237,8 @@ def run(
         "responses_file": str(responses_path),
         "reviews_file": str(reviews_path),
     }
+    if constraints_enabled:
+        manifest["mechanical_constraints"] = MECHANICAL_CONSTRAINT_SETTINGS
     write_json(manifest_path, manifest)
 
     if not pending:
@@ -243,7 +268,8 @@ def run(
         write_json(manifest_path, manifest)
 
         for case in pending:
-            response, review = generate_case(
+            case_generator = generate_constrained_case if constraints_enabled else generate_case
+            response, review = case_generator(
                 case,
                 generator,
                 system_prompt=runtime_system_prompt,

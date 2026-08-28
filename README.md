@@ -39,6 +39,7 @@ amitai/
 ├── eval/
 ├── evaluation/
 │   ├── baseline.py          # validation, artifacts, and scoring
+│   ├── constraints.py       # deterministic mechanical output checks
 │   ├── hf_backend.py        # Qwen3.5 Hugging Face inference backend
 │   ├── run_baseline.py      # resumable base-model generation
 │   └── summarize.py         # manual-review aggregation
@@ -123,6 +124,25 @@ python -m evaluation.run_baseline \
 behavior. Targeted runs are for response inspection, not the complete 20-case decision-gate
 summary.
 
+Prompt-only v2 results remain frozen. Mechanical constraint correction uses the separate
+`configs/baseline_eval_v2_constrained.yaml` config and writes only to
+`outputs/eval/qwen38_27b_base_behavior_v2_constrained/`:
+
+```bash
+python -m evaluation.run_baseline \
+  --config configs/baseline_eval_v2_constrained.yaml \
+  --ids eval_technical_002,eval_roleplay_001
+```
+
+That path parses only explicit `exactly N words`, `exactly N bullets`, `at most N bullets`,
+and `code only` / `return code only` instructions. Passing responses are kept unchanged except
+that an accepted outer code fence is removed. A mechanical failure gets exactly one corrective
+generation containing the original request, previous response, and measured miss. The retry
+becomes the final response even if it still fails, and both attempts plus validation results
+remain in the response and review artifacts. Sentence counts, spelled-out numeric limits,
+semantic "one item" checks, and subjective scoring are intentionally excluded.
+Unfenced output is accepted as mechanically unverified rather than classified as code or prose.
+
 Use `--resume` after an interrupted run, repeating the same selection options—including
 `--limit` and `--ids`. Each completed case is appended immediately, so an expensive run does
 not need to restart from zero.
@@ -132,8 +152,11 @@ Artifacts are written under the selected config's `output_dir`. V1 remains froze
 `outputs/eval/qwen38_27b_base_behavior_v2/`. Each run directory contains:
 
 - `run.json`: pinned model revision, code/dependency revisions, eval hash, and progress
-- `responses.jsonl`: untouched model outputs
+- `responses.jsonl`: untouched v1/v2 outputs or constrained-run attempt metadata
 - `reviews.jsonl`: outputs plus held-out scoring criteria
+
+Constrained-run rows additionally retain the original prompt and response, parsed constraints,
+both validation attempts, retry reason and response, `retry_passed`, and `final_response`.
 
 Review `reviews.jsonl` manually. For every row, replace the null values:
 
