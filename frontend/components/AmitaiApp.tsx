@@ -9,7 +9,7 @@ import {
   getConversation,
   listConversations,
   renameConversation,
-  sendChat,
+  sendChatStream,
 } from "@/lib/api";
 import type {
   AppView,
@@ -66,8 +66,8 @@ function responseMetadata(metadata: ChatMetadata): MessageMetadata {
   return {
     model: metadata.model,
     latency_ms: metadata.latency_ms,
-    input_tokens: null,
-    output_tokens: null,
+    input_tokens: metadata.input_tokens,
+    output_tokens: metadata.output_tokens,
     validator: metadata.validator,
     tools: metadata.tools,
     memory: metadata.memory,
@@ -92,6 +92,7 @@ export function AmitaiApp() {
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
+  const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const [failedInput, setFailedInput] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -101,6 +102,7 @@ export function AmitaiApp() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<UiPreferences>(DEFAULT_PREFERENCES);
   const conversationRequestRef = useRef(0);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const markConnected = useCallback(() => setConnection("connected"), []);
 
@@ -109,6 +111,7 @@ export function AmitaiApp() {
     setLoadingConversation(true);
     setLoadError(null);
     setPendingMessage(null);
+    setStreamingMessage(null);
     setFailedInput(null);
     setSendError(null);
     try {
@@ -190,7 +193,10 @@ export function AmitaiApp() {
       if (window.innerWidth < 1024) setSidebarOpen(false);
       void initialize();
     }, 0);
-    return () => window.clearTimeout(initializeTimer);
+    return () => {
+      window.clearTimeout(initializeTimer);
+      streamAbortRef.current?.abort();
+    };
   }, [initialize]);
 
   function updatePreferences(patch: Partial<UiPreferences>) {
@@ -220,6 +226,7 @@ export function AmitaiApp() {
     setSelectedId(null);
     setConversation(null);
     setPendingMessage(null);
+    setStreamingMessage(null);
     setFailedInput(null);
     setSendError(null);
     setLoadError(null);
@@ -244,13 +251,49 @@ export function AmitaiApp() {
   async function submitMessage(message: string, retry = false) {
     const targetId = selectedId;
     const userMessage = retry && pendingMessage ? pendingMessage : temporaryUserMessage(message, targetId);
+    const streamMessageId = `streaming-${crypto.randomUUID()}`;
+    const streamCreatedAt = new Date().toISOString();
+    const abortController = new AbortController();
+    let streamedText = "";
+
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = abortController;
     if (!retry) setPendingMessage(userMessage);
+    setStreamingMessage(null);
     setSending(true);
     setSendError(null);
     setFailedInput(null);
 
     try {
-      const result = await sendChat({ conversation_id: targetId, message });
+      const result = await sendChatStream(
+        { conversation_id: targetId, message },
+        {
+          onStart: markConnected,
+          onText: (delta) => {
+            streamedText += delta;
+            if (!streamedText) return;
+            setStreamingMessage({
+              id: streamMessageId,
+              conversation_id: targetId ?? "pending",
+              role: "assistant",
+              content: streamedText,
+              created_at: streamCreatedAt,
+              metadata: null,
+            });
+          },
+          onFinal: (finalResponse) => {
+            setStreamingMessage({
+              id: finalResponse.message_id,
+              conversation_id: finalResponse.conversation_id,
+              role: "assistant",
+              content: finalResponse.response,
+              created_at: streamCreatedAt,
+              metadata: responseMetadata(finalResponse.metadata),
+            });
+          },
+        },
+        abortController.signal,
+      );
       markConnected();
       const assistantMessage: Message = {
         id: result.message_id,
@@ -280,6 +323,7 @@ export function AmitaiApp() {
       setSelectedId(result.conversation_id);
       setConversation(fallback);
       setPendingMessage(null);
+      setStreamingMessage(null);
       localStorage.setItem(SELECTED_CONVERSATION_KEY, result.conversation_id);
 
       try {
@@ -295,12 +339,16 @@ export function AmitaiApp() {
       }
       await refreshConversationList();
     } catch (error) {
-      updateConnectionFromError(error, setConnection);
-      setFailedInput(message);
-      setSendError(
-        backendResponded(error) ? "Generation failed. Try again." : "Unable to connect to Aevon.",
-      );
+      setStreamingMessage(null);
+      if (!abortController.signal.aborted) {
+        updateConnectionFromError(error, setConnection);
+        setFailedInput(message);
+        setSendError(
+          backendResponded(error) ? "Generation failed. Try again." : "Unable to connect to Aevon.",
+        );
+      }
     } finally {
+      if (streamAbortRef.current === abortController) streamAbortRef.current = null;
       setSending(false);
     }
   }
@@ -317,6 +365,7 @@ export function AmitaiApp() {
       setConversations(remaining);
       setConversation(null);
       setPendingMessage(null);
+      setStreamingMessage(null);
       const nextId = remaining[0]?.id ?? null;
       setSelectedId(nextId);
       if (nextId) {
@@ -421,6 +470,7 @@ export function AmitaiApp() {
             preferences={preferences}
             sendError={sendError}
             sending={sending}
+            streamingMessage={streamingMessage}
           />
         ) : view === "settings" ? (
           <SettingsView connection={connection} onChange={updatePreferences} preferences={preferences} />

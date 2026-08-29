@@ -47,6 +47,8 @@ export interface ChatValidatorMetadata {
 export interface ChatMetadata {
   model: string | null;
   latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
   validator: ChatValidatorMetadata;
   tools: unknown[];
   memory: unknown[];
@@ -57,6 +59,18 @@ export interface ChatResponse {
   message_id: string;
   response: string;
   metadata: ChatMetadata;
+}
+
+export interface ChatStreamStart {
+  conversation_id: string | null;
+}
+
+export interface ChatStreamText {
+  delta: string;
+}
+
+export interface ChatStreamError {
+  detail: string;
 }
 
 export interface UiPreferences {

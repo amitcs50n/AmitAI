@@ -11,6 +11,7 @@ import { Message } from "@/components/Message";
 interface ChatViewProps {
   messages: ChatMessage[];
   pendingMessage: ChatMessage | null;
+  streamingMessage: ChatMessage | null;
   loading: boolean;
   sending: boolean;
   loadError: string | null;
@@ -34,6 +35,7 @@ function AssistantWaiting() {
 export function ChatView({
   messages,
   pendingMessage,
+  streamingMessage,
   loading,
   sending,
   loadError,
@@ -44,12 +46,21 @@ export function ChatView({
   onRetrySend,
 }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const visibleMessages = pendingMessage ? [...messages, pendingMessage] : messages;
+  const visibleMessages = [
+    ...messages,
+    ...(pendingMessage ? [pendingMessage] : []),
+    ...(streamingMessage ? [streamingMessage] : []),
+  ];
+  const streamingContentLength = streamingMessage?.content.length ?? 0;
+  const hasStreamingMessage = streamingMessage !== null;
   const empty = !loading && !loadError && visibleMessages.length === 0;
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [visibleMessages.length, sending]);
+    bottomRef.current?.scrollIntoView({
+      behavior: hasStreamingMessage ? "auto" : "smooth",
+      block: "end",
+    });
+  }, [visibleMessages.length, sending, streamingContentLength, hasStreamingMessage]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -95,7 +106,7 @@ export function ChatView({
                   wrapCode={preferences.wrapCode}
                 />
               ))}
-              {sending ? <AssistantWaiting /> : null}
+              {sending && !streamingContentLength ? <AssistantWaiting /> : null}
               {sendError ? (
                 <div className="ml-16 flex flex-wrap items-center gap-3 rounded-xl border border-[#754735]/60 bg-[#261812]/70 px-4 py-3 text-sm text-[#e0cfc4]">
                   <span>{sendError}</span>

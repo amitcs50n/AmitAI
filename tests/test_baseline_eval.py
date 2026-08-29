@@ -22,7 +22,6 @@ from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 from evaluation.run_baseline import load_config, run, select_eval_cases
 from evaluation.summarize import summarize_run
 
-
 EVAL_PATH = Path("eval/behavior_v1.jsonl")
 BASELINE_CONFIG_PATH = Path("configs/baseline_eval.yaml")
 BASELINE_V2_CONFIG_PATH = Path("configs/baseline_eval_v2.yaml")
@@ -295,6 +294,9 @@ def test_hf_backend_loads_the_text_only_causal_lm(monkeypatch) -> None:
     fake_transformers.__version__ = "test-transformers"
     fake_transformers.AutoTokenizer = FakeAutoTokenizer
     fake_transformers.AutoModelForCausalLM = FakeAutoModelForCausalLM
+    fake_transformers.StoppingCriteria = object
+    fake_transformers.StoppingCriteriaList = list
+    fake_transformers.TextIteratorStreamer = object
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
 

@@ -114,6 +114,68 @@ pytest --basetemp .pytest_tmp
 The mock generator remains isolated behind the chat service. The real runtime uses the same
 frontend-facing API contract without making ordinary local development load model weights.
 
+#### Streaming chat
+
+`POST /api/chat` remains the backward-compatible synchronous JSON endpoint. Clients that want
+progressive output can send the same request body to `POST /api/chat/stream` and consume its
+SSE response:
+
+```bash
+curl -N http://127.0.0.1:8000/api/chat/stream \
+  -H 'Accept: text/event-stream' \
+  -H 'Content-Type: application/json' \
+  --data '{"conversation_id":null,"message":"Explain generators in Python."}'
+```
+
+The stream lifecycle is `start`, one or more `text` events, `final`, then `done`. A failure after
+the HTTP stream has opened is reported as an `error` event instead of exposing an internal
+exception. SSE comment heartbeats may appear during model initialization or buffered generation
+and can be ignored.
+
+```text
+event: start
+data: {"conversation_id":null}
+
+event: text
+data: {"delta":"Python generators "}
+
+event: text
+data: {"delta":"produce values lazily."}
+
+event: final
+data: {"conversation_id":"...","message_id":"...","response":"Python generators produce values lazily.","metadata":{"model":"...","latency_ms":2400,"input_tokens":42,"output_tokens":7,"validator":{"retry_attempted":false,"retry_passed":null},"tools":[],"memory":[]}}
+
+event: done
+data: {}
+```
+
+If generation fails, the terminal sequence is instead:
+
+```text
+event: error
+data: {"detail":"Assistant generation failed"}
+```
+
+Each `text.data.delta` appends directly to the assistant response; concatenating the deltas is
+guaranteed to equal `final.data.response`. The `final` data object has the same shape as the
+synchronous `ChatResponse`, including conversation/message IDs, model and latency, token counts,
+validator details, tools, and memory. Native browser `EventSource` cannot POST the JSON request
+body, so the Aevon frontend uses `fetch()` with a `ReadableStream` SSE parser.
+
+Unconstrained prompts stream genuine decoded Transformers output incrementally. If the current
+prompt contains a supported parsed mechanical constraint, the original generation and all
+bounded validator retries are buffered. Only the final candidate is emitted as a `text` event and
+persisted; failed candidates are never exposed to the client or stored as conversation messages.
+In both paths, the user and final assistant turns are inserted atomically only after successful
+generation, with all expensive model work outside SQL transactions.
+
+On disconnect, the server signals cancellation, closes the stream, and does not persist partial
+assistant output. Both unconstrained and buffered constrained generation use a Transformers
+stopping criterion, and a constrained flow will not start another validator retry after it observes
+cancellation. An in-flight CUDA operation may not stop immediately, so the model generation lock
+remains held until the worker actually exits; the server does not pretend cancellation completed
+or allow another GPU generation to overlap it.
+
 ### Real GPU runtime
 
 Use the CUDA/PyTorch environment supplied by the GPU host. The runtime extra intentionally does
@@ -304,6 +366,6 @@ Unsloth/vLLM versions on the RunPod image before relying on merged export.
 
 ## Current direction
 
-The tested prompt and bounded mechanical validator now have a real runtime path behind the
-persistent chat API. Keep the placeholder SFT data untrained; streaming, tools, memory, vLLM,
-and LoRA remain separate later milestones.
+The tested prompt and bounded mechanical validator now have a real streaming runtime path behind
+the persistent chat API. Keep the placeholder SFT data untrained; tools, memory, vLLM, and LoRA
+remain separate later milestones.

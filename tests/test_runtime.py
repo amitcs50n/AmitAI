@@ -1,3 +1,4 @@
+import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -7,8 +8,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from backend.chat_service import GenerationMessage
-from evaluation.hf_backend import GenerationOutput
+from backend.chat_service import (
+    ChatGenerationDelta,
+    ChatGenerationResult,
+    GenerationMessage,
+)
+from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 from runtime.app import create_runtime_app, select_response_generator
 from runtime.config import (
     DEFAULT_RUNTIME_CONFIG_PATH,
@@ -51,6 +56,24 @@ class SequenceEngine:
     def generate_detailed(self, messages, generation_config):
         self.calls.append((messages, generation_config))
         return next(self.outputs)
+
+
+class StreamingSequenceEngine:
+    def __init__(self, outputs: list[list[str | GenerationOutput]]) -> None:
+        self.outputs = iter(outputs)
+        self.calls: list[tuple[list[dict[str, str]], dict[str, object]]] = []
+        self.cancel_events: list[threading.Event] = []
+
+    def generate_detailed_stream(
+        self,
+        messages,
+        generation_config,
+        *,
+        cancel_event,
+    ):
+        self.calls.append((messages, generation_config))
+        self.cancel_events.append(cancel_event)
+        yield from next(self.outputs)
 
 
 def _generator_with_engine(
@@ -554,3 +577,352 @@ def test_runtime_app_runs_bounded_repair_and_persists_only_final_chat_messages(
         ]
 
     assert len(engine.calls) == 2
+
+
+def test_unconstrained_runtime_streams_multiple_exact_deltas_with_full_history() -> None:
+    engine = StreamingSequenceEngine(
+        [
+            [
+                "Second",
+                " streamed",
+                " answer",
+                GenerationOutput(
+                    "Second streamed answer",
+                    input_tokens=20,
+                    output_tokens=3,
+                ),
+            ]
+        ]
+    )
+    factory_calls: list[tuple[dict, int]] = []
+
+    def factory(model_config, seed):
+        factory_calls.append((model_config, seed))
+        return engine
+
+    generator = TransformersChatGenerator(_runtime_config(), engine_factory=factory)
+    cancel_event = threading.Event()
+    stream_items = list(
+        generator.stream_response(
+            [
+                GenerationMessage(role="user", content="First question"),
+                GenerationMessage(role="assistant", content="First answer"),
+                GenerationMessage(role="user", content="Now answer normally"),
+            ],
+            cancel_event=cancel_event,
+        )
+    )
+
+    deltas = [
+        item.delta for item in stream_items if isinstance(item, ChatGenerationDelta)
+    ]
+    final_results = [
+        item for item in stream_items if isinstance(item, ChatGenerationResult)
+    ]
+    assert deltas == ["Second", " streamed", " answer"]
+    assert len(deltas) > 1
+    assert len(final_results) == 1
+    final = final_results[0]
+    assert "".join(deltas) == final.response == "Second streamed answer"
+    assert final.model == EXPECTED_MODEL_NAME
+    assert final.input_tokens == 20
+    assert final.output_tokens == 3
+    assert final.validator == {
+        "retry_attempted": False,
+        "retry_passed": None,
+        "retry_count": 0,
+        "parsed_constraints": [],
+        "final_validation": {
+            "passed": True,
+            "checks": [],
+            "failures": [],
+            "normalized_response": None,
+        },
+    }
+    assert engine.calls[0][0] == [
+        {"role": "system", "content": "Tested runtime prompt"},
+        {"role": "user", "content": "First question"},
+        {"role": "assistant", "content": "First answer"},
+        {"role": "user", "content": "Now answer normally"},
+    ]
+    assert engine.cancel_events == [cancel_event]
+    assert factory_calls == [(_runtime_config().model, 3407)]
+
+
+def test_constrained_runtime_stream_hides_failed_candidate_and_emits_only_validated_final() -> None:
+    failed_candidate = "LEAKED FAILED CANDIDATE TEXT"
+    generator, engine, _ = _generator_with_engine(
+        [
+            GenerationOutput(failed_candidate, input_tokens=10, output_tokens=3),
+            GenerationOutput("One two three", input_tokens=12, output_tokens=3),
+        ]
+    )
+
+    stream_items = list(
+        generator.stream_response(
+            [GenerationMessage(role="user", content="Answer in exactly 3 words.")],
+            cancel_event=threading.Event(),
+        )
+    )
+
+    deltas = [
+        item.delta for item in stream_items if isinstance(item, ChatGenerationDelta)
+    ]
+    final_results = [
+        item for item in stream_items if isinstance(item, ChatGenerationResult)
+    ]
+    assert len(engine.calls) == 2
+    assert deltas == ["One two three"]
+    assert len(final_results) == 1
+    final = final_results[0]
+    assert "".join(deltas) == final.response == "One two three"
+    assert failed_candidate not in repr(stream_items)
+    assert final.input_tokens == 22
+    assert final.output_tokens == 6
+    assert final.validator["retry_attempted"] is True
+    assert final.validator["retry_passed"] is True
+    assert final.validator["retry_count"] == 1
+    assert final.validator["final_validation"]["passed"] is True
+
+
+def test_constrained_runtime_disconnect_cancels_buffered_candidate_before_retry() -> None:
+    class CancellingStreamingEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate_detailed_stream(
+            self,
+            _messages,
+            _generation_config,
+            *,
+            cancel_event,
+        ):
+            self.calls += 1
+            yield "failed candidate"
+            cancel_event.set()
+            yield GenerationOutput("failed candidate", 10, 2)
+
+    engine = CancellingStreamingEngine()
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    cancel_event = threading.Event()
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        list(
+            generator.stream_response(
+                [GenerationMessage(role="user", content="Answer in exactly 3 words.")],
+                cancel_event=cancel_event,
+            )
+        )
+
+    assert cancel_event.is_set() is True
+    assert engine.calls == 1
+
+
+def test_streaming_gpu_generation_remains_serialized_across_threads() -> None:
+    class ConcurrentStreamingEngine:
+        def __init__(self) -> None:
+            self.active = 0
+            self.maximum_active = 0
+            self.lock = threading.Lock()
+
+        def generate_detailed_stream(
+            self,
+            _messages,
+            _generation_config,
+            *,
+            cancel_event,
+        ):
+            assert cancel_event.is_set() is False
+            with self.lock:
+                self.active += 1
+                self.maximum_active = max(self.maximum_active, self.active)
+            try:
+                yield "Serialized"
+                time.sleep(0.03)
+                yield " stream"
+                yield GenerationOutput("Serialized stream", 5, 2)
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    engine = ConcurrentStreamingEngine()
+    factory_calls = 0
+
+    def factory(_model_config, _seed):
+        nonlocal factory_calls
+        factory_calls += 1
+        return engine
+
+    generator = TransformersChatGenerator(_runtime_config(), engine_factory=factory)
+    start = threading.Barrier(3)
+
+    def generate(message: str):
+        start.wait()
+        return list(
+            generator.stream_response(
+                [GenerationMessage(role="user", content=message)],
+                cancel_event=threading.Event(),
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(generate, message) for message in ("One", "Two")]
+        start.wait()
+        results = [future.result(timeout=2) for future in futures]
+
+    assert [
+        "".join(
+            item.delta for item in result if isinstance(item, ChatGenerationDelta)
+        )
+        for result in results
+    ] == ["Serialized stream", "Serialized stream"]
+    assert factory_calls == 1
+    assert engine.maximum_active == 1
+
+
+def test_transformers_engine_streams_chunks_and_terminal_token_metadata_without_model_load() -> None:
+    class FakeInputIds:
+        shape = (1, 3)
+        device = "cuda:0"
+
+    class FakeBatch(dict):
+        def to(self, device):
+            assert device == "cuda:0"
+            return self
+
+    class FakeCompletionIds:
+        shape = (1, 2)
+
+    class FakeGenerated:
+        def __getitem__(self, item):
+            assert item == (slice(None), slice(3, None))
+            return FakeCompletionIds()
+
+    class FakeTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            assert messages == [
+                {"role": "system", "content": "System instruction"},
+                {"role": "user", "content": "Prompt"},
+            ]
+            assert kwargs == {
+                "tokenize": False,
+                "add_generation_prompt": True,
+                "enable_thinking": False,
+            }
+            return "rendered prompt"
+
+        def __call__(self, prompt, **kwargs):
+            assert prompt == "rendered prompt"
+            assert kwargs == {"return_tensors": "pt"}
+            return FakeBatch(input_ids=FakeInputIds())
+
+    stream_end_sentinel = object()
+    streamer_calls = []
+
+    class FakeStreamer:
+        def __init__(self, tokenizer, **kwargs):
+            assert isinstance(tokenizer, FakeTokenizer)
+            streamer_calls.append(kwargs)
+            self.items: queue.Queue[object] = queue.Queue()
+
+        def __iter__(self):
+            while True:
+                item = self.items.get(timeout=1)
+                if item is stream_end_sentinel:
+                    return
+                yield item
+
+        def on_finalized_text(self, text, *, stream_end: bool):
+            if text:
+                self.items.put(text)
+            if stream_end:
+                self.items.put(stream_end_sentinel)
+
+    class FakeStoppingCriteria:
+        pass
+
+    class FakeStoppingCriteriaList(list):
+        pass
+
+    class InferenceMode:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeTorch:
+        bool = "bool"
+
+        @staticmethod
+        def inference_mode():
+            return InferenceMode()
+
+        @staticmethod
+        def full(shape, value, *, dtype, device):
+            assert shape == (1,)
+            assert dtype == "bool"
+            assert device == "cuda:0"
+            return value
+
+    generation_calls = []
+
+    class FakeModel:
+        device = "cuda:0"
+
+        def generate(self, **kwargs):
+            generation_calls.append(kwargs)
+            streamer = kwargs["streamer"]
+            stopping_criteria = kwargs["stopping_criteria"]
+            assert len(stopping_criteria) == 1
+            assert stopping_criteria[0](FakeInputIds(), None) is False
+            streamer.on_finalized_text("Stream", stream_end=False)
+            streamer.on_finalized_text(" output", stream_end=True)
+            return FakeGenerated()
+
+    engine = object.__new__(TransformersGenerator)
+    engine.tokenizer = FakeTokenizer()
+    engine.model = FakeModel()
+    engine.torch = FakeTorch()
+    engine.StoppingCriteria = FakeStoppingCriteria
+    engine.StoppingCriteriaList = FakeStoppingCriteriaList
+    engine.TextIteratorStreamer = FakeStreamer
+
+    stream_items = list(
+        engine.generate_detailed_stream(
+            [
+                {"role": "system", "content": "System instruction"},
+                {"role": "user", "content": "Prompt"},
+            ],
+            {
+                "max_new_tokens": 32,
+                "enable_thinking": False,
+                "do_sample": False,
+                "repetition_penalty": 1.15,
+            },
+            cancel_event=threading.Event(),
+        )
+    )
+
+    assert stream_items == [
+        "Stream",
+        " output",
+        GenerationOutput("Stream output", input_tokens=3, output_tokens=2),
+    ]
+    assert streamer_calls == [
+        {
+            "skip_prompt": True,
+            "skip_special_tokens": True,
+            "clean_up_tokenization_spaces": False,
+        }
+    ]
+    assert len(generation_calls) == 1
+    generation_kwargs = generation_calls[0]
+    assert isinstance(generation_kwargs["input_ids"], FakeInputIds)
+    assert generation_kwargs["max_new_tokens"] == 32
+    assert generation_kwargs["do_sample"] is False
+    assert generation_kwargs["use_cache"] is True
+    assert generation_kwargs["repetition_penalty"] == 1.15
