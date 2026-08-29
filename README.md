@@ -3,6 +3,9 @@
 AmitAI is a personal-assistant evaluation and optional LoRA project built around
 **OBLITERATUS/Qwen3.8-27B-OBLITERATED V3**.
 
+The repository also includes a small persistent chat API whose generator is mocked until the
+real runtime orchestration layer is ready.
+
 ## v0 goal
 
 Measure the untouched base model first. Train a text-only BF16 LoRA adapter only if the
@@ -32,6 +35,7 @@ through `AutoModelForCausalLM`. This does not change the `FastVisionModel` train
 ```text
 amitai/
 ├── configs/                  # behavior + training configs
+├── backend/                  # FastAPI + SQLite persistent chat foundation
 ├── data/
 │   ├── raw/
 │   ├── sft/                  # SFT JSONL
@@ -88,6 +92,25 @@ python -m training.validate_dataset
 ```
 
 Local tests do not load the 27B checkpoint.
+
+### Persistent chat backend
+
+Install the development dependencies and start the local API:
+
+```bash
+pip install -e '.[dev]'
+uvicorn backend.app:app --reload
+```
+
+The API stores local conversations in `amitai.db` by default and currently returns a deterministic
+mock assistant response. Run all backend, evaluation, and dataset tests with:
+
+```bash
+pytest --basetemp .pytest_tmp
+```
+
+The mock generator is isolated behind the chat service so a later AmitAI orchestration layer can
+replace it without changing the frontend-facing API contract.
 
 ## Run the base-model evaluation
 

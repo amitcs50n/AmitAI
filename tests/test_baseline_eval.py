@@ -194,7 +194,13 @@ def test_cli_unknown_id_exits_nonzero_before_model_loading() -> None:
 def test_project_install_discovers_only_python_packages() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
 
-    assert project["tool"]["setuptools"]["packages"] == ["evaluation", "training"]
+    assert project["tool"]["setuptools"]["packages"] == [
+        "backend",
+        "evaluation",
+        "training",
+    ]
+    assert "fastapi>=0.115,<1" in project["project"]["dependencies"]
+    assert "sqlalchemy>=2.0,<3" in project["project"]["dependencies"]
     assert "transformers>=5.2,<6" in project["project"]["optional-dependencies"]["eval"]
     assert "transformers>=5.2,<6" in project["project"]["optional-dependencies"]["train"]
 

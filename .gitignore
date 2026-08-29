@@ -2,8 +2,14 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest_tmp/
 .venv/
 venv/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
 
 # Secrets / env
 .env
