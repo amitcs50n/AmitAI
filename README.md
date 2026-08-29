@@ -47,6 +47,7 @@ amitai/
 │   ├── hf_backend.py        # Qwen3.5 Hugging Face inference backend
 │   ├── run_baseline.py      # resumable base-model generation
 │   └── summarize.py         # manual-review aggregation
+├── frontend/                # Next.js Aevon chat experience
 ├── training/
 │   ├── data.py
 │   ├── train_qlora.py
@@ -111,6 +112,25 @@ pytest --basetemp .pytest_tmp
 
 The mock generator is isolated behind the chat service so a later AmitAI orchestration layer can
 replace it without changing the frontend-facing API contract.
+
+### Frontend development
+
+AmitAI remains the project and backend identity; Aevon is the user-facing assistant shown by the
+frontend. Run the two development servers separately:
+
+```bash
+# Terminal 1, from the repository root
+uvicorn backend.app:app --reload
+
+# Terminal 2
+cd frontend
+npm install
+npm run dev
+```
+
+Open the local Next.js address printed in Terminal 2. The development server proxies relative
+`/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default, so browser code
+does not need a separate CORS configuration.
 
 ## Run the base-model evaluation
 
