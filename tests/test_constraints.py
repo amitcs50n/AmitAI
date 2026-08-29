@@ -56,24 +56,104 @@ def test_parse_constraints_accepts_only_supported_explicit_shapes() -> None:
 
 
 @pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("Use exactly five words.", [{"type": "exact_words", "count": 5}]),
+        ("Use exactly five bullets.", [{"type": "exact_bullets", "count": 5}]),
+        ("Use at most five bullets.", [{"type": "at_most_bullets", "count": 5}]),
+        ("Write exactly ninety words.", [{"type": "exact_words", "count": 90}]),
+        ("Use exactly twenty-five words.", [{"type": "exact_words", "count": 25}]),
+        ("Use exactly twenty five words.", [{"type": "exact_words", "count": 25}]),
+        ("Use exactly one hundred words.", [{"type": "exact_words", "count": 100}]),
+    ],
+)
+def test_parse_constraints_supports_written_integer_counts(
+    prompt: str,
+    expected: list[dict],
+) -> None:
+    assert parse_constraints(prompt) == expected
+
+
+def test_written_integer_vocabulary_covers_zero_through_one_hundred() -> None:
+    written_counts = {
+        "zero": 0,
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+        "eleven": 11,
+        "twelve": 12,
+        "thirteen": 13,
+        "fourteen": 14,
+        "fifteen": 15,
+        "sixteen": 16,
+        "seventeen": 17,
+        "eighteen": 18,
+        "nineteen": 19,
+        "twenty": 20,
+        "thirty": 30,
+        "forty": 40,
+        "fifty": 50,
+        "sixty": 60,
+        "seventy": 70,
+        "eighty": 80,
+        "ninety": 90,
+        "ninety-nine": 99,
+        "one hundred": 100,
+    }
+
+    for written, count in written_counts.items():
+        assert parse_constraints(f"Use exactly {written} words.") == [
+            {"type": "exact_words", "count": count}
+        ]
+
+
+def test_written_and_digit_counts_deduplicate_after_normalization() -> None:
+    assert parse_constraints("Exactly five words; exactly 5 words.") == [
+        {"type": "exact_words", "count": 5}
+    ]
+
+
+@pytest.mark.parametrize(
     "prompt",
     [
         "I had three interviews.",
+        "Give me five ideas.",
         "Give me a few ideas.",
         "Give me one dinner idea.",
         "Keep it short.",
         "Do not return code only.",
         "Do not use exactly 90 words.",
-        "Use exactly five words.",
+        "Do not use exactly five words.",
+        "Do not answer in exactly ninety words.",
         "Use exactly 3 sentences.",
+        "Write five sentences.",
         "Give me one bullet.",
+        "Use a few bullets.",
+        "Use exactly a hundred words.",
+        "Use exactly fifth word.",
+        "Use exactly one hundred and five words.",
+        "Use exactly twenty and five words.",
+        "Use exactly ninety-first words.",
+        "Use exactly one-and-twenty words.",
+        "Use exactly IV words.",
+        "Use exactly 2.5 words.",
         'Discuss the phrase "exactly 90 words".',
+        'Discuss the phrase "exactly five words".',
+        'Explain "at most five bullets".',
         'Explain the phrase "return code only".',
         'Explain the instruction "Please answer in exactly 90 words about cats".',
         'Discuss "Return code only when using this API".',
         "Explain 'Please answer in exactly 90 words about cats'.",
         "Discuss `Return code only when using this API`.",
         'Explain the malformed instruction "exactly 90 words.',
+        "Explain the malformed instruction 'exactly five words.",
     ],
 )
 def test_vague_or_negated_language_does_not_trigger_constraints(prompt: str) -> None:
@@ -348,11 +428,130 @@ def test_failing_response_gets_one_successful_retry_with_complete_prompt() -> No
         "Validation failure:\nExpected exactly 3 words, but the answer contained 2 words."
         in retry_prompt
     )
+    assert "contains 2 whitespace-separated words" in retry_prompt
+    assert "required total is exactly 3 words" in retry_prompt
+    assert "1 word short" in retry_prompt
+    assert "add exactly 1 word" in retry_prompt
+    assert "Count words exactly as whitespace-separated tokens" in retry_prompt
+    assert "Edit the previous answer minimally" in retry_prompt
+    assert "Do not rewrite it from scratch unless unavoidable" in retry_prompt
+    assert "internally recount using whitespace-separated tokens" in retry_prompt
+    assert "Preserve the original content, tone, and task requirements" in retry_prompt
     assert retry_prompt.endswith("Output only the corrected answer.")
+    assert result["original_user_prompt"] == "Answer in exactly 3 words."
+    assert result["original_response"] == "Only two"
+    assert result["parsed_constraints"] == [{"type": "exact_words", "count": 3}]
+    assert result["first_validation"]["checks"][0]["actual"] == 2
     assert result["retry_happened"] is True
+    assert result["retry_reason"] == (
+        "Expected exactly 3 words, but the answer contained 2 words."
+    )
+    assert result["retry_prompt"] == retry_prompt
+    assert result["retry_response"] == "One two three"
     assert result["retry_passed"] is True
     assert result["second_validation"]["passed"] is True
     assert result["final_response"] == "One two three"
+
+
+@pytest.mark.parametrize(
+    ("actual", "direction", "edit"),
+    [
+        (72, "18 words short", "add exactly 18 words"),
+        (104, "14 words too long", "remove exactly 14 words"),
+    ],
+)
+def test_exact_word_retry_prompt_uses_measured_direction_and_delta(
+    actual: int,
+    direction: str,
+    edit: str,
+) -> None:
+    response = " ".join(f"word{index}" for index in range(actual))
+    validation = validate_response(
+        response,
+        [{"type": "exact_words", "count": 90}],
+    )
+
+    retry_prompt = build_retry_prompt(
+        "Write exactly 90 words.",
+        response,
+        validation,
+    )
+
+    assert f"contains {actual} whitespace-separated words" in retry_prompt
+    assert "required total is exactly 90 words" in retry_prompt
+    assert direction in retry_prompt
+    assert edit in retry_prompt
+    assert "Count words exactly as whitespace-separated tokens" in retry_prompt
+    assert "Edit the previous answer minimally" in retry_prompt
+    assert "Do not rewrite it from scratch unless unavoidable" in retry_prompt
+    assert "internally recount using whitespace-separated tokens" in retry_prompt
+    assert retry_prompt.endswith("Output only the corrected answer.")
+
+
+@pytest.mark.parametrize(
+    ("actual", "direction", "edit", "preservation"),
+    [
+        (
+            3,
+            "2 bullets short",
+            "add exactly 2 bullets",
+            "Preserve the original task and content",
+        ),
+        (
+            7,
+            "2 excess bullets",
+            "remove exactly 2 bullets",
+            "Preserve the strongest relevant content",
+        ),
+    ],
+)
+def test_exact_bullet_retry_prompt_uses_measured_direction_and_delta(
+    actual: int,
+    direction: str,
+    edit: str,
+    preservation: str,
+) -> None:
+    response = "\n".join(f"- item {index}" for index in range(actual))
+    validation = validate_response(
+        response,
+        [{"type": "exact_bullets", "count": 5}],
+    )
+
+    retry_prompt = build_retry_prompt(
+        "Use exactly 5 bullets.",
+        response,
+        validation,
+    )
+
+    assert f"contains {actual} Markdown list-item bullets" in retry_prompt
+    assert "required total is exactly 5 bullets" in retry_prompt
+    assert direction in retry_prompt
+    assert edit in retry_prompt
+    assert preservation in retry_prompt
+    assert "Do not invent unnecessary services or details" in retry_prompt
+    assert "internally recount the Markdown list-item bullets" in retry_prompt
+
+
+def test_at_most_bullet_retry_prompt_states_limit_and_excess() -> None:
+    response = "\n".join(f"- item {index}" for index in range(7))
+    validation = validate_response(
+        response,
+        [{"type": "at_most_bullets", "count": 5}],
+    )
+
+    retry_prompt = build_retry_prompt(
+        "Use at most 5 bullets.",
+        response,
+        validation,
+    )
+
+    assert "contains 7 Markdown list-item bullets" in retry_prompt
+    assert "maximum allowed total is 5 bullets" in retry_prompt
+    assert "2 excess bullets" in retry_prompt
+    assert "remove exactly 2 bullets" in retry_prompt
+    assert "final count is no more than 5" in retry_prompt
+    assert "Preserve the most important content" in retry_prompt
+    assert "Do not invent unnecessary services or details" in retry_prompt
 
 
 def test_failed_retry_stops_and_retry_response_is_still_final() -> None:

@@ -182,8 +182,9 @@ and `code only` / `return code only` instructions. Passing responses stay unchan
 valid outer code fences; normalized inner code is validation metadata only. A mechanical failure
 gets exactly one corrective generation containing the original request, previous response, and
 measured miss. The retry becomes the final response even if it still fails, and both attempts
-plus validation results remain in the response and review artifacts. Sentence counts,
-spelled-out numeric limits, semantic "one item" checks, and subjective scoring are intentionally
+plus validation results remain in the response and review artifacts. Supported count limits may
+use digits or deterministic written integers from zero through one hundred; sentence counts,
+other written-number forms, semantic "one item" checks, and subjective scoring are intentionally
 excluded.
 Unfenced output is accepted as mechanically unverified rather than classified as code or prose.
 

@@ -12,18 +12,71 @@ SUPPORTED_CONSTRAINT_TYPES = (
     "code_only",
 )
 
+_WRITTEN_SMALL_NUMBERS = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+}
+_WRITTEN_TENS = {
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
+_WRITTEN_UNIT_PATTERN = "|".join(
+    word for word, value in _WRITTEN_SMALL_NUMBERS.items() if 1 <= value <= 9
+)
+_WRITTEN_SMALL_PATTERN = "|".join(_WRITTEN_SMALL_NUMBERS)
+_WRITTEN_TENS_PATTERN = "|".join(_WRITTEN_TENS)
+_WRITTEN_COUNT_PATTERN = (
+    rf"(?:one[ \t]+hundred|"
+    rf"(?:{_WRITTEN_TENS_PATTERN})(?:(?:[ \t]+|-)(?:{_WRITTEN_UNIT_PATTERN}))?|"
+    rf"(?:{_WRITTEN_SMALL_PATTERN}))"
+)
+_COUNT_TOKEN_PATTERN = rf"(?:[0-9]+|{_WRITTEN_COUNT_PATTERN})"
+
 _COUNT_PATTERNS = (
     (
         "exact_words",
-        re.compile(r"\bexactly[ \t]+(?P<count>[0-9]+)[ \t]+words?\b", re.IGNORECASE),
+        re.compile(
+            rf"\bexactly[ \t]+(?P<count>{_COUNT_TOKEN_PATTERN})[ \t]+words?\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "exact_bullets",
-        re.compile(r"\bexactly[ \t]+(?P<count>[0-9]+)[ \t]+bullets?\b", re.IGNORECASE),
+        re.compile(
+            rf"\bexactly[ \t]+(?P<count>{_COUNT_TOKEN_PATTERN})[ \t]+bullets?\b",
+            re.IGNORECASE,
+        ),
     ),
     (
         "at_most_bullets",
-        re.compile(r"\bat[ \t]+most[ \t]+(?P<count>[0-9]+)[ \t]+bullets?\b", re.IGNORECASE),
+        re.compile(
+            rf"\bat[ \t]+most[ \t]+(?P<count>{_COUNT_TOKEN_PATTERN})[ \t]+bullets?\b",
+            re.IGNORECASE,
+        ),
     ),
 )
 _CODE_ONLY_PATTERN = re.compile(
@@ -96,6 +149,22 @@ def _is_metalinguistic(prompt: str, start: int) -> bool:
     return _METALINGUISTIC_PATTERN.search(prefix) is not None
 
 
+def _parse_count(value: str) -> int:
+    if value.isdigit():
+        return int(value)
+
+    normalized = re.sub(r"[ \t]+", " ", value.lower().replace("-", " ")).strip()
+    if normalized == "one hundred":
+        return 100
+    if normalized in _WRITTEN_SMALL_NUMBERS:
+        return _WRITTEN_SMALL_NUMBERS[normalized]
+    if normalized in _WRITTEN_TENS:
+        return _WRITTEN_TENS[normalized]
+
+    tens, unit = normalized.split(" ")
+    return _WRITTEN_TENS[tens] + _WRITTEN_SMALL_NUMBERS[unit]
+
+
 def parse_constraints(prompt: str) -> list[dict[str, Any]]:
     """Parse only the explicitly supported mechanical constraint shapes."""
 
@@ -111,7 +180,10 @@ def parse_constraints(prompt: str) -> list[dict[str, Any]]:
             matches.append(
                 (
                     match.start(),
-                    {"type": constraint_type, "count": int(match.group("count"))},
+                    {
+                        "type": constraint_type,
+                        "count": _parse_count(match.group("count")),
+                    },
                 )
             )
 
@@ -252,6 +324,107 @@ def validate_response(
     }
 
 
+def _build_count_retry_guidance(check: Any) -> str | None:
+    if not isinstance(check, dict) or check.get("passed") is not False:
+        return None
+    constraint = check.get("constraint")
+    actual = check.get("actual")
+    if not isinstance(constraint, dict) or not isinstance(actual, int):
+        return None
+    expected = constraint.get("count")
+    if not isinstance(expected, int):
+        return None
+
+    constraint_type = constraint.get("type")
+    if constraint_type == "exact_words" and actual != expected:
+        difference = abs(expected - actual)
+        difference_unit = "word" if difference == 1 else "words"
+        if actual < expected:
+            direction = f"The answer is {difference} {difference_unit} short."
+            edit = (
+                f"Edit the previous answer minimally and add exactly {difference} "
+                f"{difference_unit}."
+            )
+        else:
+            direction = f"The answer is {difference} {difference_unit} too long."
+            edit = (
+                f"Edit the previous answer minimally and remove exactly {difference} "
+                f"{difference_unit}."
+            )
+        return "\n".join(
+            [
+                f"The previous answer contains {actual} whitespace-separated words.",
+                f"The required total is exactly {expected} words.",
+                direction,
+                "Count words exactly as whitespace-separated tokens.",
+                edit,
+                "Do not rewrite it from scratch unless unavoidable.",
+                (
+                    "Before returning, internally recount using whitespace-separated "
+                    f"tokens and ensure the final total is exactly {expected} words."
+                ),
+            ]
+        )
+
+    if constraint_type == "exact_bullets" and actual != expected:
+        difference = abs(expected - actual)
+        difference_unit = "bullet" if difference == 1 else "bullets"
+        if actual < expected:
+            direction = f"The answer is {difference} {difference_unit} short."
+            edit = (
+                f"Edit the previous answer minimally and add exactly {difference} "
+                f"{difference_unit}."
+            )
+            preservation = "Preserve the original task and content."
+        else:
+            direction = f"The answer has {difference} excess {difference_unit}."
+            edit = (
+                f"Edit the previous answer minimally and remove exactly {difference} "
+                f"{difference_unit}."
+            )
+            preservation = "Preserve the strongest relevant content."
+        return "\n".join(
+            [
+                f"The previous answer contains {actual} Markdown list-item bullets.",
+                f"The required total is exactly {expected} bullets.",
+                direction,
+                edit,
+                preservation,
+                (
+                    "Do not invent unnecessary services or details merely to fill the "
+                    "bullet count."
+                ),
+                (
+                    "Before returning, internally recount the Markdown list-item bullets "
+                    f"and ensure the final total is exactly {expected}."
+                ),
+            ]
+        )
+
+    if constraint_type == "at_most_bullets" and actual > expected:
+        difference = actual - expected
+        difference_unit = "bullet" if difference == 1 else "bullets"
+        return "\n".join(
+            [
+                f"The previous answer contains {actual} Markdown list-item bullets.",
+                f"The maximum allowed total is {expected} bullets.",
+                f"The answer has {difference} excess {difference_unit}.",
+                (
+                    f"Edit the previous answer minimally and remove exactly {difference} "
+                    f"{difference_unit} so the final count is no more than {expected}."
+                ),
+                "Preserve the most important content.",
+                "Do not invent unnecessary services or details.",
+                (
+                    "Before returning, internally recount the Markdown list-item bullets "
+                    f"and ensure the final total is no more than {expected}."
+                ),
+            ]
+        )
+
+    return None
+
+
 def build_retry_prompt(
     original_prompt: str,
     previous_response: str,
@@ -261,6 +434,21 @@ def build_retry_prompt(
     if not isinstance(failures, list) or not failures:
         raise ValueError("A corrective retry requires at least one validation failure")
     measured_failure = "\n".join(str(failure) for failure in failures)
+    checks = validation_result.get("checks")
+    count_guidance = (
+        [
+            guidance
+            for check in checks
+            if (guidance := _build_count_retry_guidance(check)) is not None
+        ]
+        if isinstance(checks, list)
+        else []
+    )
+    directional_guidance = (
+        "\n\nCount-aware correction:\n" + "\n\n".join(count_guidance) + "\n"
+        if count_guidance
+        else "\n"
+    )
     return (
         "Original user request:\n"
         f"{original_prompt}\n\n"
@@ -268,7 +456,8 @@ def build_retry_prompt(
         f"{previous_response}\n\n"
         "Validation failure:\n"
         f"{measured_failure}\n\n"
-        "Rewrite the answer so it satisfies the original request and the measured constraint.\n"
+        "Rewrite the answer so it satisfies the original request and the measured constraint."
+        f"{directional_guidance}"
         "Preserve the original content, tone, and task requirements as much as possible.\n"
         "Output only the corrected answer."
     )
