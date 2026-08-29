@@ -31,6 +31,14 @@ class ConversationRepository:
     def get(self, conversation_id: str) -> Conversation | None:
         return self.session.get(Conversation, conversation_id)
 
+    def get_fresh(self, conversation_id: str) -> Conversation | None:
+        statement = (
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+            .execution_options(populate_existing=True)
+        )
+        return self.session.scalar(statement)
+
     def get_with_messages(self, conversation_id: str) -> Conversation | None:
         statement = (
             select(Conversation)

@@ -6,9 +6,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from backend.app import create_app
-from backend.chat_service import ChatGenerationResult
+from backend.chat_service import (
+    ChatGenerationResult,
+    ChatService,
+    ConversationNotFoundError,
+)
+from backend.database import Database
 from backend.models import Conversation, Message, MessageMetadata
-from backend.repositories import MessageRepository
+from backend.repositories import ConversationRepository, MessageRepository
 
 
 def _database_url(path: Path) -> str:
@@ -134,6 +139,75 @@ def test_invalid_generator_metadata_rolls_back_before_response_validation(
         assert _counts(application) == (0, 0, 0)
 
 
+def test_existing_conversation_generation_runs_outside_a_transaction(
+    tmp_path: Path,
+) -> None:
+    database = Database.from_url(_database_url(tmp_path / "transaction.sqlite3"))
+    database.create_schema()
+    try:
+        with database.session_factory() as session:
+            with session.begin():
+                conversation = ConversationRepository(session).create("Existing")
+                conversation_id = conversation.id
+
+            def asserting_generator(messages):
+                assert session.in_transaction() is False
+                assert [item.content for item in messages] == ["Next question"]
+                return ChatGenerationResult(response="Generated outside SQL")
+
+            result = ChatService(session, generator=asserting_generator).chat(
+                conversation_id=conversation_id,
+                message="Next question",
+            )
+
+            assert result.response == "Generated outside SQL"
+            assert session.in_transaction() is False
+            assert [
+                item.content
+                for item in MessageRepository(session).list_for_conversation(
+                    conversation_id
+                )
+            ] == ["Next question", "Generated outside SQL"]
+    finally:
+        database.engine.dispose()
+
+
+def test_existing_conversation_is_freshly_refetched_before_persistence(
+    tmp_path: Path,
+) -> None:
+    database = Database.from_url(_database_url(tmp_path / "deleted-during-generation.sqlite3"))
+    database.create_schema()
+    try:
+        with database.session_factory() as session:
+            with session.begin():
+                conversation = ConversationRepository(session).create("Delete during generation")
+                conversation_id = conversation.id
+
+            def deleting_generator(_messages):
+                assert session.in_transaction() is False
+                with database.session_factory() as other_session, other_session.begin():
+                    other_conversation = ConversationRepository(other_session).get(
+                        conversation_id
+                    )
+                    assert other_conversation is not None
+                    ConversationRepository(other_session).delete(other_conversation)
+                return ChatGenerationResult(response="Must not persist")
+
+            with pytest.raises(ConversationNotFoundError):
+                ChatService(session, generator=deleting_generator).chat(
+                    conversation_id=conversation_id,
+                    message="Race with deletion",
+                )
+
+        with database.session_factory() as verification_session:
+            assert ConversationRepository(verification_session).get(conversation_id) is None
+            assert MessageRepository(verification_session).list_for_conversation(
+                conversation_id
+            ) == []
+    finally:
+        database.engine.dispose()
+
+
 def test_repository_rejects_invalid_roles_before_persistence(tmp_path: Path) -> None:
     application = create_app(_database_url(tmp_path / "roles.sqlite3"))
 
@@ -154,7 +228,15 @@ def test_repository_rejects_invalid_roles_before_persistence(tmp_path: Path) -> 
 
 
 def test_backend_has_no_model_runtime_imports() -> None:
-    forbidden_roots = {"transformers", "torch", "unsloth", "peft", "bitsandbytes"}
+    forbidden_roots = {
+        "transformers",
+        "torch",
+        "unsloth",
+        "peft",
+        "bitsandbytes",
+        "evaluation",
+        "runtime",
+    }
     imported_roots: set[str] = set()
 
     for path in Path("backend").glob("*.py"):

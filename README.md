@@ -3,8 +3,8 @@
 AmitAI is a personal-assistant evaluation and optional LoRA project built around
 **OBLITERATUS/Qwen3.8-27B-OBLITERATED V3**.
 
-The repository also includes a small persistent chat API whose generator is mocked until the
-real runtime orchestration layer is ready.
+The repository also includes a persistent chat API with a safe mock default and an explicitly
+selected real Hugging Face runtime for the tested 27B checkpoint.
 
 ## v0 goal
 
@@ -48,6 +48,7 @@ amitai/
 │   ├── run_baseline.py      # resumable base-model generation
 │   └── summarize.py         # manual-review aggregation
 ├── frontend/                # Next.js Aevon chat experience
+├── runtime/                 # mock/transformers runtime selection + chat adapter
 ├── training/
 │   ├── data.py
 │   ├── train_qlora.py
@@ -110,8 +111,36 @@ mock assistant response. Run all backend, evaluation, and dataset tests with:
 pytest --basetemp .pytest_tmp
 ```
 
-The mock generator is isolated behind the chat service so a later AmitAI orchestration layer can
-replace it without changing the frontend-facing API contract.
+The mock generator remains isolated behind the chat service. The real runtime uses the same
+frontend-facing API contract without making ordinary local development load model weights.
+
+### Real GPU runtime
+
+Use the CUDA/PyTorch environment supplied by the GPU host. The runtime extra intentionally does
+not install or replace PyTorch:
+
+```bash
+pip install -e '.[runtime]'
+export HF_HOME=/workspace/hf
+export HF_HUB_CACHE=/workspace/hf/hub
+export AMITAI_GENERATOR=transformers
+export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
+
+uvicorn runtime.app:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --workers 1
+```
+
+Do **not** use `--reload` or multiple Uvicorn workers with the 27B runtime: either can load
+another roughly 55 GB model copy. The default `AMITAI_GENERATOR=mock` remains safe for local
+development. The transformers mode lazily loads one model per process on the first chat request,
+then reuses it while serializing GPU generation calls.
+
+The real path loads its system prompt, pinned model revision, BF16 settings, generation settings,
+and mechanical-validator flag directly from the selected runtime YAML. To point the existing
+frontend proxy at a deployed GPU API, set `AMITAI_API_ORIGIN` in the frontend server environment;
+do not commit a RunPod URL or credentials.
 
 ### Frontend development
 
@@ -273,14 +302,8 @@ text-only Unsloth fine-tunes having vLLM/tokenizer/export issues. v0 therefore s
 adapter first and leaves merged-model export disabled by default. We will validate the exact
 Unsloth/vLLM versions on the RunPod image before relying on merged export.
 
-## Next milestone
+## Current direction
 
-Do not train the eight placeholder examples. They only validate the pipeline/schema.
-
-The next real task is the base checkpoint evaluation:
-
-1. Run the 20 held-out prompts against the untouched base.
-2. Complete the manual review and generate `summary.json`.
-3. If the baseline meets the gate, stop and use prompting/runtime controls.
-4. If it misses, finish SFT v1 around the measured gaps, run a tiny smoke train, and compare
-   the adapter against this saved baseline.
+The tested prompt and bounded mechanical validator now have a real runtime path behind the
+persistent chat API. Keep the placeholder SFT data untrained; streaming, tools, memory, vLLM,
+and LoRA remain separate later milestones.

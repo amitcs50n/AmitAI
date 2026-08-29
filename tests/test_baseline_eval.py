@@ -18,7 +18,7 @@ from evaluation.baseline import (
     validate_reviews_against_cases,
     validate_reviews_against_responses,
 )
-from evaluation.hf_backend import TransformersGenerator
+from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 from evaluation.run_baseline import load_config, run, select_eval_cases
 from evaluation.summarize import summarize_run
 
@@ -26,11 +26,15 @@ from evaluation.summarize import summarize_run
 EVAL_PATH = Path("eval/behavior_v1.jsonl")
 BASELINE_CONFIG_PATH = Path("configs/baseline_eval.yaml")
 BASELINE_V2_CONFIG_PATH = Path("configs/baseline_eval_v2.yaml")
+CONSTRAINED_CONFIG_PATH = Path("configs/baseline_eval_v2_constrained.yaml")
 TRAINING_CONFIG_PATH = Path("configs/qlora_sft.yaml")
 SPEC_PATH = Path("configs/amitai_spec_v1.yaml")
 SFT_PLAN_PATH = Path("configs/sft_v1_dataset_plan.yaml")
 BASELINE_V1_NORMALIZED_SHA256 = (
     "11026d34398165b8810ec125fe1d107880d571165ab94e302965ce719b99bfee"
+)
+CONSTRAINED_NORMALIZED_SHA256 = (
+    "f2f437e3adafb31b3974e0a78c4f5f7fd1d298e45a18b1d8770233d42663a2bd"
 )
 
 
@@ -197,12 +201,29 @@ def test_project_install_discovers_only_python_packages() -> None:
     assert project["tool"]["setuptools"]["packages"] == [
         "backend",
         "evaluation",
+        "runtime",
         "training",
     ]
     assert "fastapi>=0.115,<1" in project["project"]["dependencies"]
     assert "sqlalchemy>=2.0,<3" in project["project"]["dependencies"]
     assert "transformers>=5.2,<6" in project["project"]["optional-dependencies"]["eval"]
+    runtime_dependencies = project["project"]["optional-dependencies"]["runtime"]
+    assert "transformers>=5.2,<6" in runtime_dependencies
+    assert "accelerate" in runtime_dependencies
+    assert "sentencepiece" in runtime_dependencies
+    assert not any(
+        dependency.startswith("torch")
+        for dependency in runtime_dependencies
+    )
     assert "transformers>=5.2,<6" in project["project"]["optional-dependencies"]["train"]
+
+
+def test_constrained_runtime_config_remains_frozen() -> None:
+    normalized_text = CONSTRAINED_CONFIG_PATH.read_text(encoding="utf-8")
+
+    assert hashlib.sha256(normalized_text.encode("utf-8")).hexdigest() == (
+        CONSTRAINED_NORMALIZED_SHA256
+    )
 
 
 def test_generate_case_builds_checkpoint_template_strings_and_review_template() -> None:
@@ -321,10 +342,13 @@ def test_hf_backend_uses_the_text_only_tokenizer_template_path() -> None:
             assert device == "cuda:0"
             return self
 
+    class FakeCompletionIds:
+        shape = (1, 2)
+
     class FakeGenerated:
         def __getitem__(self, item):
             assert item == (slice(None), slice(3, None))
-            return "completion-ids"
+            return FakeCompletionIds()
 
     class FakeTokenizer:
         def apply_chat_template(self, messages, **kwargs):
@@ -345,7 +369,7 @@ def test_hf_backend_uses_the_text_only_tokenizer_template_path() -> None:
             return FakeBatch(input_ids=FakeInputIds())
 
         def batch_decode(self, completion_ids, **kwargs):
-            assert completion_ids == "completion-ids"
+            assert isinstance(completion_ids, FakeCompletionIds)
             assert kwargs == {
                 "skip_special_tokens": True,
                 "clean_up_tokenization_spaces": False,
@@ -396,6 +420,19 @@ def test_hf_backend_uses_the_text_only_tokenizer_template_path() -> None:
     )
 
     assert response == "answer"
+    detailed = backend.generate_detailed(
+        [
+            {"role": "system", "content": "System instruction"},
+            {"role": "user", "content": "Prompt"},
+        ],
+        {
+            "max_new_tokens": 32,
+            "enable_thinking": False,
+            "do_sample": False,
+            "repetition_penalty": 1.15,
+        },
+    )
+    assert detailed == GenerationOutput(text="answer", input_tokens=3, output_tokens=2)
 
 
 def test_load_eval_cases_rejects_duplicate_ids(tmp_path: Path) -> None:

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 
+@dataclass(frozen=True)
+class GenerationOutput:
+    text: str
+    input_tokens: int
+    output_tokens: int
+
+
 class TransformersGenerator:
-    """Lazy Hugging Face backend for text-only Qwen3.5 baseline inference."""
+    """Lazy Hugging Face backend for text-only causal-language-model inference."""
 
     def __init__(self, model_config: dict[str, Any], seed: int) -> None:
         try:
@@ -12,8 +20,9 @@ class TransformersGenerator:
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
-                "Baseline inference dependencies are missing. Install with "
-                "pip install -e '.[eval]' in a CUDA PyTorch environment."
+                "Hugging Face inference dependencies are missing. Install with "
+                "pip install -e '.[eval]' or pip install -e '.[runtime]' in a "
+                "CUDA PyTorch environment."
             ) from exc
 
         if model_config.get("load_in_4bit", False):
@@ -61,6 +70,13 @@ class TransformersGenerator:
         messages: list[dict[str, Any]],
         generation_config: dict[str, Any],
     ) -> str:
+        return self.generate_detailed(messages, generation_config).text
+
+    def generate_detailed(
+        self,
+        messages: list[dict[str, Any]],
+        generation_config: dict[str, Any],
+    ) -> GenerationOutput:
         template_kwargs: dict[str, Any] = {
             "tokenize": False,
             "add_generation_prompt": True,
@@ -94,8 +110,13 @@ class TransformersGenerator:
 
         prompt_length = inputs["input_ids"].shape[1]
         completion_ids = generated[:, prompt_length:]
-        return self.tokenizer.batch_decode(
+        text = self.tokenizer.batch_decode(
             completion_ids,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )[0]
+        return GenerationOutput(
+            text=text,
+            input_tokens=int(prompt_length),
+            output_tokens=int(completion_ids.shape[1]),
+        )

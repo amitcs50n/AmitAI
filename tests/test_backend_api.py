@@ -131,6 +131,8 @@ def test_chat_without_an_id_creates_and_persists_a_conversation(
     assert body["metadata"] == {
         "model": "mock",
         "latency_ms": 0,
+        "input_tokens": None,
+        "output_tokens": None,
         "validator": {"retry_attempted": False, "retry_passed": None},
         "tools": [],
         "memory": [],
@@ -194,6 +196,46 @@ def test_chat_uses_an_existing_conversation_and_passes_ordered_history(
         ]
         assert created_times == sorted(created_times)
         assert len(set(created_times)) == len(created_times)
+
+
+def test_chat_exposes_and_persists_token_and_validator_metadata(tmp_path: Path) -> None:
+    def metadata_generator(_messages):
+        return ChatGenerationResult(
+            response="Real response",
+            model="fake/real-model",
+            latency_ms=42,
+            input_tokens=355,
+            output_tokens=47,
+            validator={
+                "retry_attempted": True,
+                "retry_passed": True,
+                "retry_count": 2,
+                "parsed_constraints": [{"type": "exact_words", "count": 5}],
+                "final_validation": {"passed": True},
+            },
+        )
+
+    application = create_app(
+        _database_url(tmp_path / "metadata.sqlite3"),
+        generator=metadata_generator,
+    )
+    with TestClient(application) as client:
+        response = client.post("/api/chat", json={"message": "Write exactly 5 words."})
+
+        assert response.status_code == 200
+        metadata = response.json()["metadata"]
+        assert metadata["input_tokens"] == 355
+        assert metadata["output_tokens"] == 47
+        assert metadata["validator"]["retry_count"] == 2
+        assert metadata["validator"]["final_validation"] == {"passed": True}
+
+        detail = client.get(
+            f"/api/conversations/{response.json()['conversation_id']}"
+        ).json()
+        persisted = detail["messages"][-1]["metadata"]
+        assert persisted["input_tokens"] == 355
+        assert persisted["output_tokens"] == 47
+        assert persisted["validator"] == metadata["validator"]
 
 
 @pytest.mark.parametrize(

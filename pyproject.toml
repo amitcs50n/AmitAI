@@ -22,6 +22,11 @@ eval = [
     "accelerate",
     "sentencepiece",
 ]
+runtime = [
+    "transformers>=5.2,<6",
+    "accelerate",
+    "sentencepiece",
+]
 train = [
     "unsloth",
     "trl",
@@ -41,7 +46,7 @@ dev = [
 line-length = 100
 
 [tool.setuptools]
-packages = ["backend", "evaluation", "training"]
+packages = ["backend", "evaluation", "runtime", "training"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

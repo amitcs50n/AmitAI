@@ -1,4 +1,4 @@
-"""Transactional chat orchestration with an isolated mock generator."""
+"""Persistent chat orchestration with an isolated generation boundary."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ GenerationCallable = Callable[[Sequence[GenerationMessage]], ChatGenerationResul
 
 
 def generate_response(messages: Sequence[GenerationMessage]) -> ChatGenerationResult:
-    """Default deterministic generator; replace this at the service boundary later."""
+    """Default deterministic generator used when no runtime is explicitly selected."""
 
     del messages
     return ChatGenerationResult(response=MOCK_RESPONSE)
@@ -132,39 +132,56 @@ class ChatService:
 
     def chat(self, *, conversation_id: str | None, message: str) -> ChatResult:
         try:
+            request_timestamp = utc_now()
+            if conversation_id is None:
+                title = _deterministic_title(message)
+                previous_timestamp = request_timestamp
+                generation_messages: list[GenerationMessage] = []
+            else:
+                with self.session.begin():
+                    conversation = self.conversations.get_fresh(conversation_id)
+                    if conversation is None:
+                        raise ConversationNotFoundError(conversation_id)
+                    history = self.messages.list_for_conversation(conversation.id)
+                    previous_timestamp = (
+                        history[-1].created_at if history else conversation.created_at
+                    )
+                    generation_messages = [
+                        GenerationMessage(role=item.role, content=item.content)
+                        for item in history
+                    ]
+
+            user_created_at = _timestamp_after(previous_timestamp)
+            generation_messages.append(GenerationMessage(role="user", content=message))
+            try:
+                generation = self._generate(generation_messages)
+            except Exception as exc:
+                raise ChatGenerationError("Assistant generation failed") from exc
+
+            assistant_created_at = _timestamp_after(user_created_at)
+            conversation_updated_at = _timestamp_after(assistant_created_at)
             with self.session.begin():
                 if conversation_id is None:
-                    conversation = self.conversations.create(_deterministic_title(message))
+                    conversation = self.conversations.create(
+                        title,
+                        now=request_timestamp,
+                    )
                 else:
-                    conversation = self.conversations.get(conversation_id)
+                    conversation = self.conversations.get_fresh(conversation_id)
                     if conversation is None:
                         raise ConversationNotFoundError(conversation_id)
 
-                history = self.messages.list_for_conversation(conversation.id)
-                previous_timestamp = history[-1].created_at if history else None
-                user_message = self.messages.create(
+                self.messages.create(
                     conversation,
                     role="user",
                     content=message,
-                    created_at=_timestamp_after(previous_timestamp),
+                    created_at=user_created_at,
                 )
-                generation_messages = [
-                    GenerationMessage(role=item.role, content=item.content) for item in history
-                ]
-                generation_messages.append(
-                    GenerationMessage(role=user_message.role, content=user_message.content)
-                )
-
-                try:
-                    generation = self._generate(generation_messages)
-                except Exception as exc:
-                    raise ChatGenerationError("Assistant generation failed") from exc
-
                 assistant_message = self.messages.create(
                     conversation,
                     role="assistant",
                     content=generation.response,
-                    created_at=_timestamp_after(user_message.created_at),
+                    created_at=assistant_created_at,
                 )
                 self.messages.add_metadata(
                     assistant_message,
@@ -178,7 +195,7 @@ class ChatService:
                 )
                 self.conversations.touch(
                     conversation,
-                    now=_timestamp_after(assistant_message.created_at),
+                    now=conversation_updated_at,
                 )
 
             return ChatResult(

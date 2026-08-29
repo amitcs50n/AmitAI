@@ -97,6 +97,8 @@ class ChatRequest(BaseModel):
 
 
 class ValidatorMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     retry_attempted: bool
     retry_passed: bool | None
 
@@ -106,6 +108,8 @@ class ChatMetadata(BaseModel):
 
     model: str | None
     latency_ms: int | None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     validator: ValidatorMetadata
     tools: list[Any]
     memory: list[Any]
