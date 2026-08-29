@@ -11,6 +11,7 @@ SUPPORTED_CONSTRAINT_TYPES = (
     "at_most_bullets",
     "code_only",
 )
+MAX_MECHANICAL_RETRIES = 2
 
 _WRITTEN_SMALL_NUMBERS = {
     "zero": 0,
@@ -463,13 +464,24 @@ def build_retry_prompt(
     )
 
 
-def validate_with_one_retry(
+def validate_with_bounded_retries(
     original_prompt: str,
     original_response: str,
     retry: Callable[[str], str],
+    max_retries: int = MAX_MECHANICAL_RETRIES,
 ) -> dict[str, Any]:
+    if (
+        isinstance(max_retries, bool)
+        or not isinstance(max_retries, int)
+        or not 0 <= max_retries <= MAX_MECHANICAL_RETRIES
+    ):
+        raise ValueError(
+            f"max_retries must be an integer between 0 and {MAX_MECHANICAL_RETRIES}"
+        )
+
     constraints = parse_constraints(original_prompt)
     first_validation = validate_response(original_response, constraints)
+    retry_attempts: list[dict[str, Any]] = []
     result: dict[str, Any] = {
         "original_user_prompt": original_prompt,
         "original_response": original_response,
@@ -481,28 +493,70 @@ def validate_with_one_retry(
         "retry_response": None,
         "second_validation": None,
         "retry_passed": None,
+        "retry_attempts": retry_attempts,
+        "retry_count": 0,
+        "final_validation": first_validation,
         "final_response": original_response,
     }
     if not constraints or first_validation["passed"]:
         return result
 
-    retry_prompt = build_retry_prompt(
+    latest_response = original_response
+    latest_validation = first_validation
+    for attempt_number in range(1, max_retries + 1):
+        retry_reason = "\n".join(latest_validation["failures"])
+        retry_prompt = build_retry_prompt(
+            original_prompt,
+            latest_response,
+            latest_validation,
+        )
+        retry_response = retry(retry_prompt)
+        if not isinstance(retry_response, str) or not retry_response.strip():
+            raise ValueError("Corrective model retry returned an empty response")
+        retry_response = retry_response.strip()
+        retry_validation = validate_response(retry_response, constraints)
+        retry_attempts.append(
+            {
+                "attempt": attempt_number,
+                "reason": retry_reason,
+                "prompt": retry_prompt,
+                "response": retry_response,
+                "validation": retry_validation,
+                "passed": retry_validation["passed"],
+            }
+        )
+        result.update(
+            retry_happened=True,
+            retry_count=attempt_number,
+            final_response=retry_response,
+            final_validation=retry_validation,
+        )
+        if attempt_number == 1:
+            result.update(
+                retry_reason=retry_reason,
+                retry_prompt=retry_prompt,
+                retry_response=retry_response,
+                second_validation=retry_validation,
+                retry_passed=retry_validation["passed"],
+            )
+        if retry_validation["passed"]:
+            break
+        latest_response = retry_response
+        latest_validation = retry_validation
+
+    return result
+
+
+def validate_with_one_retry(
+    original_prompt: str,
+    original_response: str,
+    retry: Callable[[str], str],
+) -> dict[str, Any]:
+    """Compatibility wrapper for the bounded two-retry production policy."""
+
+    return validate_with_bounded_retries(
         original_prompt,
         original_response,
-        first_validation,
+        retry,
+        max_retries=MAX_MECHANICAL_RETRIES,
     )
-    retry_response = retry(retry_prompt)
-    if not isinstance(retry_response, str) or not retry_response.strip():
-        raise ValueError("Corrective model retry returned an empty response")
-    retry_response = retry_response.strip()
-    second_validation = validate_response(retry_response, constraints)
-    result.update(
-        retry_happened=True,
-        retry_reason="\n".join(first_validation["failures"]),
-        retry_prompt=retry_prompt,
-        retry_response=retry_response,
-        second_validation=second_validation,
-        retry_passed=second_validation["passed"],
-        final_response=retry_response,
-    )
-    return result

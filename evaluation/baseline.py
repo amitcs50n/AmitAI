@@ -6,7 +6,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
-from evaluation.constraints import validate_with_one_retry
+from evaluation.constraints import (
+    MAX_MECHANICAL_RETRIES,
+    validate_with_bounded_retries,
+)
 
 
 EVAL_REQUIRED_FIELDS = {
@@ -150,10 +153,11 @@ def generate_constrained_case(
             generation_config,
         )
 
-    constraint_metadata = validate_with_one_retry(
+    constraint_metadata = validate_with_bounded_retries(
         case["prompt"],
         original_response,
         retry,
+        max_retries=MAX_MECHANICAL_RETRIES,
     )
     result = {
         "schema_version": 1,

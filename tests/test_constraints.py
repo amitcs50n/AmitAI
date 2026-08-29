@@ -11,12 +11,14 @@ from evaluation.baseline import (
     validate_reviews_against_responses,
 )
 from evaluation.constraints import (
+    MAX_MECHANICAL_RETRIES,
     build_retry_prompt,
     count_bullets,
     count_words,
     normalize_code_only,
     parse_constraints,
     validate_response,
+    validate_with_bounded_retries,
     validate_with_one_retry,
 )
 from evaluation.run_baseline import load_config, mechanical_constraints_enabled, run
@@ -112,6 +114,14 @@ def test_written_integer_vocabulary_covers_zero_through_one_hundred() -> None:
         assert parse_constraints(f"Use exactly {written} words.") == [
             {"type": "exact_words", "count": count}
         ]
+
+
+def _words(count: int, prefix: str) -> str:
+    return " ".join(f"{prefix}{index}" for index in range(count))
+
+
+def _bullets(count: int, prefix: str) -> str:
+    return "\n".join(f"- {prefix} {index}" for index in range(count))
 
 
 def test_written_and_digit_counts_deduplicate_after_normalization() -> None:
@@ -285,6 +295,9 @@ def test_passing_fenced_code_is_preserved_in_the_final_response() -> None:
     assert result["original_response"] == original
     assert result["retry_happened"] is False
     assert result["first_validation"]["normalized_response"] == "print('hello')"
+    assert result["retry_count"] == 0
+    assert result["retry_attempts"] == []
+    assert result["final_validation"] == result["first_validation"]
     assert result["final_response"] == original
 
 
@@ -300,6 +313,9 @@ def test_successful_fenced_code_retry_is_preserved_in_the_final_response() -> No
     assert result["retry_response"] == retry_response
     assert result["retry_passed"] is True
     assert result["second_validation"]["normalized_response"] == "print('hello')"
+    assert result["retry_count"] == 1
+    assert len(result["retry_attempts"]) == 1
+    assert result["final_validation"] == result["second_validation"]
     assert result["final_response"] == retry_response
 
 
@@ -347,7 +363,7 @@ def test_generated_response_and_review_preserve_a_valid_fenced_retry() -> None:
     assert review["response"] == review["final_response"] == retry_response
 
 
-def test_empty_fenced_code_triggers_one_retry() -> None:
+def test_empty_fenced_code_is_fixed_by_the_first_retry() -> None:
     empty_fence = "```python\n\n```"
 
     result = validate_with_one_retry(
@@ -359,21 +375,60 @@ def test_empty_fenced_code_triggers_one_retry() -> None:
     assert result["first_validation"]["passed"] is False
     assert result["retry_happened"] is True
     assert result["retry_passed"] is True
+    assert result["retry_count"] == 1
     assert result["final_response"] == "print('hello')"
 
 
-def test_empty_fenced_retry_is_kept_as_the_failed_final_response() -> None:
-    empty_fence = "```python\n\n```"
+def test_two_empty_fenced_retries_stop_with_the_latest_failed_response() -> None:
+    first_empty_fence = "```python\n\n```"
+    second_empty_fence = "```javascript\n\n```"
+    retry_responses = iter([first_empty_fence, second_empty_fence])
+    calls: list[str] = []
+
+    def retry(prompt: str) -> str:
+        calls.append(prompt)
+        return next(retry_responses)
 
     result = validate_with_one_retry(
         "Return code only.",
         "Here is code:\n```python\nprint('hello')\n```",
-        lambda _prompt: empty_fence,
+        retry,
     )
 
+    assert len(calls) == 2
     assert result["retry_passed"] is False
-    assert result["retry_response"] == empty_fence
-    assert result["final_response"] == empty_fence
+    assert result["retry_response"] == first_empty_fence
+    assert result["second_validation"]["passed"] is False
+    assert result["retry_count"] == 2
+    assert len(result["retry_attempts"]) == 2
+    assert result["final_response"] == second_empty_fence
+    assert result["final_validation"]["passed"] is False
+
+
+def test_valid_fenced_code_from_the_second_retry_is_preserved() -> None:
+    first_retry_response = "Still prose:\n```python\nprint('hello')\n```"
+    second_retry_response = "```python\nprint('hello')\n```"
+    retry_responses = iter([first_retry_response, second_retry_response])
+    calls: list[str] = []
+
+    def retry(prompt: str) -> str:
+        calls.append(prompt)
+        return next(retry_responses)
+
+    result = validate_with_bounded_retries(
+        "Return code only.",
+        "Here is code:\n```python\nprint('hello')\n```",
+        retry,
+    )
+
+    assert len(calls) == 2
+    assert result["retry_response"] == first_retry_response
+    assert result["retry_passed"] is False
+    assert result["second_validation"]["passed"] is False
+    assert result["retry_count"] == 2
+    assert result["final_response"] == second_retry_response
+    assert result["final_validation"]["passed"] is True
+    assert result["final_validation"]["normalized_response"] == "print('hello')"
 
 
 def test_no_supported_constraint_returns_the_response_without_retry() -> None:
@@ -388,6 +443,9 @@ def test_no_supported_constraint_returns_the_response_without_retry() -> None:
     assert calls == []
     assert result["parsed_constraints"] == []
     assert result["retry_happened"] is False
+    assert result["retry_count"] == 0
+    assert result["retry_attempts"] == []
+    assert result["final_validation"] == result["first_validation"]
     assert result["final_response"] == "Vegetable curry."
 
 
@@ -404,10 +462,13 @@ def test_passing_first_response_causes_no_retry() -> None:
     assert result["first_validation"]["passed"] is True
     assert result["retry_happened"] is False
     assert result["retry_passed"] is None
+    assert result["retry_count"] == 0
+    assert result["retry_attempts"] == []
+    assert result["final_validation"] == result["first_validation"]
     assert result["final_response"] == "One two three"
 
 
-def test_failing_response_gets_one_successful_retry_with_complete_prompt() -> None:
+def test_failing_response_is_fixed_by_the_first_retry_with_complete_prompt() -> None:
     retry_prompts: list[str] = []
 
     def retry(prompt: str) -> str:
@@ -450,6 +511,10 @@ def test_failing_response_gets_one_successful_retry_with_complete_prompt() -> No
     assert result["retry_response"] == "One two three"
     assert result["retry_passed"] is True
     assert result["second_validation"]["passed"] is True
+    assert result["retry_count"] == 1
+    assert len(result["retry_attempts"]) == 1
+    assert result["retry_attempts"][0]["validation"] == result["second_validation"]
+    assert result["final_validation"] == result["second_validation"]
     assert result["final_response"] == "One two three"
 
 
@@ -554,12 +619,13 @@ def test_at_most_bullet_retry_prompt_states_limit_and_excess() -> None:
     assert "Do not invent unnecessary services or details" in retry_prompt
 
 
-def test_failed_retry_stops_and_retry_response_is_still_final() -> None:
+def test_two_failed_retries_stop_and_latest_response_is_final() -> None:
     retry_prompts: list[str] = []
+    retry_responses = iter(["Still two", "Again two"])
 
     def retry(prompt: str) -> str:
         retry_prompts.append(prompt)
-        return "Still two"
+        return next(retry_responses)
 
     result = validate_with_one_retry(
         "Answer in exactly 3 words.",
@@ -567,15 +633,174 @@ def test_failed_retry_stops_and_retry_response_is_still_final() -> None:
         retry,
     )
 
-    assert len(retry_prompts) == 1
+    assert len(retry_prompts) == 2
+    assert "Previous answer:\nOnly two" in retry_prompts[0]
+    assert "Previous answer:\nStill two" in retry_prompts[1]
     assert result["first_validation"]["passed"] is False
     assert result["second_validation"]["passed"] is False
     assert result["retry_response"] == "Still two"
     assert result["retry_passed"] is False
-    assert result["final_response"] == "Still two"
+    assert result["retry_count"] == 2
+    assert len(result["retry_attempts"]) == 2
+    assert result["retry_attempts"][0]["validation"] == result["second_validation"]
+    assert result["retry_attempts"][1]["response"] == "Again two"
+    assert result["final_response"] == "Again two"
+    assert result["final_validation"]["passed"] is False
 
 
-def test_multiple_failures_are_combined_into_one_retry() -> None:
+def test_second_retry_uses_latest_word_count_and_passes_72_86_90() -> None:
+    prompt = "Write exactly 90 words."
+    original_response = _words(72, "original")
+    first_retry_response = _words(86, "retry-one")
+    second_retry_response = _words(90, "retry-two")
+    responses = iter([first_retry_response, second_retry_response])
+    retry_prompts: list[str] = []
+
+    def retry(corrective_prompt: str) -> str:
+        retry_prompts.append(corrective_prompt)
+        return next(responses)
+
+    result = validate_with_bounded_retries(
+        prompt,
+        original_response,
+        retry,
+    )
+
+    assert len(retry_prompts) == 2
+    assert result["first_validation"]["checks"][0]["actual"] == 72
+    assert f"Previous answer:\n{original_response}" in retry_prompts[0]
+    assert "72 whitespace-separated words" in retry_prompts[0]
+    assert "required total is exactly 90 words" in retry_prompts[0]
+    assert "18 words short" in retry_prompts[0]
+    assert "add exactly 18 words" in retry_prompts[0]
+
+    assert result["second_validation"]["checks"][0]["actual"] == 86
+    assert result["retry_passed"] is False
+    assert f"Original user request:\n{prompt}" in retry_prompts[1]
+    assert f"Previous answer:\n{first_retry_response}" in retry_prompts[1]
+    assert f"Previous answer:\n{original_response}" not in retry_prompts[1]
+    assert "86 whitespace-separated words" in retry_prompts[1]
+    assert "required total is exactly 90 words" in retry_prompts[1]
+    assert "4 words short" in retry_prompts[1]
+    assert "add exactly 4 words" in retry_prompts[1]
+    assert "72 whitespace-separated words" not in retry_prompts[1]
+    assert "18 words short" not in retry_prompts[1]
+    assert "add exactly 18 words" not in retry_prompts[1]
+
+    assert result["retry_count"] == 2
+    assert len(result["retry_attempts"]) == 2
+    assert [attempt["attempt"] for attempt in result["retry_attempts"]] == [1, 2]
+    assert result["retry_reason"] == result["retry_attempts"][0]["reason"]
+    assert "contained 72 words" in result["retry_reason"]
+    assert "contained 86 words" in result["retry_attempts"][1]["reason"]
+    assert result["retry_reason"] != result["retry_attempts"][1]["reason"]
+    assert result["retry_prompt"] == retry_prompts[0]
+    assert result["retry_response"] == first_retry_response
+    assert result["retry_passed"] == result["retry_attempts"][0]["passed"] is False
+    assert result["retry_attempts"][0]["validation"] == result["second_validation"]
+    assert result["retry_attempts"][1]["prompt"] == retry_prompts[1]
+    assert result["final_response"] == second_retry_response
+    assert result["final_validation"]["checks"][0]["actual"] == 90
+    assert result["final_validation"]["passed"] is True
+
+
+def test_two_word_retries_can_still_fail_72_86_88() -> None:
+    original_response = _words(72, "original")
+    first_retry_response = _words(86, "retry-one")
+    second_retry_response = _words(88, "retry-two")
+    responses = iter([first_retry_response, second_retry_response])
+    calls: list[str] = []
+
+    def retry(corrective_prompt: str) -> str:
+        calls.append(corrective_prompt)
+        return next(responses)
+
+    result = validate_with_bounded_retries(
+        "Write exactly 90 words.",
+        original_response,
+        retry,
+    )
+
+    assert len(calls) == 2
+    assert result["retry_count"] == 2
+    assert len(result["retry_attempts"]) == 2
+    assert result["second_validation"]["checks"][0]["actual"] == 86
+    assert result["final_response"] == second_retry_response
+    assert result["final_validation"]["checks"][0]["actual"] == 88
+    assert result["final_validation"]["passed"] is False
+
+
+def test_second_retry_uses_latest_bullet_count() -> None:
+    original_response = _bullets(8, "original")
+    first_retry_response = _bullets(6, "retry-one")
+    second_retry_response = _bullets(5, "retry-two")
+    responses = iter([first_retry_response, second_retry_response])
+    retry_prompts: list[str] = []
+
+    def retry(corrective_prompt: str) -> str:
+        retry_prompts.append(corrective_prompt)
+        return next(responses)
+
+    result = validate_with_bounded_retries(
+        "Return exactly 5 bullets.",
+        original_response,
+        retry,
+    )
+
+    assert len(retry_prompts) == 2
+    assert "contains 8 Markdown list-item bullets" in retry_prompts[0]
+    assert "remove exactly 3 bullets" in retry_prompts[0]
+    assert f"Previous answer:\n{first_retry_response}" in retry_prompts[1]
+    assert "contains 6 Markdown list-item bullets" in retry_prompts[1]
+    assert "remove exactly 1 bullet" in retry_prompts[1]
+    assert result["second_validation"]["checks"][0]["actual"] == 6
+    assert result["retry_count"] == 2
+    assert result["final_response"] == second_retry_response
+    assert result["final_validation"]["checks"][0]["actual"] == 5
+    assert result["final_validation"]["passed"] is True
+
+
+def test_empty_or_invalid_first_retry_raises_without_a_second_call() -> None:
+    calls = 0
+
+    def retry(_corrective_prompt: str):
+        nonlocal calls
+        calls += 1
+        return None
+
+    with pytest.raises(ValueError, match="Corrective model retry returned an empty response"):
+        validate_with_bounded_retries("Write exactly 3 words.", "Only two", retry)
+
+    assert calls == 1
+
+
+def test_empty_or_invalid_second_retry_raises_without_fallback_or_third_call() -> None:
+    responses = iter(["Still two", "   "])
+    calls = 0
+
+    def retry(_corrective_prompt: str) -> str:
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    with pytest.raises(ValueError, match="Corrective model retry returned an empty response"):
+        validate_with_bounded_retries("Write exactly 3 words.", "Only two", retry)
+
+    assert calls == 2
+
+
+@pytest.mark.parametrize("max_retries", [-1, True, 1.0, 3])
+def test_bounded_retry_count_rejects_invalid_limits(max_retries) -> None:
+    with pytest.raises(ValueError, match="max_retries must be an integer between 0 and 2"):
+        validate_with_bounded_retries(
+            "Write exactly 3 words.",
+            "Only two",
+            lambda _prompt: "One two three",
+            max_retries=max_retries,
+        )
+
+
+def test_multiple_failures_are_combined_into_one_first_retry_prompt() -> None:
     retry_prompts: list[str] = []
 
     def retry(prompt: str) -> str:
@@ -624,9 +849,16 @@ def test_generate_constrained_case_preserves_attempt_metadata() -> None:
     assert result["original_user_prompt"] == case["prompt"]
     assert result["original_response"] == "Only two"
     assert result["response"] == result["final_response"] == "One two three"
+    assert result["retry_count"] == 1
+    assert len(result["retry_attempts"]) == 1
+    assert result["retry_attempts"][0]["validation"] == result["second_validation"]
+    assert result["final_validation"] == result["second_validation"]
     assert review["response"] == "One two three"
     assert review["first_validation"] == result["first_validation"]
     assert review["second_validation"] == result["second_validation"]
+    assert review["retry_attempts"] == result["retry_attempts"]
+    assert review["retry_count"] == result["retry_count"]
+    assert review["final_validation"] == result["final_validation"]
     validate_reviews_against_responses([review], [result])
     review["retry_passed"] = False
     with pytest.raises(ValueError, match="differs from generated responses"):
@@ -636,7 +868,7 @@ def test_generate_constrained_case_preserves_attempt_metadata() -> None:
 def test_generate_constrained_case_keeps_a_failed_retry_as_final() -> None:
     class SequenceGenerator:
         def __init__(self) -> None:
-            self.responses = iter(["Only two", "Still two"])
+            self.responses = iter(["Only two", "Still two", "Again two"])
             self.calls = []
 
         def generate(self, messages, generation_config):
@@ -651,11 +883,23 @@ def test_generate_constrained_case_keeps_a_failed_retry_as_final() -> None:
         generation_config={"max_new_tokens": 32, "do_sample": False},
     )
 
-    assert len(generator.calls) == 2
+    assert len(generator.calls) == 3
     assert result["retry_passed"] is False
     assert result["retry_response"] == "Still two"
-    assert result["response"] == result["final_response"] == "Still two"
-    assert review["response"] == "Still two"
+    assert result["second_validation"]["passed"] is False
+    assert result["retry_count"] == 2
+    assert len(result["retry_attempts"]) == 2
+    assert result["retry_attempts"][0]["validation"] == result["second_validation"]
+    assert result["response"] == result["final_response"] == "Again two"
+    assert result["final_validation"]["passed"] is False
+    assert (
+        validate_response(result["final_response"], result["parsed_constraints"])
+        == result["final_validation"]
+    )
+    assert review["response"] == "Again two"
+    assert review["second_validation"] == result["second_validation"]
+    assert review["final_validation"] == result["final_validation"]
+    validate_reviews_against_responses([review], [result])
 
 
 def test_review_integrity_requires_null_constraint_metadata_fields() -> None:
@@ -717,7 +961,7 @@ def test_run_uses_constraint_validation_without_loading_a_real_model(
         dependency_versions = {"fake-backend": "1.0"}
 
         def __init__(self, *_args, **_kwargs) -> None:
-            self.responses = iter(["Only two", "One two three"])
+            self.responses = iter(["Only two", "Still two", "One two three"])
 
         def generate(self, _messages, _generation_config):
             return next(self.responses)
@@ -731,9 +975,17 @@ def test_run_uses_constraint_validation_without_loading_a_real_model(
     response = load_jsonl(output_dir / "responses.jsonl")[0]
     manifest = json.loads((output_dir / "run.json").read_text(encoding="utf-8"))
     assert response["retry_happened"] is True
-    assert response["retry_passed"] is True
+    assert response["retry_passed"] is False
+    assert response["second_validation"]["passed"] is False
+    assert response["retry_count"] == 2
+    assert len(response["retry_attempts"]) == 2
+    assert response["final_validation"]["passed"] is True
     assert response["response"] == response["final_response"] == "One two three"
-    assert manifest["mechanical_constraints"]["max_retries"] == 1
+    assert (
+        manifest["mechanical_constraints"]["max_retries"]
+        == MAX_MECHANICAL_RETRIES
+        == 2
+    )
 
 
 def test_constrained_config_is_separate_and_v1_v2_remain_frozen() -> None:

@@ -180,12 +180,12 @@ python -m evaluation.run_baseline \
 That path parses only explicit `exactly N words`, `exactly N bullets`, `at most N bullets`,
 and `code only` / `return code only` instructions. Passing responses stay unchanged, including
 valid outer code fences; normalized inner code is validation metadata only. A mechanical failure
-gets exactly one corrective generation containing the original request, previous response, and
-measured miss. The retry becomes the final response even if it still fails, and both attempts
-plus validation results remain in the response and review artifacts. Supported count limits may
-use digits or deterministic written integers from zero through one hundred; sentence counts,
-other written-number forms, semantic "one item" checks, and subjective scoring are intentionally
-excluded.
+gets up to two bounded corrective generations containing the original request, latest failed
+response, and measured miss. The latest retry becomes the final response even if it still fails,
+and all attempts plus validation results remain in the response and review artifacts. Supported
+count limits may use digits or deterministic written integers from zero through one hundred;
+sentence counts, other written-number forms, semantic "one item" checks, and subjective scoring
+are intentionally excluded.
 Unfenced output is accepted as mechanically unverified rather than classified as code or prose.
 
 Use `--resume` after an interrupted run, repeating the same selection options—including
@@ -201,7 +201,8 @@ Artifacts are written under the selected config's `output_dir`. V1 remains froze
 - `reviews.jsonl`: outputs plus held-out scoring criteria
 
 Constrained-run rows additionally retain the original prompt and response, parsed constraints,
-both validation attempts, retry reason and response, `retry_passed`, and `final_response`.
+all retry attempts and validations, backward-compatible first-retry fields, `retry_count`,
+`final_validation`, and `final_response`.
 
 Review `reviews.jsonl` manually. For every row, replace the null values:
 

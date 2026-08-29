@@ -19,13 +19,13 @@ from evaluation.baseline import (
     stable_fingerprint,
     write_json,
 )
-from evaluation.constraints import SUPPORTED_CONSTRAINT_TYPES
+from evaluation.constraints import MAX_MECHANICAL_RETRIES, SUPPORTED_CONSTRAINT_TYPES
 from evaluation.hf_backend import TransformersGenerator
 
 
 MECHANICAL_CONSTRAINT_SETTINGS = {
     "enabled": True,
-    "max_retries": 1,
+    "max_retries": MAX_MECHANICAL_RETRIES,
     "supported_constraints": list(SUPPORTED_CONSTRAINT_TYPES),
 }
 
