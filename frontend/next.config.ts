@@ -4,6 +4,7 @@ const apiOrigin = process.env.AMITAI_API_ORIGIN ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  devIndicators: false,
   async rewrites() {
     return [
       {

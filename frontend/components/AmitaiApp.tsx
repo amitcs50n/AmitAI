@@ -5,7 +5,6 @@ import { RotateCcw, X } from "lucide-react";
 
 import {
   backendResponded,
-  createConversation,
   deleteConversation,
   getConversation,
   listConversations,
@@ -91,7 +90,6 @@ export function AmitaiApp() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [developerOpen, setDeveloperOpen] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(true);
-  const [creatingConversation, setCreatingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
   const [failedInput, setFailedInput] = useState<string | null>(null);
@@ -214,30 +212,20 @@ export function AmitaiApp() {
     }
   }
 
-  async function handleNewConversation() {
-    if (sending || loadingConversation) return;
-    setCreatingConversation(true);
+  function handleNewConversation() {
+    if (sending) return;
+    conversationRequestRef.current += 1;
+    setLoadingConversation(false);
+    setView("chat");
+    setSelectedId(null);
+    setConversation(null);
+    setPendingMessage(null);
+    setFailedInput(null);
+    setSendError(null);
+    setLoadError(null);
     setActionAlert(null);
-    try {
-      const created = await createConversation();
-      markConnected();
-      setConversations((current) => [created, ...current.filter((item) => item.id !== created.id)]);
-      setSelectedId(created.id);
-      setConversation({ ...created, messages: [] });
-      setView("chat");
-      setLoadError(null);
-      setPendingMessage(null);
-      localStorage.setItem(SELECTED_CONVERSATION_KEY, created.id);
-      if (window.innerWidth < 1024) setSidebarOpen(false);
-    } catch (error) {
-      updateConnectionFromError(error, setConnection);
-      setActionAlert({
-        message: backendResponded(error) ? "Unable to create a conversation." : "Unable to connect to Aevon.",
-        retry: () => void handleNewConversation(),
-      });
-    } finally {
-      setCreatingConversation(false);
-    }
+    localStorage.removeItem(SELECTED_CONVERSATION_KEY);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   }
 
   function handleSelectConversation(id: string) {
@@ -396,12 +384,12 @@ export function AmitaiApp() {
     <main className="flex h-dvh min-h-[32rem] overflow-hidden bg-[#0d0e0e] text-[#ded8d2] selection:bg-[#9f6842]/50">
       <Sidebar
         conversations={conversations}
-        creating={creatingConversation}
+        creating={false}
         currentView={view}
         interactionDisabled={sending || loadingConversation}
         onClose={() => setSidebarOpen(false)}
         onNavigate={handleNavigate}
-        onNewConversation={() => void handleNewConversation()}
+        onNewConversation={handleNewConversation}
         onSelectConversation={handleSelectConversation}
         open={sidebarOpen}
         selectedId={selectedId}
