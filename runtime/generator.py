@@ -26,14 +26,17 @@ from .calculator import CalculatorTool
 from .config import RuntimeConfig
 from .tooling import (
     MAX_TOOL_ITERATIONS,
+    LateToolProtocolFilter,
     ToolAttempt,
     ToolFailure,
     ToolRegistry,
+    classify_tool_protocol_prefix,
     failed_tool_attempt,
     format_tool_call,
     format_tool_result,
     is_reserved_tool_candidate,
     parse_tool_call,
+    sanitize_late_tool_protocol,
 )
 
 
@@ -229,6 +232,9 @@ class TransformersChatGenerator:
             output_tokens += output.output_tokens
             response = output.text.strip()
             if not is_reserved_tool_candidate(response):
+                response = sanitize_late_tool_protocol(response).strip()
+                if not response:
+                    raise ChatGenerationError("Assistant generation failed")
                 return _ToolLoopOutput(
                     output=GenerationOutput(response, input_tokens, output_tokens),
                     tools=tuple(tool_records),
@@ -260,9 +266,11 @@ class TransformersChatGenerator:
         *,
         cancel_event: Event,
     ) -> Iterator[str | _StreamCandidateOutput]:
-        chunks: list[str] = []
+        prefix_buffer = ""
         pending = ""
         emitted: list[str] = []
+        mode = "prefix"
+        protocol_filter: LateToolProtocolFilter | None = None
         output: GenerationOutput | None = None
 
         def normalize(chunk: str) -> str | None:
@@ -295,7 +303,25 @@ class TransformersChatGenerator:
                 if isinstance(item, GenerationOutput):
                     output = item
                     continue
-                chunks.append(item)
+                if mode == "tool":
+                    continue
+                if mode == "prefix":
+                    prefix_buffer += item
+                    prefix_state = classify_tool_protocol_prefix(prefix_buffer)
+                    if prefix_state == "ambiguous":
+                        continue
+                    if prefix_state == "reserved":
+                        mode = "tool"
+                        continue
+                    mode = "normal"
+                    protocol_filter = LateToolProtocolFilter()
+                    item = prefix_buffer
+                    prefix_buffer = ""
+                if protocol_filter is None:
+                    raise RuntimeError("Normal stream is missing its protocol filter")
+                delta = normalize(protocol_filter.feed(item))
+                if delta is not None:
+                    yield delta
         finally:
             close = getattr(engine_stream, "close", None)
             if callable(close):
@@ -305,7 +331,7 @@ class TransformersChatGenerator:
             return
         if output is None:
             raise TypeError("Runtime engine stream ended without final output")
-        if is_reserved_tool_candidate(output.text):
+        if mode == "tool":
             yield _StreamCandidateOutput(
                 output=GenerationOutput(
                     output.text.strip(),
@@ -316,14 +342,20 @@ class TransformersChatGenerator:
             )
             return
 
-        for chunk in chunks:
-            delta = normalize(chunk)
+        if mode == "prefix":
+            protocol_filter = LateToolProtocolFilter()
+            delta = normalize(protocol_filter.feed(prefix_buffer))
             if delta is not None:
                 yield delta
+        if protocol_filter is None:
+            raise RuntimeError("Normal stream is missing its protocol filter")
+        delta = normalize(protocol_filter.finish())
+        if delta is not None:
+            yield delta
 
         response = "".join(emitted)
-        if response != output.text.strip():
-            raise ValueError("Normalized runtime deltas do not match the final output")
+        if not response:
+            raise ChatGenerationError("Assistant generation failed")
         yield _StreamCandidateOutput(
             output=GenerationOutput(
                 response,

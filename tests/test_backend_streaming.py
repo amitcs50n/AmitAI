@@ -248,7 +248,7 @@ def test_streaming_tool_call_markup_is_hidden_and_only_final_answer_persists(
     assert _counts(application) == (1, 2, 1)
 
 
-def test_streaming_prose_wrapped_tool_markup_never_leaks_or_persists(
+def test_streaming_late_tool_markup_is_sanitized_and_visible_text_persists(
     tmp_path: Path,
 ) -> None:
     malformed = (
@@ -256,7 +256,7 @@ def test_streaming_prose_wrapped_tool_markup_never_leaks_or_persists(
         '<tool_call>{"name":"calculator","arguments":{"expression":"2+2"}}'
         "</tool_call>"
     )
-    final_response = "The answer is four."
+    final_response = "Sure, I'll calculate it."
 
     class MalformedToolStreamingEngine:
         def __init__(self) -> None:
@@ -266,12 +266,7 @@ def test_streaming_prose_wrapped_tool_markup_never_leaks_or_persists(
                         "Sure, I'll calculate it. ",
                         malformed.removeprefix("Sure, I'll calculate it. "),
                         GenerationOutput(malformed, 10, 12),
-                    ],
-                    [
-                        "The answer",
-                        " is four.",
-                        GenerationOutput(final_response, 20, 5),
-                    ],
+                    ]
                 ]
             )
 
@@ -300,19 +295,18 @@ def test_streaming_prose_wrapped_tool_markup_never_leaks_or_persists(
 
         serialized = json.dumps(events)
         assert malformed not in serialized
-        assert "Sure, I'll calculate it." not in serialized
+        assert "Sure, I'll calculate it." in serialized
         assert "<tool_call" not in serialized
         assert "<tool_result" not in serialized
         assert [event["event"] for event in events] == [
             "start",
-            "text",
             "text",
             "final",
             "done",
         ]
         final = next(event["data"] for event in events if event["event"] == "final")
         assert final["response"] == final_response
-        assert final["metadata"]["tools"][0]["success"] is False
+        assert final["metadata"]["tools"] == []
         detail = client.get(f"/api/conversations/{final['conversation_id']}").json()
         assert malformed not in json.dumps(detail)
         assert [message["content"] for message in detail["messages"]] == [

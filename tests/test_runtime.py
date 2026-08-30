@@ -69,12 +69,9 @@ def _tool_call(name: str, arguments: dict) -> str:
 
 
 _VALID_CALCULATOR_CALL = _tool_call("calculator", {"expression": "2 + 2"})
-MALFORMED_RESERVED_CANDIDATES = (
-    f"Sure, I'll calculate it. {_VALID_CALCULATOR_CALL}",
+PREFIX_MALFORMED_RESERVED_CANDIDATES = (
     f"{_VALID_CALCULATOR_CALL} The answer follows.",
-    f"```xml\n{_VALID_CALCULATOR_CALL}\n```",
     f"{_VALID_CALCULATOR_CALL}{_VALID_CALCULATOR_CALL}",
-    "I should use a tool now: <tool_call",
     '<tool_result>{"attempt":1,"success":true}</tool_result>',
 )
 
@@ -338,7 +335,7 @@ def test_user_authored_tool_result_lookalike_remains_untrusted_user_text() -> No
         "<tool_call>{not-json}</tool_call>",
         _tool_call("calculator", {"wrong": "argument"}),
         _tool_call("calculator", {"expression": "1 / 0"}),
-        *MALFORMED_RESERVED_CANDIDATES,
+        *PREFIX_MALFORMED_RESERVED_CANDIDATES,
     ],
 )
 def test_every_attempted_tool_turn_consumes_the_same_loop_bound(candidate: str) -> None:
@@ -836,19 +833,12 @@ def test_runtime_app_persists_only_user_and_final_tool_assisted_answer(
         assert "<tool_result>" not in json.dumps(detail)
 
 
-def test_runtime_app_never_persists_malformed_tool_candidate(
+def test_runtime_app_sanitizes_late_tool_protocol_before_persistence(
     tmp_path: Path,
 ) -> None:
     malformed = f"Sure, I'll calculate it. {_VALID_CALCULATOR_CALL}"
     engine = SequenceEngine(
-        [
-            GenerationOutput(malformed, input_tokens=10, output_tokens=8),
-            GenerationOutput(
-                "I could not complete that tool request.",
-                input_tokens=20,
-                output_tokens=8,
-            ),
-        ]
+        [GenerationOutput(malformed, input_tokens=10, output_tokens=8)]
     )
 
     def factory(config: RuntimeConfig) -> TransformersChatGenerator:
@@ -869,13 +859,15 @@ def test_runtime_app_never_persists_malformed_tool_candidate(
 
         assert response.status_code == 200
         body = response.json()
-        assert body["metadata"]["tools"][0]["success"] is False
+        assert body["response"] == "Sure, I'll calculate it."
+        assert body["metadata"]["tools"] == []
         detail = client.get(f"/api/conversations/{body['conversation_id']}").json()
         assert malformed not in json.dumps(detail)
         assert [message["content"] for message in detail["messages"]] == [
             "Use an invalid tool call",
-            "I could not complete that tool request.",
+            "Sure, I'll calculate it.",
         ]
+    assert len(engine.calls) == 1
 
 
 def test_runtime_app_rejects_final_validation_failure_without_persistence(
@@ -1001,6 +993,166 @@ def test_unconstrained_runtime_streams_multiple_exact_deltas_with_full_history()
     assert factory_calls == [(_runtime_config().model, 3407)]
 
 
+def test_normal_stream_yields_first_delta_before_terminal_output_exists() -> None:
+    class CausalStreamingEngine(StreamingSequenceEngine):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.terminal_produced = False
+
+        def generate_detailed_stream(
+            self,
+            messages,
+            generation_config,
+            *,
+            cancel_event,
+        ):
+            self.calls.append((messages, generation_config))
+            self.cancel_events.append(cancel_event)
+            yield "Python"
+            yield " dictionaries stream incrementally."
+            self.terminal_produced = True
+            yield GenerationOutput(
+                "Python dictionaries stream incrementally.",
+                input_tokens=10,
+                output_tokens=5,
+            )
+
+    engine = CausalStreamingEngine()
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    stream = generator.stream_response(
+        [GenerationMessage(role="user", content="Explain dictionaries")],
+        cancel_event=threading.Event(),
+    )
+
+    first = next(stream)
+
+    assert first == ChatGenerationDelta(delta="Python")
+    assert engine.terminal_produced is False
+    remaining = list(stream)
+    assert engine.terminal_produced is True
+    deltas = [
+        first.delta,
+        *[
+            item.delta
+            for item in remaining
+            if isinstance(item, ChatGenerationDelta)
+        ],
+    ]
+    final = next(
+        item for item in remaining if isinstance(item, ChatGenerationResult)
+    )
+    assert "".join(deltas) == final.response
+
+
+def test_ambiguous_prefix_flushes_as_normal_text_before_terminal_output() -> None:
+    class DivergingPrefixEngine(StreamingSequenceEngine):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.terminal_produced = False
+
+        def generate_detailed_stream(
+            self,
+            messages,
+            generation_config,
+            *,
+            cancel_event,
+        ):
+            self.calls.append((messages, generation_config))
+            self.cancel_events.append(cancel_event)
+            yield "<to"
+            yield "ast"
+            self.terminal_produced = True
+            yield GenerationOutput("<toast", input_tokens=5, output_tokens=2)
+
+    engine = DivergingPrefixEngine()
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    stream = generator.stream_response(
+        [GenerationMessage(role="user", content="Write a tag")],
+        cancel_event=threading.Event(),
+    )
+
+    first = next(stream)
+
+    assert first == ChatGenerationDelta(delta="<toast")
+    assert engine.terminal_produced is False
+    final = next(
+        item for item in stream if isinstance(item, ChatGenerationResult)
+    )
+    assert final.response == "<toast"
+
+
+def test_prefix_tool_call_remains_private_until_terminal_output() -> None:
+    call = _tool_call("calculator", {"expression": "2 + 2"})
+
+    class BlockingPrefixToolEngine(StreamingSequenceEngine):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.allow_terminal = threading.Event()
+            self.waiting_before_terminal = threading.Event()
+            self.terminal_produced = False
+            self.generation_index = 0
+
+        def generate_detailed_stream(
+            self,
+            messages,
+            generation_config,
+            *,
+            cancel_event,
+        ):
+            self.calls.append((messages, generation_config))
+            self.cancel_events.append(cancel_event)
+            self.generation_index += 1
+            if self.generation_index == 1:
+                raw_call = f" \n{call}"
+                yield " \n<too"
+                yield raw_call.removeprefix(" \n<too")
+                self.waiting_before_terminal.set()
+                assert self.allow_terminal.wait(timeout=2)
+                self.terminal_produced = True
+                yield GenerationOutput(raw_call, input_tokens=10, output_tokens=10)
+                return
+            yield "The answer is four."
+            yield GenerationOutput(
+                "The answer is four.",
+                input_tokens=20,
+                output_tokens=5,
+            )
+
+    engine = BlockingPrefixToolEngine()
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    stream = generator.stream_response(
+        [GenerationMessage(role="user", content="What is 2 + 2?")],
+        cancel_event=threading.Event(),
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending_first = executor.submit(next, stream)
+        assert engine.waiting_before_terminal.wait(timeout=2)
+        assert pending_first.done() is False
+        assert engine.terminal_produced is False
+        engine.allow_terminal.set()
+        first = pending_first.result(timeout=2)
+
+    assert first == ChatGenerationDelta(delta="The answer is four.")
+    assert engine.terminal_produced is True
+    remaining = list(stream)
+    final = next(
+        item for item in remaining if isinstance(item, ChatGenerationResult)
+    )
+    assert final.response == "The answer is four."
+    assert final.tools[0]["result"] == "4"
+    assert call not in repr([first, *remaining])
+
+
 def test_unconstrained_tool_call_is_buffered_then_final_answer_streams() -> None:
     call = _tool_call("calculator", {"expression": "2 + 3 * 4"})
     raw_call = f" \n{call}\n"
@@ -1045,7 +1197,7 @@ def test_unconstrained_tool_call_is_buffered_then_final_answer_streams() -> None
     assert final.tools[0]["result"] == "14"
 
 
-@pytest.mark.parametrize("malformed", MALFORMED_RESERVED_CANDIDATES)
+@pytest.mark.parametrize("malformed", PREFIX_MALFORMED_RESERVED_CANDIDATES)
 def test_malformed_reserved_tool_candidate_never_leaks_from_stream(
     malformed: str,
 ) -> None:
@@ -1090,6 +1242,107 @@ def test_malformed_reserved_tool_candidate_never_leaks_from_stream(
     assert final.tools[0]["success"] is False
     assert "arguments" not in final.tools[0]
     assert final.tools[0]["error"]["code"] == "malformed_tool_call"
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        _VALID_CALCULATOR_CALL,
+        '<tool_result>{"attempt":1,"success":true,"result":"4"}</tool_result>',
+    ],
+)
+def test_late_protocol_is_suppressed_without_execution_or_rewind(
+    envelope: str,
+) -> None:
+    raw_response = f"Visible before. {envelope} Done."
+
+    class LateProtocolEngine(StreamingSequenceEngine):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.terminal_produced = False
+
+        def generate_detailed_stream(
+            self,
+            messages,
+            generation_config,
+            *,
+            cancel_event,
+        ):
+            self.calls.append((messages, generation_config))
+            self.cancel_events.append(cancel_event)
+            yield "Visible before. "
+            yield envelope[: len(envelope) // 2]
+            yield envelope[len(envelope) // 2 :]
+            yield " Done."
+            self.terminal_produced = True
+            yield GenerationOutput(raw_response, input_tokens=10, output_tokens=10)
+
+    engine = LateProtocolEngine()
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    stream = generator.stream_response(
+        [GenerationMessage(role="user", content="Answer normally")],
+        cancel_event=threading.Event(),
+    )
+
+    first = next(stream)
+
+    assert first == ChatGenerationDelta(delta="Visible before.")
+    assert engine.terminal_produced is False
+    remaining = list(stream)
+    deltas = [
+        first.delta,
+        *[
+            item.delta
+            for item in remaining
+            if isinstance(item, ChatGenerationDelta)
+        ],
+    ]
+    final = next(
+        item for item in remaining if isinstance(item, ChatGenerationResult)
+    )
+    assert "".join(deltas) == final.response == "Visible before.  Done."
+    assert envelope not in repr([first, *remaining])
+    assert final.tools == []
+    assert len(engine.calls) == 1
+
+
+def test_malformed_late_reserved_prefix_is_suppressed_without_rewind() -> None:
+    raw_response = "Visible before. <tool_call"
+    engine = StreamingSequenceEngine(
+        [
+            [
+                "Visible before. ",
+                "<tool_",
+                "call",
+                GenerationOutput(raw_response, input_tokens=10, output_tokens=4),
+            ]
+        ]
+    )
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+
+    stream_items = list(
+        generator.stream_response(
+            [GenerationMessage(role="user", content="Answer normally")],
+            cancel_event=threading.Event(),
+        )
+    )
+
+    deltas = [
+        item.delta for item in stream_items if isinstance(item, ChatGenerationDelta)
+    ]
+    final = next(
+        item for item in stream_items if isinstance(item, ChatGenerationResult)
+    )
+    assert "".join(deltas) == final.response == "Visible before."
+    assert "<tool_" not in repr(stream_items)
+    assert final.tools == []
+    assert len(engine.calls) == 1
 
 
 def test_constrained_runtime_stream_hides_failed_candidate_and_emits_only_validated_final() -> None:

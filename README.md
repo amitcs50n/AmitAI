@@ -162,7 +162,8 @@ synchronous `ChatResponse`, including conversation/message IDs, model and latenc
 validator details, tools, and memory. Native browser `EventSource` cannot POST the JSON request
 body, so the Aevon frontend uses `fetch()` with a `ReadableStream` SSE parser.
 
-Unconstrained prompts stream genuine decoded Transformers output incrementally. If the current
+Unconstrained prompts stream genuine decoded Transformers output incrementally after a small
+prefix gate determines that the response is ordinary assistant text. If the current
 prompt contains a supported parsed mechanical constraint, the original generation and all
 bounded validator retries are buffered. Only the final candidate is emitted as a `text` event and
 persisted; failed candidates are never exposed to the client or stored as conversation messages.
@@ -238,10 +239,19 @@ Successful final metadata records validated activity, for example:
 ```
 
 Failed attempts may appear with `success: false` and a safe error code/message; raw malformed or
-unsafe payloads are not retained. During SSE generation, a small prefix gate holds output while it
-could still be reserved tool syntax. Tool calls and malformed reserved candidates are fully
-buffered and never emitted. Once a generation is definitively a normal answer, its held prefix is
-released and incremental streaming continues. For mechanically constrained requests, tool use
+unsafe payloads are not retained. Tool invocation follows V1 prefix-commit semantics: after
+harmless leading whitespace, the response must begin with `<tool_call` before any normal assistant
+text is committed. The prefix gate holds only decoded text that could still become `<tool_call` or
+`<tool_result>`—at most 11 significant characters, plus leading whitespace. Prefix tool protocol
+is fully buffered and never emitted; once the prefix diverges, held text is released and ordinary
+generation streams incrementally.
+
+After normal-text commit, a later `<tool_call>...</tool_call>` or
+`<tool_result>...</tool_result>` is a protocol violation, never a tool invocation. A short
+character lookahead suppresses that late envelope without executing it or retaining its raw body;
+already-streamed prose remains public, and ordinary text after a complete closing tag continues to
+stream. The final response is reconstructed from exactly the sanitized visible deltas, so the SSE
+output and persisted assistant message match. For mechanically constrained requests, tool use
 finishes first and validation/retries apply only to the final user-visible answer, which remains
 fully buffered under the existing constraint policy.
 

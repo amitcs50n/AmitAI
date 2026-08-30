@@ -14,13 +14,16 @@ from runtime.calculator import (
 from runtime.tooling import (
     TOOL_RESULT_CLOSE,
     TOOL_RESULT_OPEN,
+    LateToolProtocolFilter,
     ToolCall,
     ToolFailure,
     ToolRegistry,
+    classify_tool_protocol_prefix,
     failed_tool_attempt,
     format_tool_result,
     is_reserved_tool_candidate,
     parse_tool_call,
+    sanitize_late_tool_protocol,
 )
 
 
@@ -127,12 +130,62 @@ def test_tool_call_protocol_accepts_only_one_whole_json_envelope() -> None:
             parse_tool_call(malformed)
 
 
-def test_reserved_protocol_detection_finds_markers_anywhere() -> None:
-    assert is_reserved_tool_candidate("Sure: <tool_call broken") is True
-    assert is_reserved_tool_candidate("Result: <tool_result>{}") is True
-    assert is_reserved_tool_candidate("orphan </tool_call> marker") is True
-    assert is_reserved_tool_candidate("orphan </tool_result> marker") is True
+def test_reserved_protocol_detection_uses_prefix_commit_semantics() -> None:
+    assert is_reserved_tool_candidate("  <tool_call broken") is True
+    assert is_reserved_tool_candidate("\n<tool_result>{}") is True
+    assert is_reserved_tool_candidate("Sure: <tool_call broken") is False
+    assert is_reserved_tool_candidate("Result: <tool_result>{}") is False
     assert is_reserved_tool_candidate("The result is 4") is False
+
+
+@pytest.mark.parametrize("prefix", ["", " \n", "<", "<too", "<tool_"])
+def test_tool_protocol_prefix_remains_ambiguous_only_while_necessary(
+    prefix: str,
+) -> None:
+    assert classify_tool_protocol_prefix(prefix) == "ambiguous"
+
+
+def test_late_protocol_filter_flushes_divergence_and_suppresses_envelopes() -> None:
+    protocol_filter = LateToolProtocolFilter()
+
+    visible = protocol_filter.feed("I'll calculate that. <too")
+    visible += protocol_filter.feed(
+        'l_call>{"name":"calculator","arguments":{"expression":"2+2"}}'
+        "</tool_call> Done."
+    )
+    visible += protocol_filter.finish()
+
+    assert visible == "I'll calculate that.  Done."
+
+
+def test_late_protocol_filter_flushes_an_ambiguous_prefix_that_diverges() -> None:
+    protocol_filter = LateToolProtocolFilter()
+
+    assert protocol_filter.feed("<to") == ""
+    assert protocol_filter.feed("ast") == "<toast"
+    assert protocol_filter.finish() == ""
+
+
+@pytest.mark.parametrize(
+    ("candidate", "expected"),
+    [
+        (
+            'Before <tool_call>{"unsafe":"raw"}</tool_call> after',
+            "Before  after",
+        ),
+        (
+            'Before <tool_result>{"unsafe":"raw"}</tool_result> after',
+            "Before  after",
+        ),
+        ("Before <tool_call", "Before "),
+        ("Ordinary <toast> text", "Ordinary <toast> text"),
+    ],
+)
+def test_complete_candidate_sanitizer_matches_stream_filter(
+    candidate: str,
+    expected: str,
+) -> None:
+    assert sanitize_late_tool_protocol(candidate) == expected
 
 
 def test_tool_registry_reports_unknown_invalid_and_execution_failures_safely() -> None:
