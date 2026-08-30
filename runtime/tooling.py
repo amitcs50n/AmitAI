@@ -15,7 +15,12 @@ TOOL_CALL_CLOSE = "</tool_call>"
 TOOL_RESULT_OPEN = "<tool_result>"
 TOOL_RESULT_CLOSE = "</tool_result>"
 _TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
-_RESERVED_PREFIXES = ("<tool_call", "<tool_result")
+_RESERVED_MARKERS = (
+    "<tool_call",
+    "</tool_call",
+    "<tool_result",
+    "</tool_result",
+)
 
 
 @dataclass(frozen=True)
@@ -77,13 +82,9 @@ class ToolAttempt:
 
 
 def is_reserved_tool_candidate(text: str) -> bool:
-    stripped = text.lstrip()
-    return any(stripped.startswith(prefix) for prefix in _RESERVED_PREFIXES)
+    """Return whether model output contains any reserved protocol marker."""
 
-
-def could_begin_reserved_tool_candidate(text: str) -> bool:
-    stripped = text.lstrip()
-    return not stripped or any(prefix.startswith(stripped) for prefix in _RESERVED_PREFIXES)
+    return any(marker in text for marker in _RESERVED_MARKERS)
 
 
 def parse_tool_call(text: str) -> ToolCall:

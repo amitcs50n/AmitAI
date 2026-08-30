@@ -17,6 +17,7 @@ from runtime.tooling import (
     ToolCall,
     ToolFailure,
     ToolRegistry,
+    failed_tool_attempt,
     format_tool_result,
     is_reserved_tool_candidate,
     parse_tool_call,
@@ -126,9 +127,11 @@ def test_tool_call_protocol_accepts_only_one_whole_json_envelope() -> None:
             parse_tool_call(malformed)
 
 
-def test_reserved_protocol_detection_includes_malformed_call_and_result_prefixes() -> None:
-    assert is_reserved_tool_candidate("  <tool_call broken") is True
-    assert is_reserved_tool_candidate("\n<tool_result>{}") is True
+def test_reserved_protocol_detection_finds_markers_anywhere() -> None:
+    assert is_reserved_tool_candidate("Sure: <tool_call broken") is True
+    assert is_reserved_tool_candidate("Result: <tool_result>{}") is True
+    assert is_reserved_tool_candidate("orphan </tool_call> marker") is True
+    assert is_reserved_tool_candidate("orphan </tool_result> marker") is True
     assert is_reserved_tool_candidate("The result is 4") is False
 
 
@@ -155,6 +158,59 @@ def test_tool_registry_reports_unknown_invalid_and_execution_failures_safely() -
     assert invalid.error_code == "invalid_arguments"
     assert division.arguments == {"expression": "1 / 0"}
     assert division.error_code == "division_by_zero"
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        '__import__("os").system("whoami")',
+        "sqrt(4)",
+        "unknown_identifier + 1",
+    ],
+)
+def test_unsafe_calculator_arguments_are_not_retained_in_metadata(
+    expression: str,
+) -> None:
+    attempt = ToolRegistry([CalculatorTool()]).execute(
+        ToolCall("calculator", {"expression": expression}),
+        attempt=1,
+    )
+
+    record = attempt.as_record()
+    assert record["success"] is False
+    assert "arguments" not in record
+    assert expression not in json.dumps(record)
+
+
+def test_safe_calculator_attempts_retain_validated_arguments_and_results() -> None:
+    registry = ToolRegistry([CalculatorTool()])
+
+    division = registry.execute(
+        ToolCall("calculator", {"expression": " 1 / 0 "}),
+        attempt=1,
+    )
+    success = registry.execute(
+        ToolCall("calculator", {"expression": " 17 * 83 "}),
+        attempt=2,
+    )
+
+    assert division.arguments == {"expression": "1 / 0"}
+    assert division.success is False
+    assert division.error_code == "division_by_zero"
+    assert success.arguments == {"expression": "17 * 83"}
+    assert success.result == "1411"
+
+
+def test_malformed_tool_json_is_not_retained_in_failure_metadata() -> None:
+    raw = '<tool_call>{"name":"calculator","arguments":not-json}</tool_call>'
+
+    with pytest.raises(ToolFailure) as raised:
+        parse_tool_call(raw)
+    record = failed_tool_attempt(attempt=1, failure=raised.value).as_record()
+
+    assert record["success"] is False
+    assert "arguments" not in record
+    assert raw not in json.dumps(record)
 
 
 def test_internal_tool_result_is_deterministic_structured_json() -> None:

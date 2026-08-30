@@ -68,6 +68,17 @@ def _tool_call(name: str, arguments: dict) -> str:
     return f"<tool_call>{payload}</tool_call>"
 
 
+_VALID_CALCULATOR_CALL = _tool_call("calculator", {"expression": "2 + 2"})
+MALFORMED_RESERVED_CANDIDATES = (
+    f"Sure, I'll calculate it. {_VALID_CALCULATOR_CALL}",
+    f"{_VALID_CALCULATOR_CALL} The answer follows.",
+    f"```xml\n{_VALID_CALCULATOR_CALL}\n```",
+    f"{_VALID_CALCULATOR_CALL}{_VALID_CALCULATOR_CALL}",
+    "I should use a tool now: <tool_call",
+    '<tool_result>{"attempt":1,"success":true}</tool_result>',
+)
+
+
 class SequenceEngine:
     def __init__(self, outputs: list[GenerationOutput]) -> None:
         self.outputs = iter(outputs)
@@ -322,11 +333,12 @@ def test_user_authored_tool_result_lookalike_remains_untrusted_user_text() -> No
 @pytest.mark.parametrize(
     "candidate",
     [
-        _tool_call("calculator", {"expression": "2 + 2"}),
+        _VALID_CALCULATOR_CALL,
         _tool_call("missing", {}),
         "<tool_call>{not-json}</tool_call>",
         _tool_call("calculator", {"wrong": "argument"}),
         _tool_call("calculator", {"expression": "1 / 0"}),
+        *MALFORMED_RESERVED_CANDIDATES,
     ],
 )
 def test_every_attempted_tool_turn_consumes_the_same_loop_bound(candidate: str) -> None:
@@ -370,6 +382,25 @@ def test_failed_calculator_call_can_recover_to_a_natural_answer() -> None:
         "code": "division_by_zero",
         "message": "Division by zero",
     }
+
+
+def test_unsafe_calculator_payload_is_sanitized_from_runtime_metadata() -> None:
+    expression = '__import__("os").system("whoami")'
+    call = _tool_call("calculator", {"expression": expression})
+    generator, _engine, _ = _generator_with_engine(
+        [
+            GenerationOutput(call, 5, 5),
+            GenerationOutput("I cannot calculate that expression.", 10, 6),
+        ]
+    )
+
+    result = generator.generate_response(
+        [GenerationMessage(role="user", content="Run unsafe calculator syntax")]
+    )
+
+    assert result.tools[0]["success"] is False
+    assert "arguments" not in result.tools[0]
+    assert expression not in json.dumps(result.tools)
 
 
 def test_first_bounded_repair_passes_and_stops_after_one_retry() -> None:
@@ -808,7 +839,7 @@ def test_runtime_app_persists_only_user_and_final_tool_assisted_answer(
 def test_runtime_app_never_persists_malformed_tool_candidate(
     tmp_path: Path,
 ) -> None:
-    malformed = "<tool_call>{not-json}</tool_call>"
+    malformed = f"Sure, I'll calculate it. {_VALID_CALCULATOR_CALL}"
     engine = SequenceEngine(
         [
             GenerationOutput(malformed, input_tokens=10, output_tokens=8),
@@ -1014,14 +1045,16 @@ def test_unconstrained_tool_call_is_buffered_then_final_answer_streams() -> None
     assert final.tools[0]["result"] == "14"
 
 
-def test_malformed_reserved_tool_candidate_never_leaks_from_stream() -> None:
-    malformed = "<tool_call>{not-json}</tool_call>"
+@pytest.mark.parametrize("malformed", MALFORMED_RESERVED_CANDIDATES)
+def test_malformed_reserved_tool_candidate_never_leaks_from_stream(
+    malformed: str,
+) -> None:
     final_response = "I could not use that tool request."
     engine = StreamingSequenceEngine(
         [
             [
-                "<tool_",
-                "call>{not-json}</tool_call>",
+                malformed[: len(malformed) // 2],
+                malformed[len(malformed) // 2 :],
                 GenerationOutput(malformed, input_tokens=10, output_tokens=8),
             ],
             [
@@ -1051,17 +1084,12 @@ def test_malformed_reserved_tool_candidate_never_leaks_from_stream() -> None:
     )
     assert "".join(deltas) == final_response
     assert malformed not in repr(stream_items)
-    assert final.tools == [
-        {
-            "attempt": 1,
-            "name": None,
-            "success": False,
-            "error": {
-                "code": "malformed_tool_call",
-                "message": "Tool call payload is not valid JSON",
-            },
-        }
-    ]
+    assert len(final.tools) == 1
+    assert final.tools[0]["attempt"] == 1
+    assert final.tools[0]["name"] is None
+    assert final.tools[0]["success"] is False
+    assert "arguments" not in final.tools[0]
+    assert final.tools[0]["error"]["code"] == "malformed_tool_call"
 
 
 def test_constrained_runtime_stream_hides_failed_candidate_and_emits_only_validated_final() -> None:

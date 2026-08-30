@@ -29,7 +29,6 @@ from .tooling import (
     ToolAttempt,
     ToolFailure,
     ToolRegistry,
-    could_begin_reserved_tool_candidate,
     failed_tool_attempt,
     format_tool_call,
     format_tool_result,
@@ -261,10 +260,9 @@ class TransformersChatGenerator:
         *,
         cancel_event: Event,
     ) -> Iterator[str | _StreamCandidateOutput]:
-        decision_buffer = ""
+        chunks: list[str] = []
         pending = ""
         emitted: list[str] = []
-        reserved: bool | None = None
         output: GenerationOutput | None = None
 
         def normalize(chunk: str) -> str | None:
@@ -297,21 +295,7 @@ class TransformersChatGenerator:
                 if isinstance(item, GenerationOutput):
                     output = item
                     continue
-                if reserved is True:
-                    continue
-                if reserved is None:
-                    decision_buffer += item
-                    if is_reserved_tool_candidate(decision_buffer):
-                        reserved = True
-                        continue
-                    if could_begin_reserved_tool_candidate(decision_buffer):
-                        continue
-                    reserved = False
-                    item = decision_buffer
-                    decision_buffer = ""
-                delta = normalize(item)
-                if delta is not None:
-                    yield delta
+                chunks.append(item)
         finally:
             close = getattr(engine_stream, "close", None)
             if callable(close):
@@ -321,19 +305,7 @@ class TransformersChatGenerator:
             return
         if output is None:
             raise TypeError("Runtime engine stream ended without final output")
-        if reserved is None:
-            if is_reserved_tool_candidate(decision_buffer) or (
-                decision_buffer.strip()
-                and could_begin_reserved_tool_candidate(decision_buffer)
-            ):
-                reserved = True
-            else:
-                reserved = False
-                delta = normalize(decision_buffer)
-                if delta is not None:
-                    yield delta
-
-        if reserved:
+        if is_reserved_tool_candidate(output.text):
             yield _StreamCandidateOutput(
                 output=GenerationOutput(
                     output.text.strip(),
@@ -343,6 +315,11 @@ class TransformersChatGenerator:
                 reserved=True,
             )
             return
+
+        for chunk in chunks:
+            delta = normalize(chunk)
+            if delta is not None:
+                yield delta
 
         response = "".join(emitted)
         if response != output.text.strip():

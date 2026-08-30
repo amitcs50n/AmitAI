@@ -203,6 +203,76 @@ class _Parser:
         raise ToolFailure("unsupported_expression", "Expression grammar is invalid")
 
 
+class _GrammarValidator:
+    """Validate the complete expression grammar without performing arithmetic."""
+
+    def __init__(self, tokens: list[_Token]) -> None:
+        self.tokens = tokens
+        self.index = 0
+        self.nesting = 0
+
+    @property
+    def current(self) -> _Token:
+        return self.tokens[self.index]
+
+    def advance(self, kind: str) -> None:
+        if self.current.kind != kind:
+            raise ToolFailure("unsupported_expression", "Expression grammar is invalid")
+        self.index += 1
+
+    def parse(self) -> None:
+        self.additive()
+        if self.current.kind != "EOF":
+            raise ToolFailure("unsupported_expression", "Expression grammar is invalid")
+
+    def additive(self) -> None:
+        self.multiplicative()
+        while self.current.kind in {"PLUS", "MINUS"}:
+            self.index += 1
+            self.multiplicative()
+
+    def multiplicative(self) -> None:
+        self.unary()
+        while self.current.kind in {"MULTIPLY", "DIVIDE", "OF"}:
+            self.index += 1
+            self.unary()
+
+    def unary(self) -> None:
+        if self.current.kind in {"PLUS", "MINUS"}:
+            self.index += 1
+            self.unary()
+            return
+        self.postfix()
+
+    def postfix(self) -> None:
+        self.power()
+        while self.current.kind == "PERCENT":
+            self.index += 1
+
+    def power(self) -> None:
+        self.primary()
+        if self.current.kind == "POWER":
+            self.index += 1
+            self.unary()
+
+    def primary(self) -> None:
+        if self.current.kind == "NUMBER":
+            self.advance("NUMBER")
+            return
+        if self.current.kind == "LPAREN":
+            self.advance("LPAREN")
+            self.nesting += 1
+            if self.nesting > MAX_NESTING_DEPTH:
+                raise ToolFailure("expression_limit", "Parenthesis nesting limit exceeded")
+            try:
+                self.additive()
+                self.advance("RPAREN")
+                return
+            finally:
+                self.nesting -= 1
+        raise ToolFailure("unsupported_expression", "Expression grammar is invalid")
+
+
 def _format_decimal(value: Decimal) -> str:
     if value == 0:
         return "0"
@@ -217,9 +287,11 @@ def evaluate_expression(expression: str) -> str:
         raise ToolFailure("invalid_arguments", "Calculator expression must be non-empty")
     if len(expression) > MAX_EXPRESSION_LENGTH:
         raise ToolFailure("expression_limit", "Calculator expression is too long")
+    tokens = _tokenize(expression)
+    _GrammarValidator(tokens).parse()
     with localcontext() as context:
         context.prec = 80
-        value = _Parser(_tokenize(expression)).parse()
+        value = _Parser(tokens).parse()
     return _format_decimal(value)
 
 
@@ -244,8 +316,13 @@ class CalculatorTool:
             raise ToolFailure("invalid_arguments", "Calculator expression must be non-empty")
         if len(expression) > MAX_EXPRESSION_LENGTH:
             raise ToolFailure("expression_limit", "Calculator expression is too long")
-        return {"expression": expression.strip()}
+        expression = expression.strip()
+        try:
+            evaluate_expression(expression)
+        except ToolFailure as exc:
+            if exc.code != "division_by_zero":
+                raise
+        return {"expression": expression}
 
     def execute(self, arguments: Mapping[str, Any]) -> str:
         return evaluate_expression(str(arguments["expression"]))
-

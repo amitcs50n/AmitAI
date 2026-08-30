@@ -248,6 +248,81 @@ def test_streaming_tool_call_markup_is_hidden_and_only_final_answer_persists(
     assert _counts(application) == (1, 2, 1)
 
 
+def test_streaming_prose_wrapped_tool_markup_never_leaks_or_persists(
+    tmp_path: Path,
+) -> None:
+    malformed = (
+        "Sure, I'll calculate it. "
+        '<tool_call>{"name":"calculator","arguments":{"expression":"2+2"}}'
+        "</tool_call>"
+    )
+    final_response = "The answer is four."
+
+    class MalformedToolStreamingEngine:
+        def __init__(self) -> None:
+            self.outputs = iter(
+                [
+                    [
+                        "Sure, I'll calculate it. ",
+                        malformed.removeprefix("Sure, I'll calculate it. "),
+                        GenerationOutput(malformed, 10, 12),
+                    ],
+                    [
+                        "The answer",
+                        " is four.",
+                        GenerationOutput(final_response, 20, 5),
+                    ],
+                ]
+            )
+
+        def generate_detailed_stream(
+            self,
+            _messages,
+            _generation_config,
+            *,
+            cancel_event,
+        ):
+            assert cancel_event.is_set() is False
+            yield from next(self.outputs)
+
+    engine = MalformedToolStreamingEngine()
+    generator = TransformersChatGenerator(
+        load_runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    application = create_app(
+        _database_url(tmp_path / "stream-malformed-tool.sqlite3"),
+        generator=generator,
+    )
+
+    with TestClient(application) as client:
+        _, events = _post_stream(client, {"message": "What is 2 + 2?"})
+
+        serialized = json.dumps(events)
+        assert malformed not in serialized
+        assert "Sure, I'll calculate it." not in serialized
+        assert "<tool_call" not in serialized
+        assert "<tool_result" not in serialized
+        assert [event["event"] for event in events] == [
+            "start",
+            "text",
+            "text",
+            "final",
+            "done",
+        ]
+        final = next(event["data"] for event in events if event["event"] == "final")
+        assert final["response"] == final_response
+        assert final["metadata"]["tools"][0]["success"] is False
+        detail = client.get(f"/api/conversations/{final['conversation_id']}").json()
+        assert malformed not in json.dumps(detail)
+        assert [message["content"] for message in detail["messages"]] == [
+            "What is 2 + 2?",
+            final_response,
+        ]
+
+    assert _counts(application) == (1, 2, 1)
+
+
 def test_streaming_chat_passes_complete_ordered_conversation_history(
     tmp_path: Path,
 ) -> None:
