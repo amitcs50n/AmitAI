@@ -6,6 +6,10 @@ import type {
   ChatStreamText,
   Conversation,
   ConversationDetail,
+  MemoryCreateInput,
+  MemoryListOptions,
+  MemoryRecord,
+  MemoryUpdateInput,
 } from "@/lib/types";
 import { parseSseStream } from "./sse.ts";
 
@@ -95,6 +99,41 @@ export function renameConversation(id: string, title: string): Promise<Conversat
 
 export function deleteConversation(id: string): Promise<void> {
   return apiFetch<void>(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function listMemories(options: MemoryListOptions = {}): Promise<MemoryRecord[]> {
+  const query = options.query?.trim();
+  const parameters = new URLSearchParams();
+  if (query) {
+    parameters.set("query", query);
+  } else {
+    if (options.category) parameters.set("category", options.category);
+    if (options.status && options.status !== "active") {
+      parameters.set("status", options.status);
+    }
+  }
+  const suffix = parameters.size ? `?${parameters.toString()}` : "";
+  return apiFetch<MemoryRecord[]>(`/api/memory${suffix}`);
+}
+
+export function createMemory(payload: MemoryCreateInput): Promise<MemoryRecord> {
+  return apiFetch<MemoryRecord>("/api/memory", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMemory(id: string, payload: MemoryUpdateInput): Promise<MemoryRecord> {
+  return apiFetch<MemoryRecord>(`/api/memory/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMemory(id: string): Promise<void> {
+  return apiFetch<void>(`/api/memory/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }

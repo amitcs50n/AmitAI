@@ -365,6 +365,12 @@ Open the local Next.js address printed in Terminal 2. The development server pro
 `/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default, so browser code
 does not need a separate CORS configuration.
 
+Open **Memory** from Aevon's sidebar to manage Memory V1 without leaving the product UI. The page
+lists active structured memories, supports API-backed search and category filters, creates and
+edits explicit entries, confirms value-redacting forget operations, and can inspect safe forgotten
+tombstones. Memory values come only from `/api/memory`; chat bubbles and developer metadata keep
+using the reference-only memory contract.
+
 ## Run the base-model evaluation
 
 Use an 80 GB A100/H100-class CUDA environment, or equivalent multi-GPU capacity, with PyTorch

@@ -50,8 +50,8 @@ export function SettingsView({ connection, preferences, onChange }: SettingsView
         </SettingsSection>
 
         <SettingsSection title="Memory">
-          <SettingRow label="Memory" description="Runtime memory integration is intentionally deferred." value="Not configured" />
-          <SettingRow label="Manage Memory" description="Management controls will appear when real memory support exists." value="Coming later" />
+          <SettingRow label="Memory" description="Explicit structured memories are managed by the local AmitAI backend." value="Configured" />
+          <SettingRow label="Manage Memory" description="Open Memory from the sidebar to search, edit, create, or forget entries." value="Sidebar" />
         </SettingsSection>
 
         <SettingsSection title="Tools">

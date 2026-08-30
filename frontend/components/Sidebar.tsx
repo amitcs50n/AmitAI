@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { KeyRound, PanelLeftClose, Plus, Search, Settings, SlidersHorizontal, X } from "lucide-react";
+import { Brain, KeyRound, PanelLeftClose, Plus, Search, Settings, SlidersHorizontal, X } from "lucide-react";
 
 import { CONVERSATION_GROUPS, groupConversations } from "@/lib/dates";
 import type { AppView, Conversation } from "@/lib/types";
@@ -21,6 +21,7 @@ interface SidebarProps {
 }
 
 const navItems = [
+  { view: "memory" as const, label: "Memory", Icon: Brain },
   { view: "settings" as const, label: "Settings", Icon: Settings },
   { view: "preferences" as const, label: "Preferences", Icon: SlidersHorizontal },
   { view: "security" as const, label: "Security & Keys", Icon: KeyRound },

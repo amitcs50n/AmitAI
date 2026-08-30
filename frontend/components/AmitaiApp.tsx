@@ -24,6 +24,7 @@ import type {
 import { DEFAULT_PREFERENCES } from "@/lib/types";
 import { ChatView } from "@/components/ChatView";
 import { DeveloperDrawer } from "@/components/DeveloperDrawer";
+import { MemoryView } from "@/components/MemoryView";
 import { PreferencesView } from "@/components/PreferencesView";
 import { RenameDialog } from "@/components/RenameDialog";
 import { SecurityView } from "@/components/SecurityView";
@@ -472,6 +473,8 @@ export function AmitaiApp() {
             sending={sending}
             streamingMessage={streamingMessage}
           />
+        ) : view === "memory" ? (
+          <MemoryView />
         ) : view === "settings" ? (
           <SettingsView connection={connection} onChange={updatePreferences} preferences={preferences} />
         ) : view === "preferences" ? (

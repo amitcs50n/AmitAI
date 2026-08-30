@@ -1,6 +1,60 @@
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
-export type AppView = "chat" | "settings" | "preferences" | "security";
+export type AppView = "chat" | "memory" | "settings" | "preferences" | "security";
+
+export const MEMORY_CATEGORIES = [
+  "preference",
+  "profile",
+  "project",
+  "workflow",
+  "instruction",
+] as const;
+
+export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
+export type MemoryStatus = "active" | "deleted";
+export type MemoryOperation = "current" | "retrieved" | "stored" | "updated" | "deleted";
+
+export interface MemorySource {
+  conversation_id: string | null;
+  message_id: string | null;
+}
+
+export interface MemoryRecord {
+  id: string;
+  operation: MemoryOperation;
+  category: MemoryCategory;
+  key: string;
+  value: string | null;
+  status: MemoryStatus;
+  source: MemorySource;
+  updated_at: string;
+}
+
+export interface MemoryReference {
+  id: string;
+  operation: MemoryOperation;
+  category: MemoryCategory;
+  key: string;
+  status: MemoryStatus;
+  source: MemorySource;
+  updated_at: string;
+}
+
+export interface MemoryCreateInput {
+  category: MemoryCategory;
+  key: string;
+  value: string;
+}
+
+export interface MemoryUpdateInput {
+  value: string;
+}
+
+export interface MemoryListOptions {
+  query?: string;
+  category?: MemoryCategory;
+  status?: MemoryStatus;
+}
 
 export interface Conversation {
   id: string;
@@ -17,7 +71,7 @@ export interface MessageMetadata {
   output_tokens: number | null;
   validator: Record<string, unknown> | null;
   tools: unknown[] | null;
-  memory: unknown[] | null;
+  memory: MemoryReference[] | null;
 }
 
 export interface Message {
@@ -51,7 +105,7 @@ export interface ChatMetadata {
   output_tokens: number | null;
   validator: ChatValidatorMetadata;
   tools: unknown[];
-  memory: unknown[];
+  memory: MemoryReference[];
 }
 
 export interface ChatResponse {
