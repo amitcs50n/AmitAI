@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from threading import Event
 from typing import Any, Protocol
 
@@ -21,7 +22,20 @@ from evaluation.constraints import (
 )
 from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 
+from .calculator import CalculatorTool
 from .config import RuntimeConfig
+from .tooling import (
+    MAX_TOOL_ITERATIONS,
+    ToolAttempt,
+    ToolFailure,
+    ToolRegistry,
+    could_begin_reserved_tool_candidate,
+    failed_tool_attempt,
+    format_tool_call,
+    format_tool_result,
+    is_reserved_tool_candidate,
+    parse_tool_call,
+)
 
 
 class DetailedGenerationEngine(Protocol):
@@ -35,6 +49,29 @@ class DetailedGenerationEngine(Protocol):
 EngineFactory = Callable[[dict[str, object], int], DetailedGenerationEngine]
 
 
+@dataclass(frozen=True)
+class _ToolLoopOutput:
+    output: GenerationOutput
+    tools: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class _StreamCandidateOutput:
+    output: GenerationOutput
+    reserved: bool
+
+
+@dataclass
+class _ToolBudget:
+    attempted_turns: int = 0
+
+    def consume(self) -> int:
+        self.attempted_turns += 1
+        if self.attempted_turns > MAX_TOOL_ITERATIONS:
+            raise ChatGenerationError("Assistant generation failed")
+        return self.attempted_turns
+
+
 class TransformersChatGenerator:
     """Adapt the tested text generator to the persistent chat backend contract."""
 
@@ -44,12 +81,14 @@ class TransformersChatGenerator:
         *,
         engine_factory: EngineFactory = TransformersGenerator,
         clock: Callable[[], float] = time.perf_counter,
+        tool_registry: ToolRegistry | None = None,
     ) -> None:
         if not config.mechanical_constraints_enabled:
             raise ValueError("Runtime mechanical constraint validation must be enabled")
         self.config = config
         self._engine_factory = engine_factory
         self._clock = clock
+        self._tool_registry = tool_registry or ToolRegistry([CalculatorTool()])
         self._engine: DetailedGenerationEngine | None = None
         self._initialization_lock = threading.Lock()
         self._generation_lock = threading.Lock()
@@ -152,12 +191,253 @@ class TransformersChatGenerator:
             raise ValueError("Runtime engine chunks do not reconstruct its final output")
         yield output
 
+    @staticmethod
+    def _safe_assistant_tool_message(text: str) -> str:
+        try:
+            return format_tool_call(parse_tool_call(text))
+        except ToolFailure:
+            return '<tool_call>{"arguments":{},"name":"invalid_tool_call"}</tool_call>'
+
+    def _execute_tool_candidate(
+        self,
+        text: str,
+        *,
+        attempt_number: int,
+    ) -> ToolAttempt:
+        try:
+            call = parse_tool_call(text)
+        except ToolFailure as exc:
+            attempt = failed_tool_attempt(attempt=attempt_number, failure=exc)
+        else:
+            attempt = self._tool_registry.execute(call, attempt=attempt_number)
+        return attempt
+
+    def _run_tool_loop(
+        self,
+        model_messages: list[dict[str, str]],
+        generate_once: Callable[[list[dict[str, str]]], GenerationOutput],
+        *,
+        budget: _ToolBudget,
+    ) -> _ToolLoopOutput:
+        working_messages = list(model_messages)
+        tool_records: list[dict[str, Any]] = []
+        input_tokens = 0
+        output_tokens = 0
+
+        while True:
+            output = generate_once(working_messages)
+            input_tokens += output.input_tokens
+            output_tokens += output.output_tokens
+            response = output.text.strip()
+            if not is_reserved_tool_candidate(response):
+                return _ToolLoopOutput(
+                    output=GenerationOutput(response, input_tokens, output_tokens),
+                    tools=tuple(tool_records),
+                )
+
+            attempt_number = budget.consume()
+            attempt = self._execute_tool_candidate(
+                response,
+                attempt_number=attempt_number,
+            )
+            record = attempt.as_record()
+            tool_records.append(record)
+            working_messages.extend(
+                (
+                    {
+                        "role": "assistant",
+                        "content": self._safe_assistant_tool_message(response),
+                    },
+                    {
+                        "role": "system",
+                        "content": format_tool_result(attempt),
+                    },
+                )
+            )
+
+    def _stream_candidate(
+        self,
+        model_messages: list[dict[str, str]],
+        *,
+        cancel_event: Event,
+    ) -> Iterator[str | _StreamCandidateOutput]:
+        decision_buffer = ""
+        pending = ""
+        emitted: list[str] = []
+        reserved: bool | None = None
+        output: GenerationOutput | None = None
+
+        def normalize(chunk: str) -> str | None:
+            nonlocal pending
+            pending += chunk
+            if not emitted:
+                pending = pending.lstrip()
+            if not pending:
+                return None
+            last_non_whitespace = next(
+                (
+                    index
+                    for index in range(len(pending) - 1, -1, -1)
+                    if not pending[index].isspace()
+                ),
+                -1,
+            )
+            if last_non_whitespace < 0:
+                return None
+            delta = pending[: last_non_whitespace + 1]
+            pending = pending[last_non_whitespace + 1 :]
+            emitted.append(delta)
+            return delta
+
+        engine_stream = self._stream_once(model_messages, cancel_event=cancel_event)
+        try:
+            for item in engine_stream:
+                if cancel_event.is_set():
+                    return
+                if isinstance(item, GenerationOutput):
+                    output = item
+                    continue
+                if reserved is True:
+                    continue
+                if reserved is None:
+                    decision_buffer += item
+                    if is_reserved_tool_candidate(decision_buffer):
+                        reserved = True
+                        continue
+                    if could_begin_reserved_tool_candidate(decision_buffer):
+                        continue
+                    reserved = False
+                    item = decision_buffer
+                    decision_buffer = ""
+                delta = normalize(item)
+                if delta is not None:
+                    yield delta
+        finally:
+            close = getattr(engine_stream, "close", None)
+            if callable(close):
+                close()
+
+        if cancel_event.is_set():
+            return
+        if output is None:
+            raise TypeError("Runtime engine stream ended without final output")
+        if reserved is None:
+            if is_reserved_tool_candidate(decision_buffer) or (
+                decision_buffer.strip()
+                and could_begin_reserved_tool_candidate(decision_buffer)
+            ):
+                reserved = True
+            else:
+                reserved = False
+                delta = normalize(decision_buffer)
+                if delta is not None:
+                    yield delta
+
+        if reserved:
+            yield _StreamCandidateOutput(
+                output=GenerationOutput(
+                    output.text.strip(),
+                    output.input_tokens,
+                    output.output_tokens,
+                ),
+                reserved=True,
+            )
+            return
+
+        response = "".join(emitted)
+        if response != output.text.strip():
+            raise ValueError("Normalized runtime deltas do not match the final output")
+        yield _StreamCandidateOutput(
+            output=GenerationOutput(
+                response,
+                output.input_tokens,
+                output.output_tokens,
+            ),
+            reserved=False,
+        )
+
+    def _stream_tool_loop(
+        self,
+        model_messages: list[dict[str, str]],
+        *,
+        cancel_event: Event,
+    ) -> Iterator[str | _ToolLoopOutput]:
+        working_messages = list(model_messages)
+        tool_records: list[dict[str, Any]] = []
+        input_tokens = 0
+        output_tokens = 0
+        budget = _ToolBudget()
+
+        while not cancel_event.is_set():
+            candidate: _StreamCandidateOutput | None = None
+            candidate_stream = self._stream_candidate(
+                working_messages,
+                cancel_event=cancel_event,
+            )
+            try:
+                for item in candidate_stream:
+                    if cancel_event.is_set():
+                        return
+                    if isinstance(item, _StreamCandidateOutput):
+                        candidate = item
+                    else:
+                        yield item
+            finally:
+                close = getattr(candidate_stream, "close", None)
+                if callable(close):
+                    close()
+
+            if cancel_event.is_set():
+                return
+            if candidate is None:
+                raise TypeError("Runtime stream ended without a candidate result")
+            input_tokens += candidate.output.input_tokens
+            output_tokens += candidate.output.output_tokens
+            if not candidate.reserved:
+                yield _ToolLoopOutput(
+                    output=GenerationOutput(
+                        candidate.output.text,
+                        input_tokens,
+                        output_tokens,
+                    ),
+                    tools=tuple(tool_records),
+                )
+                return
+
+            attempt_number = budget.consume()
+            attempt = self._execute_tool_candidate(
+                candidate.output.text,
+                attempt_number=attempt_number,
+            )
+            record = attempt.as_record()
+            tool_records.append(record)
+            working_messages.extend(
+                (
+                    {
+                        "role": "assistant",
+                        "content": self._safe_assistant_tool_message(
+                            candidate.output.text
+                        ),
+                    },
+                    {
+                        "role": "system",
+                        "content": format_tool_result(attempt),
+                    },
+                )
+            )
+
     def _model_messages(
         self,
         messages: Sequence[GenerationMessage],
     ) -> list[dict[str, str]]:
         return [
-            {"role": "system", "content": self.config.runtime_system_prompt},
+            {
+                "role": "system",
+                "content": (
+                    f"{self.config.runtime_system_prompt}\n\n"
+                    f"{self._tool_registry.instructions()}"
+                ),
+            },
             *[{"role": item.role, "content": item.content} for item in messages],
         ]
 
@@ -195,13 +475,20 @@ class TransformersChatGenerator:
         prior_history = tuple(messages[:-1])
         input_tokens = 0
         output_tokens = 0
+        tool_records: list[dict[str, Any]] = []
+        tool_budget = _ToolBudget()
 
         def generate(model_messages: list[dict[str, str]]) -> str:
             nonlocal input_tokens, output_tokens
-            output = generate_once(model_messages)
-            input_tokens += output.input_tokens
-            output_tokens += output.output_tokens
-            return output.text
+            loop_output = self._run_tool_loop(
+                model_messages,
+                generate_once,
+                budget=tool_budget,
+            )
+            input_tokens += loop_output.output.input_tokens
+            output_tokens += loop_output.output.output_tokens
+            tool_records.extend(loop_output.tools)
+            return loop_output.output.text
 
         original_response = generate(self._model_messages(messages))
 
@@ -229,7 +516,7 @@ class TransformersChatGenerator:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             validator=self._validator_metadata(validation),
-            tools=[],
+            tools=tool_records,
             memory=[],
         )
 
@@ -276,71 +563,46 @@ class TransformersChatGenerator:
             return
 
         start = self._clock()
-        pending = ""
-        emitted: list[str] = []
-        output: GenerationOutput | None = None
-        engine_stream = self._stream_once(
+        loop_output: _ToolLoopOutput | None = None
+        tool_stream = self._stream_tool_loop(
             self._model_messages(messages),
             cancel_event=cancel_event,
         )
         try:
-            for item in engine_stream:
+            for item in tool_stream:
                 if cancel_event.is_set():
                     return
-                if isinstance(item, GenerationOutput):
-                    output = item
-                    continue
-
-                pending += item
-                if not emitted:
-                    pending = pending.lstrip()
-                if not pending:
-                    continue
-                last_non_whitespace = next(
-                    (
-                        index
-                        for index in range(len(pending) - 1, -1, -1)
-                        if not pending[index].isspace()
-                    ),
-                    -1,
-                )
-                if last_non_whitespace < 0:
-                    continue
-                delta = pending[: last_non_whitespace + 1]
-                pending = pending[last_non_whitespace + 1 :]
-                emitted.append(delta)
-                yield ChatGenerationDelta(delta=delta)
+                if isinstance(item, _ToolLoopOutput):
+                    loop_output = item
+                else:
+                    yield ChatGenerationDelta(delta=item)
         finally:
-            close = getattr(engine_stream, "close", None)
+            close = getattr(tool_stream, "close", None)
             if callable(close):
                 close()
 
         if cancel_event.is_set():
             return
-        if output is None:
-            raise TypeError("Runtime engine stream ended without final output")
-
-        response = "".join(emitted)
-        if response != output.text.strip():
-            raise ValueError("Normalized runtime deltas do not match the final output")
+        if loop_output is None:
+            raise TypeError("Runtime tool stream ended without final output")
 
         def unexpected_retry(_: str) -> str:
             raise RuntimeError("Unconstrained streaming must not retry")
 
         validation = validate_with_bounded_retries(
             current_prompt,
-            response,
+            loop_output.output.text,
             unexpected_retry,
             max_retries=MAX_MECHANICAL_RETRIES,
         )
         latency_ms = max(0, int((self._clock() - start) * 1000))
         yield ChatGenerationResult(
-            response=response,
+            response=loop_output.output.text,
             model=str(self.config.model["name"]),
             latency_ms=latency_ms,
-            input_tokens=output.input_tokens,
-            output_tokens=output.output_tokens,
+            input_tokens=loop_output.output.input_tokens,
+            output_tokens=loop_output.output.output_tokens,
             validator=self._validator_metadata(validation),
-            tools=[],
+            tools=list(loop_output.tools),
             memory=[],
         )

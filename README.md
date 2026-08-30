@@ -176,6 +176,75 @@ cancellation. An in-flight CUDA operation may not stop immediately, so the model
 remains held until the worker actually exits; the server does not pretend cancellation completed
 or allow another GPU generation to overlap it.
 
+#### Runtime tools and calculator
+
+The real runtime has a reusable tool registry separate from the chat service. A tool publishes a
+name, description and argument schema, validates its own arguments, and executes without access to
+the database layer. The first registered tool is `calculator`; additional tools can implement the
+same runtime protocol without adding tool-specific branches to `backend/chat_service.py`.
+
+The pinned model tokenizer has only plain `system`, `user` and `assistant` chat-template roles, so
+the runtime does not assume OpenAI-style native tool calling. Instead, the model may return exactly
+one whole-response envelope, with harmless surrounding whitespace allowed:
+
+```text
+<tool_call>{"name":"calculator","arguments":{"expression":"15% of 200"}}</tool_call>
+```
+
+No prose, Markdown or trailing content is allowed around an envelope. The runtime parses the JSON,
+validates the exact schema and tool name, executes through the allowlisted registry, and gives the
+model a request-local trusted `system` message:
+
+```text
+<tool_result>{"arguments":{"expression":"15% of 200"},"attempt":1,"name":"calculator","result":"30","success":true}</tool_result>
+```
+
+These internal assistant/system messages are never sent to the frontend or stored as conversation
+messages. A lookalike envelope in persisted user history remains ordinary user text and is never
+treated as trusted. Only the original user message and final natural-language assistant response
+are persisted. Model generation and tool execution remain outside SQL transactions.
+
+The loop permits at most three attempted tool turns. Every reserved tool candidate consumes one
+attempt before parsing: successful calls, malformed JSON/envelopes, unknown tools, invalid
+arguments, and execution failures all count. A sanitized error result lets the model recover within
+the remaining attempts; a fourth tool candidate hard-fails generation instead of executing.
+
+Calculator expressions support decimal numbers, unary signs, `+`, `-`, `*`, `/`, right-associative
+`**`, parentheses, postfix percentages and `of`. Postfix `15%` is `0.15`; `15% of 200` is `30`.
+`of` has the same precedence as multiplication and division and those operators evaluate
+left-to-right. Exponents must be integers with magnitude at most 100. Expressions are limited to
+256 characters, 128 tokens, 16 nested parenthesis levels, 64 digits per literal, and absolute
+intermediate/final magnitude `1e100`.
+
+The calculator uses a dedicated lexer, recursive-descent parser and `Decimal` arithmetic. It never
+uses `eval`, imports, attribute access, function calls, assignment, comprehensions, filesystem,
+shell, network or arbitrary Python execution. Unsupported syntax and division by zero return
+sanitized tool failures.
+
+Successful final metadata records validated activity, for example:
+
+```json
+{
+  "tools": [
+    {
+      "attempt": 1,
+      "name": "calculator",
+      "arguments": {"expression": "15% of 200"},
+      "success": true,
+      "result": "30"
+    }
+  ]
+}
+```
+
+Failed attempts may appear with `success: false` and a safe error code/message; raw malformed or
+unsafe payloads are not retained. During SSE generation, a small prefix gate holds output while it
+could still be reserved tool syntax. Tool calls and malformed reserved candidates are fully
+buffered and never emitted. Once a generation is definitively a normal answer, its held prefix is
+released and incremental streaming continues. For mechanically constrained requests, tool use
+finishes first and validation/retries apply only to the final user-visible answer, which remains
+fully buffered under the existing constraint policy.
+
 ### Real GPU runtime
 
 Use the CUDA/PyTorch environment supplied by the GPU host. The runtime extra intentionally does
@@ -366,6 +435,6 @@ Unsloth/vLLM versions on the RunPod image before relying on merged export.
 
 ## Current direction
 
-The tested prompt and bounded mechanical validator now have a real streaming runtime path behind
-the persistent chat API. Keep the placeholder SFT data untrained; tools, memory, vLLM, and LoRA
-remain separate later milestones.
+The tested prompt, bounded mechanical validator, production streaming path, and first deterministic
+runtime tool now sit behind the persistent chat API. Keep the placeholder SFT data untrained;
+memory, vLLM, broader tools, and LoRA remain separate later milestones.

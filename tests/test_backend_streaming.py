@@ -18,6 +18,9 @@ from backend.chat_service import (
 from backend.database import Database
 from backend.models import Conversation, Message, MessageMetadata
 from backend.repositories import ConversationRepository, MessageRepository
+from evaluation.hf_backend import GenerationOutput
+from runtime.config import load_runtime_config
+from runtime.generator import TransformersChatGenerator
 
 
 def _database_url(path: Path) -> str:
@@ -162,6 +165,87 @@ def test_streaming_chat_emits_multiple_exact_deltas_and_final_metadata(
 
     assert _counts(application) == (1, 2, 1)
     assert len(generator.cancel_events) == 1
+
+
+def test_streaming_tool_call_markup_is_hidden_and_only_final_answer_persists(
+    tmp_path: Path,
+) -> None:
+    tool_call = (
+        '<tool_call>{"arguments":{"expression":"2 + 3 * 4"},'
+        '"name":"calculator"}</tool_call>'
+    )
+
+    class ToolStreamingEngine:
+        def __init__(self) -> None:
+            self.outputs = iter(
+                [
+                    [
+                        "<tool_",
+                        tool_call.removeprefix("<tool_"),
+                        GenerationOutput(tool_call, 10, 10),
+                    ],
+                    [
+                        "The answer",
+                        " is 14.",
+                        GenerationOutput("The answer is 14.", 20, 5),
+                    ],
+                ]
+            )
+
+        def generate_detailed_stream(
+            self,
+            _messages,
+            _generation_config,
+            *,
+            cancel_event,
+        ):
+            assert cancel_event.is_set() is False
+            yield from next(self.outputs)
+
+    engine = ToolStreamingEngine()
+    generator = TransformersChatGenerator(
+        load_runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    application = create_app(
+        _database_url(tmp_path / "stream-tool.sqlite3"),
+        generator=generator,
+    )
+
+    with TestClient(application) as client:
+        _, events = _post_stream(client, {"message": "What is 2 + 3 * 4?"})
+
+        assert [event["event"] for event in events] == [
+            "start",
+            "text",
+            "text",
+            "final",
+            "done",
+        ]
+        assert tool_call not in json.dumps(events)
+        assert "<tool_result>" not in json.dumps(events)
+        final = next(event["data"] for event in events if event["event"] == "final")
+        assert final["response"] == "The answer is 14."
+        assert final["metadata"]["tools"] == [
+            {
+                "attempt": 1,
+                "name": "calculator",
+                "arguments": {"expression": "2 + 3 * 4"},
+                "success": True,
+                "result": "14",
+            }
+        ]
+        detail = client.get(f"/api/conversations/{final['conversation_id']}").json()
+        assert [message["role"] for message in detail["messages"]] == [
+            "user",
+            "assistant",
+        ]
+        assert [message["content"] for message in detail["messages"]] == [
+            "What is 2 + 3 * 4?",
+            "The answer is 14.",
+        ]
+
+    assert _counts(application) == (1, 2, 1)
 
 
 def test_streaming_chat_passes_complete_ordered_conversation_history(

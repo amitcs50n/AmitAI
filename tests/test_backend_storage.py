@@ -14,6 +14,10 @@ from backend.chat_service import (
 from backend.database import Database
 from backend.models import Conversation, Message, MessageMetadata
 from backend.repositories import ConversationRepository, MessageRepository
+from evaluation.hf_backend import GenerationOutput
+from runtime.config import load_runtime_config
+from runtime.generator import TransformersChatGenerator
+from runtime.tooling import ToolDefinition, ToolRegistry
 
 
 def _database_url(path: Path) -> str:
@@ -168,6 +172,82 @@ def test_existing_conversation_generation_runs_outside_a_transaction(
                     conversation_id
                 )
             ] == ["Next question", "Generated outside SQL"]
+    finally:
+        database.engine.dispose()
+
+
+def test_tool_execution_runs_outside_a_transaction(tmp_path: Path) -> None:
+    database = Database.from_url(_database_url(tmp_path / "tool-transaction.sqlite3"))
+    database.create_schema()
+    try:
+        with database.session_factory() as session:
+            with session.begin():
+                conversation = ConversationRepository(session).create("Existing")
+                conversation_id = conversation.id
+
+            transaction_states: list[bool] = []
+
+            class TransactionProbeTool:
+                definition = ToolDefinition(
+                    name="transaction_probe",
+                    description="Test transaction boundaries",
+                    arguments={},
+                )
+
+                def validate_arguments(self, arguments):
+                    assert arguments == {}
+                    return {}
+
+                def execute(self, arguments):
+                    assert arguments == {}
+                    transaction_states.append(session.in_transaction())
+                    return "outside"
+
+            class SequenceEngine:
+                def __init__(self) -> None:
+                    self.outputs = iter(
+                        [
+                            GenerationOutput(
+                                '<tool_call>{"arguments":{},"name":"transaction_probe"}'
+                                "</tool_call>",
+                                5,
+                                5,
+                            ),
+                            GenerationOutput("Completed outside SQL", 8, 3),
+                        ]
+                    )
+
+                def generate_detailed(self, _messages, _generation_config):
+                    transaction_states.append(session.in_transaction())
+                    return next(self.outputs)
+
+            generator = TransformersChatGenerator(
+                load_runtime_config(),
+                engine_factory=lambda _model, _seed: SequenceEngine(),
+                tool_registry=ToolRegistry([TransactionProbeTool()]),
+            )
+            result = ChatService(session, generator=generator).chat(
+                conversation_id=conversation_id,
+                message="Use the transaction probe",
+            )
+
+            assert transaction_states == [False, False, False]
+            assert result.response == "Completed outside SQL"
+            assert result.metadata.tools == [
+                {
+                    "attempt": 1,
+                    "name": "transaction_probe",
+                    "arguments": {},
+                    "success": True,
+                    "result": "outside",
+                }
+            ]
+            assert [
+                item.content
+                for item in MessageRepository(session).list_for_conversation(
+                    conversation_id
+                )
+            ] == ["Use the transaction probe", "Completed outside SQL"]
     finally:
         database.engine.dispose()
 
