@@ -16,7 +16,7 @@ from backend.chat_service import (
 )
 from backend.database import Database
 from backend.memory import MemoryConflictError, MemoryService
-from backend.models import MemoryRevision, MemorySlot, Message
+from backend.models import MemoryRevision, MemorySlot, Message, MessageMetadata
 from evaluation.hf_backend import GenerationOutput
 from runtime.config import load_runtime_config
 from runtime.generator import TransformersChatGenerator
@@ -207,7 +207,7 @@ def test_explicit_chat_remember_retrieves_across_new_conversation_with_provenanc
         stored = remembered.json()["metadata"]["memory"]
         assert len(stored) == 1
         assert stored[0]["operation"] == "stored"
-        assert stored[0]["value"] == "dark"
+        assert "value" not in stored[0]
         first_detail = client.get(
             f"/api/conversations/{remembered.json()['conversation_id']}"
         ).json()
@@ -225,7 +225,7 @@ def test_explicit_chat_remember_retrieves_across_new_conversation_with_provenanc
         retrieved = recalled.json()["metadata"]["memory"]
         assert retrieved[0]["id"] == stored[0]["id"]
         assert retrieved[0]["operation"] == "retrieved"
-        assert retrieved[0]["value"] == "dark"
+        assert "value" not in retrieved[0]
         second_detail = client.get(
             f"/api/conversations/{recalled.json()['conversation_id']}"
         ).json()
@@ -233,12 +233,17 @@ def test_explicit_chat_remember_retrieves_across_new_conversation_with_provenanc
             "user",
             "assistant",
         ]
+        assert "value" not in second_detail["messages"][1]["metadata"]["memory"][0]
+        assert "dark" not in json.dumps(
+            second_detail["messages"][1]["metadata"]["memory"]
+        )
         assert "MEMORY_CONTEXT_V1" not in json.dumps(second_detail)
 
     recall_history = generator.histories[1]
     assert recall_history[0].role == "system"
     assert recall_history[0].content.startswith("MEMORY_CONTEXT_V1")
     assert '"key":"ui.theme"' in recall_history[0].content
+    assert '"value":"dark"' in recall_history[0].content
     assert recall_history[-1] == GenerationMessage(
         role="user",
         content="What UI theme do I prefer?",
@@ -268,7 +273,7 @@ def test_correction_stales_old_revision_and_forget_prevents_future_retrieval(
             json={"message": "Actually, update preference ui.rgb: subtle"},
         ).json()
         assert corrected["metadata"]["memory"][-1]["operation"] == "updated"
-        assert corrected["metadata"]["memory"][-1]["value"] == "subtle"
+        assert "value" not in corrected["metadata"]["memory"][-1]
 
         forgotten = client.post(
             "/api/chat",
@@ -284,6 +289,12 @@ def test_correction_stales_old_revision_and_forget_prevents_future_retrieval(
         ).json()
         assert future["metadata"]["memory"] == []
 
+    forget_history = generator.histories[2]
+    assert all(
+        not item.content.startswith("MEMORY_CONTEXT_V1")
+        for item in forget_history
+    )
+
     with application.state.database.session_factory() as session:
         slot = session.get(MemorySlot, memory_id)
         revisions = list(
@@ -293,6 +304,69 @@ def test_correction_stales_old_revision_and_forget_prevents_future_retrieval(
         )
         assert slot.status == "deleted"
         assert all(revision.value is None for revision in revisions)
+
+
+def test_forget_scrubs_legacy_memory_values_from_all_message_metadata(
+    tmp_path: Path,
+) -> None:
+    forgotten_value = "legacy ultraviolet preference"
+    generator = RecordingGenerator(["Stored.", "Recalled.", "Forgotten."])
+    application = create_app(
+        _database_url(tmp_path / "memory-metadata-redaction.sqlite3"),
+        generator=generator,
+    )
+
+    with TestClient(application) as client:
+        remembered = client.post(
+            "/api/chat",
+            json={
+                "message": (
+                    "Remember preference ui.theme: "
+                    f"{forgotten_value}"
+                )
+            },
+        ).json()
+        memory_id = remembered["metadata"]["memory"][0]["id"]
+
+        recalled = client.post(
+            "/api/chat",
+            json={"message": "What UI theme do I prefer?"},
+        ).json()
+        assert "value" not in recalled["metadata"]["memory"][0]
+
+        with application.state.database.session_factory() as session, session.begin():
+            metadata = session.get(MessageMetadata, recalled["message_id"])
+            legacy_reference = dict(metadata.memory_refs_json[0])
+            legacy_reference["value"] = forgotten_value
+            metadata.memory_refs_json = [legacy_reference]
+
+        forgotten = client.post(
+            "/api/chat",
+            json={"message": "Forget preference ui.theme"},
+        ).json()
+
+        forget_metadata = forgotten["metadata"]["memory"]
+        assert len(forget_metadata) == 1
+        assert forget_metadata[0]["operation"] == "deleted"
+        assert "value" not in forget_metadata[0]
+        assert forgotten_value not in json.dumps(forgotten["metadata"]["memory"])
+
+    assert all(
+        not item.content.startswith("MEMORY_CONTEXT_V1")
+        for item in generator.histories[2]
+    )
+
+    with application.state.database.session_factory() as session:
+        metadata_rows = list(session.scalars(select(MessageMetadata)))
+        matching_references = [
+            reference
+            for metadata in metadata_rows
+            for reference in (metadata.memory_refs_json or [])
+            if isinstance(reference, dict) and reference.get("id") == memory_id
+        ]
+        assert matching_references
+        assert all("value" not in reference for reference in matching_references)
+        assert forgotten_value not in json.dumps(matching_references)
 
 
 def test_ordinary_actually_and_ambiguous_commands_never_mutate_memory(

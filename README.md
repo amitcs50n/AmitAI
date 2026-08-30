@@ -226,6 +226,13 @@ remembered user context only—even category `instruction` remains below runtime
 protocol, mechanical validation, and the current request. User-authored lookalike markup remains
 ordinary user text. Internal memory context and tool-loop messages are never persisted.
 
+The value-bearing retrieved record exists only in the request-local model context and the memory
+API. Chat responses and `message_metadata.memory_refs_json` persist reference-only memory metadata:
+ID, operation, category, key, status, provenance, and update timestamp, but never the raw memory
+value. A valid explicit forget is staged before retrieval, so its target is neither injected into
+that request's model context nor reported as retrieved. The delete transaction also strips a
+matching raw `value` from legacy structured metadata rows created by earlier Memory V1 builds.
+
 Chat memory mutation is staged during the short preparation read, but it is applied only after
 successful generation inside the final conversation transaction, after the real user message
 exists. The assistant metadata reports `stored`, `updated`, or `deleted` only for the mutation that

@@ -252,6 +252,21 @@ def _memory_record(
     return record
 
 
+def memory_metadata_reference(record: dict[str, Any]) -> dict[str, Any]:
+    """Project a value-bearing memory record into safe persisted chat metadata."""
+
+    reference = {
+        "id": record["id"],
+        "operation": record["operation"],
+        "category": record["category"],
+        "key": record["key"],
+        "status": record["status"],
+        "source": dict(record["source"]),
+        "updated_at": record["updated_at"],
+    }
+    return reference
+
+
 def format_memory_context(records: list[dict[str, Any]]) -> str:
     payload = json.dumps(
         {"items": records},
@@ -298,13 +313,20 @@ class MemoryService:
         self.owner_id = owner_id.strip()
         self.repository = MemoryRepository(session)
 
-    def retrieve(self, query: str) -> list[dict[str, Any]]:
+    def retrieve(
+        self,
+        query: str,
+        *,
+        exclude_memory_ids: frozenset[str] = frozenset(),
+    ) -> list[dict[str, Any]]:
         query_tokens = _tokens(query)
         if not query_tokens:
             return []
 
         ranked: list[tuple[int, datetime, str, MemorySlot, MemoryRevision]] = []
         for memory, revision in self.repository.list_current(owner_id=self.owner_id):
+            if memory.id in exclude_memory_ids:
+                continue
             if revision.value is None:
                 continue
             key_tokens = _tokens(memory.key.replace(".", " ").replace("_", " "))
@@ -538,6 +560,7 @@ class MemoryService:
                     ),
                 )
             )
+            self.repository.redact_memory_reference_values(mutation.memory_id)
 
         revision = MemoryRevision(
             memory_id=mutation.memory_id,

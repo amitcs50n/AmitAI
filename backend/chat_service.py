@@ -17,6 +17,7 @@ from .memory import (
     StagedMemoryMutation,
     format_memory_command_context,
     format_memory_context,
+    memory_metadata_reference,
     parse_memory_command,
 )
 from .models import utc_now
@@ -254,7 +255,6 @@ class ChatService:
                 ]
                 title = ""
 
-            retrieved_memory = self.memory.retrieve(message)
             decision = parse_memory_command(message)
             staged_memory = self.memory.stage_chat_command(decision)
             if decision.command is not None and staged_memory is None:
@@ -262,6 +262,15 @@ class ChatService:
                     intent_detected=True,
                     reason="Memory target was not found or is not active",
                 )
+            excluded_memory_ids = (
+                frozenset({staged_memory.memory_id})
+                if staged_memory is not None and staged_memory.operation == "deleted"
+                else frozenset()
+            )
+            retrieved_memory = self.memory.retrieve(
+                message,
+                exclude_memory_ids=excluded_memory_ids,
+            )
 
         user_created_at = _timestamp_after(previous_timestamp)
         generation_messages: list[GenerationMessage] = []
@@ -314,12 +323,20 @@ class ChatService:
                 content=prepared.message,
                 created_at=prepared.user_created_at,
             )
-            memory_metadata = [*generation.memory, *prepared.retrieved_memory]
+            memory_metadata = [
+                *generation.memory,
+                *(
+                    memory_metadata_reference(record)
+                    for record in prepared.retrieved_memory
+                ),
+            ]
             if prepared.staged_memory is not None:
                 memory_metadata.append(
-                    self.memory.apply(
-                        prepared.staged_memory,
-                        source_message=user_message,
+                    memory_metadata_reference(
+                        self.memory.apply(
+                            prepared.staged_memory,
+                            source_message=user_message,
+                        )
                     )
                 )
             committed_generation = replace(generation, memory=memory_metadata)

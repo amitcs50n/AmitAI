@@ -214,3 +214,36 @@ class MemoryRepository:
             .order_by(MemoryRevision.revision.asc())
         )
         return list(self.session.scalars(statement))
+
+    def redact_memory_reference_values(self, memory_id: str) -> int:
+        """Remove legacy raw values for one memory from persisted chat metadata."""
+
+        statement = select(MessageMetadata).where(
+            MessageMetadata.memory_refs_json.is_not(None)
+        )
+        changed_rows = 0
+        for metadata in self.session.scalars(statement):
+            references = metadata.memory_refs_json
+            if not isinstance(references, list):
+                continue
+
+            sanitized: list[Any] = []
+            changed = False
+            for reference in references:
+                if (
+                    isinstance(reference, dict)
+                    and reference.get("id") == memory_id
+                    and "value" in reference
+                ):
+                    reference = dict(reference)
+                    reference.pop("value", None)
+                    changed = True
+                sanitized.append(reference)
+
+            if changed:
+                metadata.memory_refs_json = sanitized
+                changed_rows += 1
+
+        if changed_rows:
+            self.session.flush()
+        return changed_rows
