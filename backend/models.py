@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -115,3 +116,91 @@ class MessageMetadata(Base):
     memory_refs_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
     message: Mapped[Message] = relationship(back_populates="metadata_record")
+
+
+class MemorySlot(Base):
+    __tablename__ = "memory_slots"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'deleted')",
+            name="ck_memory_slots_valid_status",
+        ),
+        CheckConstraint(
+            "current_revision >= 1",
+            name="ck_memory_slots_positive_revision",
+        ),
+        UniqueConstraint(
+            "owner_id",
+            "category",
+            "key",
+            name="uq_memory_slots_owner_category_key",
+        ),
+        Index(
+            "ix_memory_slots_owner_status_category_updated",
+            "owner_id",
+            "status",
+            "category",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    owner_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    current_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    revisions: Mapped[list["MemoryRevision"]] = relationship(
+        back_populates="memory",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by=lambda: MemoryRevision.revision,
+    )
+
+
+class MemoryRevision(Base):
+    __tablename__ = "memory_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'stale', 'deleted')",
+            name="ck_memory_revisions_valid_status",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_memory_revisions_positive_revision",
+        ),
+        CheckConstraint(
+            "status != 'deleted' OR value IS NULL",
+            name="ck_memory_revisions_deleted_value_redacted",
+        ),
+        UniqueConstraint(
+            "memory_id",
+            "revision",
+            name="uq_memory_revisions_memory_revision",
+        ),
+        Index("ix_memory_revisions_memory_status", "memory_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    memory_id: Mapped[str] = mapped_column(
+        ForeignKey("memory_slots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
+
+    memory: Mapped[MemorySlot] = relationship(back_populates="revisions")

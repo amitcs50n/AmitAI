@@ -7,6 +7,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .memory import (
+    MAX_MEMORY_KEY_CHARS,
+    MAX_MEMORY_VALUE_CHARS,
+    normalize_memory_key,
+    validate_memory_category,
+    validate_memory_value,
+)
+
 
 def _required_trimmed(value: str) -> str:
     trimmed = value.strip()
@@ -122,3 +130,53 @@ class ChatResponse(BaseModel):
     message_id: str
     response: str
     metadata: ChatMetadata
+
+
+class MemoryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: str = Field(max_length=32)
+    key: str = Field(max_length=MAX_MEMORY_KEY_CHARS)
+    value: str = Field(max_length=MAX_MEMORY_VALUE_CHARS)
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        return validate_memory_category(value)
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        return normalize_memory_key(value)
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str) -> str:
+        return validate_memory_value(value)
+
+
+class MemoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(max_length=MAX_MEMORY_VALUE_CHARS)
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str) -> str:
+        return validate_memory_value(value)
+
+
+class MemorySourceRead(BaseModel):
+    conversation_id: str | None = None
+    message_id: str | None = None
+
+
+class MemoryRead(BaseModel):
+    id: str
+    operation: str
+    category: str
+    key: str
+    value: str | None = None
+    status: str
+    source: MemorySourceRead
+    updated_at: datetime

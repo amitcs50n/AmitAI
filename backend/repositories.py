@@ -8,7 +8,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from .models import Conversation, Message, MessageMetadata, utc_now
+from .models import (
+    Conversation,
+    MemoryRevision,
+    MemorySlot,
+    Message,
+    MessageMetadata,
+    utc_now,
+)
 
 VALID_MESSAGE_ROLES = frozenset({"user", "assistant", "system", "tool"})
 
@@ -131,3 +138,79 @@ class MessageRepository:
         self.session.add(metadata)
         self.session.flush()
         return metadata
+
+
+class MemoryRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_slot(self, memory_id: str) -> MemorySlot | None:
+        return self.session.get(MemorySlot, memory_id)
+
+    def get_slot_fresh(self, memory_id: str) -> MemorySlot | None:
+        statement = (
+            select(MemorySlot)
+            .where(MemorySlot.id == memory_id)
+            .execution_options(populate_existing=True)
+        )
+        return self.session.scalar(statement)
+
+    def get_slot_by_key(
+        self,
+        *,
+        owner_id: str,
+        category: str,
+        key: str,
+        fresh: bool = False,
+    ) -> MemorySlot | None:
+        statement = select(MemorySlot).where(
+            MemorySlot.owner_id == owner_id,
+            MemorySlot.category == category,
+            MemorySlot.key == key,
+        )
+        if fresh:
+            statement = statement.execution_options(populate_existing=True)
+        return self.session.scalar(statement)
+
+    def get_current_revision(self, memory: MemorySlot) -> MemoryRevision | None:
+        statement = select(MemoryRevision).where(
+            MemoryRevision.memory_id == memory.id,
+            MemoryRevision.revision == memory.current_revision,
+        )
+        return self.session.scalar(statement)
+
+    def list_current(
+        self,
+        *,
+        owner_id: str,
+        status: str = "active",
+        category: str | None = None,
+    ) -> list[tuple[MemorySlot, MemoryRevision]]:
+        statement = (
+            select(MemorySlot, MemoryRevision)
+            .join(
+                MemoryRevision,
+                (MemoryRevision.memory_id == MemorySlot.id)
+                & (MemoryRevision.revision == MemorySlot.current_revision),
+            )
+            .where(
+                MemorySlot.owner_id == owner_id,
+                MemorySlot.status == status,
+                MemoryRevision.status == status,
+            )
+        )
+        if category is not None:
+            statement = statement.where(MemorySlot.category == category)
+        statement = statement.order_by(
+            MemorySlot.updated_at.desc(),
+            MemorySlot.id.asc(),
+        )
+        return list(self.session.execute(statement).tuples())
+
+    def list_revisions(self, memory_id: str) -> list[MemoryRevision]:
+        statement = (
+            select(MemoryRevision)
+            .where(MemoryRevision.memory_id == memory_id)
+            .order_by(MemoryRevision.revision.asc())
+        )
+        return list(self.session.scalars(statement))

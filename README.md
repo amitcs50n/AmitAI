@@ -177,6 +177,62 @@ cancellation. An in-flight CUDA operation may not stop immediately, so the model
 remains held until the worker actually exits; the server does not pretend cancellation completed
 or allow another GPU generation to overlap it.
 
+#### Structured memory V1
+
+Memory V1 stores explicit, structured memories for the server-owned local principal
+`local-default`. Automatic capture is off: ordinary conversation never mutates durable memory.
+The chat parser accepts exactly one of these narrow command forms (case-insensitive):
+
+```text
+Remember <category> <key>: <value>
+Update <category> <key>: <value>
+Forget <category> <key>
+Actually, update <category> <key>: <value>
+Actually, forget <category> <key>
+```
+
+Categories are `preference`, `profile`, `project`, `workflow`, and `instruction`; keys are stable
+dot/underscore/hyphen identifiers such as `ui.theme`. `Actually` alone has no memory meaning, and
+ambiguous or malformed corrections/deletes do not mutate memory. Values are normalized, bounded,
+and rejected when they contain recognized credentials such as passwords, API keys, tokens, JWTs,
+or private keys.
+
+The explicit API uses the same validation and never accepts a client-supplied owner:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/memory \
+  -H 'Content-Type: application/json' \
+  --data '{"category":"preference","key":"ui.theme","value":"dark"}'
+
+curl 'http://127.0.0.1:8000/api/memory?category=preference'
+curl 'http://127.0.0.1:8000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
+curl -X PATCH http://127.0.0.1:8000/api/memory/MEMORY_ID \
+  -H 'Content-Type: application/json' \
+  --data '{"value":"light"}'
+curl -X DELETE http://127.0.0.1:8000/api/memory/MEMORY_ID
+curl 'http://127.0.0.1:8000/api/memory?status=deleted'
+```
+
+Each logical `(owner, category, key)` has a stable slot ID and monotonically increasing revision.
+Updates mark the previous revision stale. Forget creates a tombstone and redacts values from all
+historical revisions; deleted and stale revisions are never retrieved. Explicitly remembering a
+forgotten key reactivates the same slot with a new revision while old values remain redacted.
+Optimistic revision/status checks reject concurrent lost updates.
+
+Retrieval is deterministic and conservative: key/category matches dominate value overlap, with at
+most eight active items and about 4,000 serialized characters. Selected items are injected as a
+runtime-generated `MEMORY_CONTEXT_V1` system message with deterministic JSON. That block is
+remembered user context only—even category `instruction` remains below runtime/system rules, tool
+protocol, mechanical validation, and the current request. User-authored lookalike markup remains
+ordinary user text. Internal memory context and tool-loop messages are never persisted.
+
+Chat memory mutation is staged during the short preparation read, but it is applied only after
+successful generation inside the final conversation transaction, after the real user message
+exists. The assistant metadata reports `stored`, `updated`, or `deleted` only for the mutation that
+committed; generation failure, exhausted validation, disconnect/cancellation, optimistic conflict,
+or transaction rollback leaves memory and conversation rows unchanged. Model generation and tool
+execution remain outside SQL transactions.
+
 #### Runtime tools and calculator
 
 The real runtime has a reusable tool registry separate from the chat service. A tool publishes a
@@ -445,6 +501,6 @@ Unsloth/vLLM versions on the RunPod image before relying on merged export.
 
 ## Current direction
 
-The tested prompt, bounded mechanical validator, production streaming path, and first deterministic
-runtime tool now sit behind the persistent chat API. Keep the placeholder SFT data untrained;
-memory, vLLM, broader tools, and LoRA remain separate later milestones.
+The tested prompt, bounded mechanical validator, production streaming path, structured Memory V1,
+and first deterministic runtime tool now sit behind the persistent chat API. Keep the placeholder
+SFT data untrained; vLLM, broader tools, and LoRA remain separate later milestones.

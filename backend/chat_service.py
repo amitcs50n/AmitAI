@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from .memory import (
+    LOCAL_MEMORY_OWNER_ID,
+    MemoryCommandDecision,
+    MemoryService,
+    StagedMemoryMutation,
+    format_memory_command_context,
+    format_memory_context,
+    parse_memory_command,
+)
 from .models import utc_now
 from .repositories import ConversationRepository, MessageRepository
 
@@ -96,6 +105,8 @@ class _PreparedChat:
     request_timestamp: datetime
     user_created_at: datetime
     generation_messages: tuple[GenerationMessage, ...]
+    retrieved_memory: tuple[dict[str, Any], ...]
+    staged_memory: StagedMemoryMutation | None
 
 
 def _deterministic_title(message: str) -> str:
@@ -119,11 +130,14 @@ class ChatService:
         generator: (
             ResponseGenerator | StreamingResponseGenerator | GenerationCallable | None
         ) = None,
+        *,
+        memory_owner_id: str = LOCAL_MEMORY_OWNER_ID,
     ) -> None:
         self.session = session
         self.generator = generator
         self.conversations = ConversationRepository(session)
         self.messages = MessageRepository(session)
+        self.memory = MemoryService(session, owner_id=memory_owner_id)
 
     def _validate_generation(self, result: object) -> ChatGenerationResult:
         """Validate the generator boundary before any response can be persisted."""
@@ -221,12 +235,12 @@ class ChatService:
 
     def _prepare_chat(self, *, conversation_id: str | None, message: str) -> _PreparedChat:
         request_timestamp = utc_now()
-        if conversation_id is None:
-            title = _deterministic_title(message)
-            previous_timestamp = request_timestamp
-            generation_messages: list[GenerationMessage] = []
-        else:
-            with self.session.begin():
+        with self.session.begin():
+            if conversation_id is None:
+                title = _deterministic_title(message)
+                previous_timestamp = request_timestamp
+                history_messages: list[GenerationMessage] = []
+            else:
                 conversation = self.conversations.get_fresh(conversation_id)
                 if conversation is None:
                     raise ConversationNotFoundError(conversation_id)
@@ -234,13 +248,36 @@ class ChatService:
                 previous_timestamp = (
                     history[-1].created_at if history else conversation.created_at
                 )
-                generation_messages = [
+                history_messages = [
                     GenerationMessage(role=item.role, content=item.content)
                     for item in history
                 ]
-            title = ""
+                title = ""
+
+            retrieved_memory = self.memory.retrieve(message)
+            decision = parse_memory_command(message)
+            staged_memory = self.memory.stage_chat_command(decision)
+            if decision.command is not None and staged_memory is None:
+                decision = MemoryCommandDecision(
+                    intent_detected=True,
+                    reason="Memory target was not found or is not active",
+                )
 
         user_created_at = _timestamp_after(previous_timestamp)
+        generation_messages: list[GenerationMessage] = []
+        if retrieved_memory:
+            generation_messages.append(
+                GenerationMessage(
+                    role="system",
+                    content=format_memory_context(retrieved_memory),
+                )
+            )
+        command_context = format_memory_command_context(decision)
+        if command_context is not None:
+            generation_messages.append(
+                GenerationMessage(role="system", content=command_context)
+            )
+        generation_messages.extend(history_messages)
         generation_messages.append(GenerationMessage(role="user", content=message))
         return _PreparedChat(
             conversation_id=conversation_id,
@@ -249,6 +286,8 @@ class ChatService:
             request_timestamp=request_timestamp,
             user_created_at=user_created_at,
             generation_messages=tuple(generation_messages),
+            retrieved_memory=tuple(retrieved_memory),
+            staged_memory=staged_memory,
         )
 
     def _persist_chat(
@@ -269,27 +308,36 @@ class ChatService:
                 if conversation is None:
                     raise ConversationNotFoundError(prepared.conversation_id)
 
-            self.messages.create(
+            user_message = self.messages.create(
                 conversation,
                 role="user",
                 content=prepared.message,
                 created_at=prepared.user_created_at,
             )
+            memory_metadata = [*generation.memory, *prepared.retrieved_memory]
+            if prepared.staged_memory is not None:
+                memory_metadata.append(
+                    self.memory.apply(
+                        prepared.staged_memory,
+                        source_message=user_message,
+                    )
+                )
+            committed_generation = replace(generation, memory=memory_metadata)
             assistant_message = self.messages.create(
                 conversation,
                 role="assistant",
-                content=generation.response,
+                content=committed_generation.response,
                 created_at=assistant_created_at,
             )
             self.messages.add_metadata(
                 assistant_message,
-                model=generation.model,
-                latency_ms=generation.latency_ms,
-                input_tokens=generation.input_tokens,
-                output_tokens=generation.output_tokens,
-                validator=generation.validator,
-                tools=generation.tools,
-                memory=generation.memory,
+                model=committed_generation.model,
+                latency_ms=committed_generation.latency_ms,
+                input_tokens=committed_generation.input_tokens,
+                output_tokens=committed_generation.output_tokens,
+                validator=committed_generation.validator,
+                tools=committed_generation.tools,
+                memory=committed_generation.memory,
             )
             self.conversations.touch(
                 conversation,
@@ -299,8 +347,8 @@ class ChatService:
         return ChatResult(
             conversation_id=conversation.id,
             message_id=assistant_message.id,
-            response=generation.response,
-            metadata=generation,
+            response=committed_generation.response,
+            metadata=committed_generation,
         )
 
     @staticmethod

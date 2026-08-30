@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -25,6 +25,13 @@ from .chat_service import (
     StreamingResponseGenerator,
 )
 from .database import DEFAULT_DATABASE_URL, Database
+from .memory import (
+    LOCAL_MEMORY_OWNER_ID,
+    MemoryConflictError,
+    MemoryNotFoundError,
+    MemoryService,
+    MemoryValidationError,
+)
 from .repositories import ConversationRepository
 from .schemas import (
     ChatRequest,
@@ -33,6 +40,9 @@ from .schemas import (
     ConversationDetail,
     ConversationRead,
     ConversationRename,
+    MemoryCreate,
+    MemoryRead,
+    MemoryUpdate,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -60,6 +70,7 @@ def create_app(
     generator: (
         ResponseGenerator | StreamingResponseGenerator | GenerationCallable | None
     ) = None,
+    memory_owner_id: str = LOCAL_MEMORY_OWNER_ID,
 ) -> FastAPI:
     database = Database.from_url(database_url)
     stream_executor: ThreadPoolExecutor | None = None
@@ -91,6 +102,7 @@ def create_app(
     application = FastAPI(title="AmitAI Backend", lifespan=lifespan)
     application.state.database = database
     application.state.generator = generator
+    application.state.memory_owner_id = memory_owner_id
 
     @application.get("/api/health")
     def health() -> dict[str, str]:
@@ -168,7 +180,11 @@ def create_app(
         request: Request,
         session: Session = Depends(get_session),
     ) -> ChatResponse:
-        service = ChatService(session, generator=request.app.state.generator)
+        service = ChatService(
+            session,
+            generator=request.app.state.generator,
+            memory_owner_id=request.app.state.memory_owner_id,
+        )
         try:
             result = service.chat(
                 conversation_id=payload.conversation_id,
@@ -178,6 +194,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="Conversation not found") from exc
         except ChatGenerationError as exc:
             raise HTTPException(status_code=500, detail="Assistant generation failed") from exc
+        except MemoryConflictError as exc:
+            raise HTTPException(status_code=409, detail="Memory changed; retry") from exc
 
         return ChatResponse.model_validate(result, from_attributes=True)
 
@@ -221,6 +239,7 @@ def create_app(
                         service = ChatService(
                             stream_session,
                             generator=selected_generator,
+                            memory_owner_id=request.app.state.memory_owner_id,
                         )
                         service_stream = service.stream_chat(
                             conversation_id=payload.conversation_id,
@@ -245,6 +264,15 @@ def create_app(
                         ChatStreamEvent(
                             event="error",
                             data={"detail": "Assistant generation failed"},
+                        ),
+                        force=True,
+                    )
+                except MemoryConflictError:
+                    LOGGER.exception("Streaming memory commit conflicted")
+                    publish(
+                        ChatStreamEvent(
+                            event="error",
+                            data={"detail": "Memory changed; retry"},
                         ),
                         force=True,
                     )
@@ -297,6 +325,93 @@ def create_app(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @application.get("/api/memory", response_model=list[MemoryRead])
+    def list_memory(
+        memory_status: str = Query(default="active", alias="status"),
+        category: str | None = None,
+        query: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[MemoryRead]:
+        service = MemoryService(session, owner_id=memory_owner_id)
+        try:
+            if query is not None:
+                if memory_status != "active" or category is not None:
+                    raise MemoryValidationError(
+                        "Query cannot be combined with status or category filters"
+                    )
+                records = service.retrieve(query)
+            else:
+                records = service.list_memories(
+                    status=memory_status,
+                    category=category,
+                )
+        except MemoryValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return [MemoryRead.model_validate(record) for record in records]
+
+    @application.post(
+        "/api/memory",
+        response_model=MemoryRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_memory(
+        payload: MemoryCreate,
+        session: Session = Depends(get_session),
+    ) -> MemoryRead:
+        service = MemoryService(session, owner_id=memory_owner_id)
+        try:
+            with session.begin():
+                mutation = service.stage_create(
+                    category=payload.category,
+                    key=payload.key,
+                    value=payload.value,
+                )
+                record = service.apply(mutation)
+        except MemoryConflictError as exc:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return MemoryRead.model_validate(record)
+
+    @application.patch("/api/memory/{memory_id}", response_model=MemoryRead)
+    def update_memory(
+        memory_id: str,
+        payload: MemoryUpdate,
+        session: Session = Depends(get_session),
+    ) -> MemoryRead:
+        service = MemoryService(session, owner_id=memory_owner_id)
+        try:
+            with session.begin():
+                mutation = service.stage_update(memory_id, value=payload.value)
+                record = service.apply(mutation)
+        except MemoryNotFoundError as exc:
+            session.rollback()
+            raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except MemoryConflictError as exc:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return MemoryRead.model_validate(record)
+
+    @application.delete(
+        "/api/memory/{memory_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_memory(
+        memory_id: str,
+        session: Session = Depends(get_session),
+    ) -> Response:
+        service = MemoryService(session, owner_id=memory_owner_id)
+        try:
+            with session.begin():
+                mutation = service.stage_delete(memory_id)
+                service.apply(mutation)
+        except MemoryNotFoundError as exc:
+            session.rollback()
+            raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except MemoryConflictError as exc:
+            session.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return application
 
