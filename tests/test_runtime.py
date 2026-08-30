@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend.chat_service import (
     ChatGenerationDelta,
+    ChatGenerationError,
     ChatGenerationResult,
     GenerationMessage,
 )
@@ -325,26 +326,26 @@ def test_second_repair_uses_latest_failure_and_aggregates_all_token_usage() -> N
     assert result.output_tokens == 47
 
 
-def test_both_bounded_repairs_can_fail_without_a_third_call() -> None:
+def test_exhausted_exact_word_repairs_fail_instead_of_returning_final_candidate() -> None:
     generator, engine, _ = _generator_with_engine(
         [
-            GenerationOutput("one two three", 10, 3),
-            GenerationOutput("one two three four", 12, 4),
-            GenerationOutput("still only four words", 14, 4),
+            GenerationOutput("Paris is the capital", 10, 4),
+            GenerationOutput("France has Paris capital", 12, 4),
+            GenerationOutput("Paris remains the capital", 14, 4),
         ]
     )
 
-    result = generator.generate_response(
-        [GenerationMessage(role="user", content="Write exactly 5 words.")]
-    )
+    with pytest.raises(ChatGenerationError, match="Assistant generation failed"):
+        generator.generate_response(
+            [
+                GenerationMessage(
+                    role="user",
+                    content="What is the capital of France? Answer in exactly 3 words.",
+                )
+            ]
+        )
 
     assert len(engine.calls) == 3
-    assert result.response == "still only four words"
-    assert result.validator["retry_attempted"] is True
-    assert result.validator["first_retry_passed"] is False
-    assert result.validator["retry_passed"] is False
-    assert result.validator["retry_count"] == 2
-    assert result.validator["final_validation"]["passed"] is False
 
 
 def test_latency_covers_the_complete_original_and_repair_flow() -> None:
@@ -579,6 +580,59 @@ def test_runtime_app_runs_bounded_repair_and_persists_only_final_chat_messages(
     assert len(engine.calls) == 2
 
 
+def test_runtime_app_rejects_final_validation_failure_without_persistence(
+    tmp_path: Path,
+) -> None:
+    failed_attempts = [
+        GenerationOutput("Paris is the capital", input_tokens=10, output_tokens=4),
+        GenerationOutput("France has Paris capital", input_tokens=12, output_tokens=4),
+        GenerationOutput("Paris remains the capital", input_tokens=14, output_tokens=4),
+    ]
+    engine = SequenceEngine([*failed_attempts, *failed_attempts])
+
+    def factory(config: RuntimeConfig) -> TransformersChatGenerator:
+        return TransformersChatGenerator(
+            config,
+            engine_factory=lambda _model, _seed: engine,
+        )
+
+    application = create_runtime_app(
+        f"sqlite+pysqlite:///{(tmp_path / 'runtime-validation-failure.sqlite3').as_posix()}",
+        mode="transformers",
+        config_path=DEFAULT_RUNTIME_CONFIG_PATH,
+        generator_factory=factory,
+    )
+    payload = {
+        "message": "What is the capital of France? Answer in exactly 3 words."
+    }
+
+    with TestClient(application, raise_server_exceptions=False) as client:
+        new_conversation_response = client.post("/api/chat", json=payload)
+
+        assert new_conversation_response.status_code == 500
+        assert new_conversation_response.json() == {
+            "detail": "Assistant generation failed"
+        }
+        assert client.get("/api/conversations").json() == []
+
+        existing = client.post(
+            "/api/conversations",
+            json={"title": "Keep unchanged"},
+        ).json()
+        before = client.get(f"/api/conversations/{existing['id']}").json()
+        existing_response = client.post(
+            "/api/chat",
+            json={"conversation_id": existing["id"], **payload},
+        )
+        after = client.get(f"/api/conversations/{existing['id']}").json()
+
+        assert existing_response.status_code == 500
+        assert existing_response.json() == {"detail": "Assistant generation failed"}
+        assert after == before
+
+    assert len(engine.calls) == 6
+
+
 def test_unconstrained_runtime_streams_multiple_exact_deltas_with_full_history() -> None:
     engine = StreamingSequenceEngine(
         [
@@ -683,6 +737,42 @@ def test_constrained_runtime_stream_hides_failed_candidate_and_emits_only_valida
     assert final.validator["retry_passed"] is True
     assert final.validator["retry_count"] == 1
     assert final.validator["final_validation"]["passed"] is True
+
+
+def test_constrained_runtime_stream_exhaustion_emits_no_failed_candidate() -> None:
+    failed_candidates = [
+        "Paris is the capital",
+        "France has Paris capital",
+        "Paris remains the capital",
+    ]
+    engine = StreamingSequenceEngine(
+        [
+            [
+                candidate[:8],
+                candidate[8:],
+                GenerationOutput(candidate, input_tokens=10, output_tokens=4),
+            ]
+            for candidate in failed_candidates
+        ]
+    )
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+    stream = generator.stream_response(
+        [
+            GenerationMessage(
+                role="user",
+                content="What is the capital of France? Answer in exactly 3 words.",
+            )
+        ],
+        cancel_event=threading.Event(),
+    )
+
+    with pytest.raises(ChatGenerationError, match="Assistant generation failed"):
+        next(stream)
+
+    assert len(engine.calls) == 3
 
 
 def test_constrained_runtime_disconnect_cancels_buffered_candidate_before_retry() -> None:

@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from backend.chat_service import (
     ChatGenerationDelta,
+    ChatGenerationError,
     ChatGenerationResult,
     GenerationMessage,
 )
@@ -217,6 +218,8 @@ class TransformersChatGenerator:
             retry,
             max_retries=MAX_MECHANICAL_RETRIES,
         )
+        if validation["final_validation"]["passed"] is not True:
+            raise ChatGenerationError("Assistant generation failed")
 
         latency_ms = max(0, int((self._clock() - start) * 1000))
         return ChatGenerationResult(

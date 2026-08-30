@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from backend.app import create_app
 from backend.chat_service import (
     ChatGenerationDelta,
+    ChatGenerationError,
     ChatGenerationResult,
     ChatService,
 )
@@ -211,6 +212,83 @@ class PartiallyFailingStreamingGenerator:
         assert cancel_event.is_set() is False
         yield ChatGenerationDelta(delta="partial text that must not persist")
         raise RuntimeError("private streaming generator failure")
+
+
+class BufferedValidationFailureGenerator:
+    failed_candidates = (
+        "Paris is the capital",
+        "France has Paris capital",
+        "Paris remains the capital",
+    )
+
+    def stream_response(self, messages, *, cancel_event):
+        assert messages[-1].role == "user"
+        assert cancel_event.is_set() is False
+        raise ChatGenerationError("Assistant generation failed")
+        yield  # pragma: no cover - keeps this method on the streaming protocol
+
+
+def test_streaming_final_validation_failure_emits_only_terminal_error(
+    tmp_path: Path,
+) -> None:
+    generator = BufferedValidationFailureGenerator()
+    application = create_app(
+        _database_url(tmp_path / "stream-validation-failure.sqlite3"),
+        generator=generator,
+    )
+
+    with TestClient(application, raise_server_exceptions=False) as client:
+        _, events = _post_stream(
+            client,
+            {
+                "message": (
+                    "What is the capital of France? Answer in exactly 3 words."
+                )
+            },
+        )
+
+        assert [event["event"] for event in events] == ["start", "error"]
+        assert events[-1]["data"] == {"detail": "Assistant generation failed"}
+        assert not any(
+            event["event"] in {"text", "final", "done"} for event in events
+        )
+        assert all(
+            candidate not in json.dumps(events)
+            for candidate in generator.failed_candidates
+        )
+        assert client.get("/api/conversations").json() == []
+
+    assert _counts(application) == (0, 0, 0)
+
+
+def test_streaming_final_validation_failure_preserves_existing_conversation(
+    tmp_path: Path,
+) -> None:
+    application = create_app(
+        _database_url(tmp_path / "stream-validation-existing.sqlite3"),
+        generator=BufferedValidationFailureGenerator(),
+    )
+
+    with TestClient(application, raise_server_exceptions=False) as client:
+        existing = client.post(
+            "/api/conversations",
+            json={"title": "Keep unchanged"},
+        ).json()
+        before = client.get(f"/api/conversations/{existing['id']}").json()
+
+        _, events = _post_stream(
+            client,
+            {
+                "conversation_id": existing["id"],
+                "message": "Answer in exactly 3 words.",
+            },
+        )
+        after = client.get(f"/api/conversations/{existing['id']}").json()
+
+        assert [event["event"] for event in events] == ["start", "error"]
+        assert after == before
+
+    assert _counts(application) == (1, 0, 0)
 
 
 def test_streaming_generator_failure_never_persists_partial_output(
