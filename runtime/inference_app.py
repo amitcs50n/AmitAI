@@ -18,6 +18,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.security import environment_flag
 from evaluation.hf_backend import GenerationOutput
 
 from .config import DEFAULT_RUNTIME_CONFIG_PATH, load_runtime_config
@@ -74,6 +75,7 @@ def create_inference_app(
     provider: InferenceProvider | None = None,
     auth_token: str | None = None,
     config_path: str | Path | None = None,
+    enable_dev_docs: bool = False,
 ) -> FastAPI:
     """Create a compute-only app with no database or application-state dependencies."""
 
@@ -88,7 +90,12 @@ def create_inference_app(
     selected_token = auth_token if auth_token is not None else os.getenv(
         "AMITAI_INFERENCE_AUTH_TOKEN"
     )
-    application = FastAPI(title="AmitAI Stateless Inference")
+    application = FastAPI(
+        title="AmitAI Stateless Inference",
+        docs_url="/docs" if enable_dev_docs else None,
+        redoc_url="/redoc" if enable_dev_docs else None,
+        openapi_url="/openapi.json" if enable_dev_docs else None,
+    )
     application.state.inference_provider = selected_provider
 
     def authorize(authorization: str | None = Header(default=None)) -> None:
@@ -110,11 +117,7 @@ def create_inference_app(
 
     @application.get("/health")
     def health() -> dict[str, str]:
-        return {
-            "status": "ok",
-            "provider": selected_provider.provider_name,
-            "model": selected_provider.model_name,
-        }
+        return {"status": "ok"}
 
     @application.post("/v1/generate", response_model=InferenceResponse)
     def generate(
@@ -241,4 +244,9 @@ def create_inference_app(
     return application
 
 
-app = create_inference_app()
+app = create_inference_app(
+    enable_dev_docs=environment_flag(
+        "AMITAI_ENABLE_DEV_DOCS",
+        environ=os.environ,
+    )
+)

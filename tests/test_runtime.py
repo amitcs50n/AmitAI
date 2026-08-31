@@ -16,7 +16,7 @@ from backend.chat_service import (
     GenerationMessage,
 )
 from evaluation.hf_backend import GenerationOutput, TransformersGenerator
-from runtime.app import create_runtime_app, select_response_generator
+from runtime.app import select_response_generator
 from runtime.config import (
     DEFAULT_RUNTIME_CONFIG_PATH,
     EXPECTED_MODEL_NAME,
@@ -26,6 +26,7 @@ from runtime.config import (
 )
 from runtime.generator import ProviderChatGenerator, TransformersChatGenerator
 from runtime.tooling import MAX_TOOL_ITERATIONS
+from tests.app_factory import create_test_runtime_app as create_runtime_app
 
 
 def _runtime_config(system_prompt: str = "Tested runtime prompt") -> RuntimeConfig:

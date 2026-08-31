@@ -8,10 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from evaluation.hf_backend import GenerationOutput
-from runtime.app import create_runtime_app
 from runtime.config import DEFAULT_RUNTIME_CONFIG_PATH, EXPECTED_MODEL_NAME
 from runtime.inference_app import create_inference_app
 from runtime.providers import InferenceProviderError, RemoteInferenceProvider
+from tests.app_factory import create_test_runtime_app as create_runtime_app
 
 
 class RecordingProvider:
@@ -94,6 +94,33 @@ def test_remote_provider_sends_only_stateless_generation_contract() -> None:
         assert forbidden not in serialized
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://gpu.example",
+        "http://127.0.0.1:9000",
+        "http://localhost:9000",
+        "http://[::1]:9000",
+    ],
+)
+def test_remote_provider_accepts_https_and_loopback_http(endpoint: str) -> None:
+    provider = RemoteInferenceProvider(endpoint, "development-token", EXPECTED_MODEL_NAME)
+    provider.close()
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://gpu.example",
+        "http://192.168.1.20:9000",
+        "http://10.0.0.5:9000",
+    ],
+)
+def test_remote_provider_rejects_non_loopback_plaintext_http(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="requires HTTPS"):
+        RemoteInferenceProvider(endpoint, "development-token", EXPECTED_MODEL_NAME)
+
+
 def test_remote_provider_streams_deltas_and_terminal_metadata() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
@@ -138,6 +165,46 @@ def test_remote_provider_streams_deltas_and_terminal_metadata() -> None:
     ]
 
 
+def test_successful_remote_inference_logs_only_operational_metadata(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    prompt = "PRIVATE_PROMPT_92831"
+    memory = "PRIVATE_MEMORY_55221"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "request_id": payload["request_id"],
+                "model": EXPECTED_MODEL_NAME,
+                "text": "Safe output",
+                "input_tokens": 11,
+                "output_tokens": 2,
+            },
+        )
+
+    provider = RemoteInferenceProvider(
+        "https://gpu.example",
+        "REMOTE_API_SECRET_19281",
+        EXPECTED_MODEL_NAME,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with caplog.at_level(logging.INFO, logger="runtime.providers"):
+        provider.generate(
+            [
+                {"role": "system", "content": memory},
+                {"role": "user", "content": prompt},
+            ],
+            {"max_new_tokens": 64},
+        )
+
+    assert "Inference completed" in caplog.text
+    for sentinel in (prompt, memory, "REMOTE_API_SECRET_19281", "Safe output"):
+        assert sentinel not in caplog.text
+
+
 def test_inference_service_is_authenticated_and_has_no_application_database() -> None:
     provider = RecordingProvider()
     application = create_inference_app(
@@ -158,6 +225,7 @@ def test_inference_service_is_authenticated_and_has_no_application_database() ->
         "generation_config": {"max_new_tokens": 32},
     }
     with TestClient(application) as client:
+        health = client.get("/health")
         assert client.post("/v1/generate", json=payload).status_code == 401
         response = client.post(
             "/v1/generate",
@@ -170,6 +238,8 @@ def test_inference_service_is_authenticated_and_has_no_application_database() ->
             headers={"Authorization": "Bearer server-token"},
         )
 
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
     assert response.status_code == 200
     assert response.json()["text"] == "Remote answer"
     assert provider.generate_calls == [
@@ -297,8 +367,8 @@ def test_failed_remote_stream_does_not_persist_partial_assistant_output(
 def test_remote_failures_do_not_log_prompts_tokens_or_response_bodies(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    prompt = "PRIVATE_PROMPT_BODY_7319"
-    token = "SECRET_AUTH_TOKEN_9821"
+    prompt = "PRIVATE_PROMPT_92831"
+    token = "REMOTE_API_SECRET_19281"
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text=f"echoed {prompt} with {token}")
@@ -329,8 +399,8 @@ def test_remote_failures_do_not_log_prompts_tokens_or_response_bodies(
 def test_inference_service_logs_only_sanitized_failure_details(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    prompt = "PRIVATE_SERVER_PROMPT_4812"
-    token = "SERVER_AUTH_TOKEN_1947"
+    prompt = "PRIVATE_PROMPT_92831"
+    token = "REMOTE_API_SECRET_19281"
     provider = RecordingProvider(failure=RuntimeError(f"failure included {prompt} {token}"))
     application = create_inference_app(
         provider=provider,

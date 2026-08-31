@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --import tsx --test lib/sse.test.ts lib/api.test.ts components/MemoryView.test.tsx",
+    "test": "node --import tsx --test lib/sse.test.ts lib/api.test.ts lib/privacy.test.ts \"app/api/**/route.test.ts\" components/MemoryView.test.tsx",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },

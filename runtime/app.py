@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from backend.app import create_app as create_backend_app
 from backend.chat_service import ResponseGenerator
 from backend.database import DEFAULT_DATABASE_URL
+from backend.security import environment_flag
 
 from .config import DEFAULT_RUNTIME_CONFIG_PATH, RuntimeConfig, load_runtime_config
 from .generator import ProviderChatGenerator, TransformersChatGenerator
@@ -73,6 +74,9 @@ def create_runtime_app(
     remote_endpoint: str | None = None,
     remote_token: str | None = None,
     remote_provider_factory: RemoteProviderFactory = RemoteInferenceProvider,
+    local_api_token: str | None = None,
+    enforce_local_auth: bool = True,
+    enable_dev_docs: bool = False,
 ) -> FastAPI:
     generator = select_response_generator(
         mode=mode,
@@ -82,7 +86,20 @@ def create_runtime_app(
         remote_token=remote_token,
         remote_provider_factory=remote_provider_factory,
     )
-    return create_backend_app(database_url, generator=generator)
+    return create_backend_app(
+        database_url,
+        generator=generator,
+        local_api_token=local_api_token,
+        enforce_local_auth=enforce_local_auth,
+        enable_dev_docs=enable_dev_docs,
+    )
 
 
-app = create_runtime_app()
+app = create_runtime_app(
+    local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
+    enforce_local_auth=True,
+    enable_dev_docs=environment_flag(
+        "AMITAI_ENABLE_DEV_DOCS",
+        environ=os.environ,
+    ),
+)

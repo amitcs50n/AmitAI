@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from backend.app import create_app
 from backend.chat_service import (
     ChatGenerationDelta,
     ChatGenerationError,
@@ -21,6 +20,7 @@ from backend.repositories import ConversationRepository, MessageRepository
 from evaluation.hf_backend import GenerationOutput
 from runtime.config import load_runtime_config
 from runtime.generator import TransformersChatGenerator
+from tests.app_factory import create_test_app as create_app
 
 
 def _database_url(path: Path) -> str:

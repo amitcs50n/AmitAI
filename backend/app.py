@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 from collections.abc import AsyncIterator, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +45,7 @@ from .schemas import (
     MemoryRead,
     MemoryUpdate,
 )
+from .security import LocalApiAuthMiddleware, environment_flag, security_state
 
 LOGGER = logging.getLogger(__name__)
 SSE_HEARTBEAT_SECONDS = 15.0
@@ -71,6 +73,9 @@ def create_app(
         ResponseGenerator | StreamingResponseGenerator | GenerationCallable | None
     ) = None,
     memory_owner_id: str = LOCAL_MEMORY_OWNER_ID,
+    local_api_token: str | None = None,
+    enforce_local_auth: bool = True,
+    enable_dev_docs: bool = False,
 ) -> FastAPI:
     database = Database.from_url(database_url)
     stream_executor: ThreadPoolExecutor | None = None
@@ -99,10 +104,23 @@ def create_app(
                 )
             database.engine.dispose()
 
-    application = FastAPI(title="AmitAI Backend", lifespan=lifespan)
+    application = FastAPI(
+        title="AmitAI Backend",
+        lifespan=lifespan,
+        docs_url="/docs" if enable_dev_docs else None,
+        redoc_url="/redoc" if enable_dev_docs else None,
+        openapi_url="/openapi.json" if enable_dev_docs else None,
+    )
+    if enforce_local_auth:
+        application.add_middleware(LocalApiAuthMiddleware, token=local_api_token)
     application.state.database = database
     application.state.generator = generator
     application.state.memory_owner_id = memory_owner_id
+    for key, value in security_state(
+        auth_enabled=enforce_local_auth,
+        docs_enabled=enable_dev_docs,
+    ).items():
+        setattr(application.state, key, value)
 
     @application.get("/api/health")
     def health() -> dict[str, str]:
@@ -259,7 +277,7 @@ def create_app(
                         force=True,
                     )
                 except ChatGenerationError:
-                    LOGGER.exception("Streaming assistant generation failed")
+                    LOGGER.error("Streaming assistant generation failed")
                     publish(
                         ChatStreamEvent(
                             event="error",
@@ -268,7 +286,7 @@ def create_app(
                         force=True,
                     )
                 except MemoryConflictError:
-                    LOGGER.exception("Streaming memory commit conflicted")
+                    LOGGER.error("Streaming memory commit conflicted")
                     publish(
                         ChatStreamEvent(
                             event="error",
@@ -276,8 +294,11 @@ def create_app(
                         ),
                         force=True,
                     )
-                except Exception:
-                    LOGGER.exception("Unexpected streaming chat failure")
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.error(
+                        "Unexpected streaming chat failure failure=%s",
+                        type(exc).__name__,
+                    )
                     publish(
                         ChatStreamEvent(
                             event="error",
@@ -416,4 +437,11 @@ def create_app(
     return application
 
 
-app = create_app()
+app = create_app(
+    local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
+    enforce_local_auth=True,
+    enable_dev_docs=environment_flag(
+        "AMITAI_ENABLE_DEV_DOCS",
+        environ=os.environ,
+    ),
+)

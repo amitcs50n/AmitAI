@@ -5,9 +5,9 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app import create_app
 from backend.chat_service import ChatGenerationResult
 from backend.models import Conversation
+from tests.app_factory import create_test_app as create_app
 
 
 def _database_url(path: Path) -> str:

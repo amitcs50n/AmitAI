@@ -5,7 +5,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from backend.app import create_app
 from backend.chat_service import (
     ChatGenerationResult,
     ChatService,
@@ -18,6 +17,7 @@ from evaluation.hf_backend import GenerationOutput
 from runtime.config import load_runtime_config
 from runtime.generator import TransformersChatGenerator
 from runtime.tooling import ToolDefinition, ToolRegistry
+from tests.app_factory import create_test_app as create_app
 
 
 def _database_url(path: Path) -> str:

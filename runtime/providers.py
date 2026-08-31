@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import threading
@@ -150,7 +151,24 @@ def _validate_remote_url(endpoint: str) -> str:
         or parsed.fragment
     ):
         raise ValueError("Remote inference endpoint must be an HTTP(S) base URL")
+    hostname = parsed.hostname
+    if parsed.scheme == "http" and not _is_loopback_hostname(hostname):
+        raise ValueError(
+            "Remote inference requires HTTPS; plaintext HTTP is allowed only for loopback development"
+        )
     return normalized
+
+
+def _is_loopback_hostname(hostname: str | None) -> bool:
+    if hostname is None:
+        return False
+    normalized = hostname.lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def _generation_output(
@@ -194,13 +212,14 @@ class RemoteInferenceProvider:
         timeout_seconds: float = 600.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        if not token.strip():
+        normalized_token = token.strip()
+        if not normalized_token:
             raise ValueError("Remote inference token must be configured")
         if timeout_seconds <= 0:
             raise ValueError("Remote inference timeout must be positive")
         self.endpoint = _validate_remote_url(endpoint)
         self.model_name = model_name
-        self._headers = {"Authorization": f"Bearer {token}"}
+        self._headers = {"Authorization": f"Bearer {normalized_token}"}
         self._client = httpx.Client(
             timeout=httpx.Timeout(timeout_seconds),
             transport=transport,

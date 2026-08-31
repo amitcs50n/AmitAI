@@ -101,11 +101,14 @@ Install the development dependencies and start the local API:
 
 ```bash
 pip install -e '.[dev]'
-uvicorn backend.app:app --reload
+export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+python -m runtime.serve
 ```
 
 The API stores local conversations in `amitai.db` by default and currently returns a deterministic
-mock assistant response. Run all backend, evaluation, and dataset tests with:
+mock assistant response. `runtime.serve` binds to `127.0.0.1` and requires a strong local token;
+the normal backend entrypoints leave private routes locked when that token is missing. Run all
+backend, evaluation, and dataset tests with:
 
 ```bash
 pytest --basetemp .pytest_tmp
@@ -122,6 +125,7 @@ SSE response:
 
 ```bash
 curl -N http://127.0.0.1:8000/api/chat/stream \
+  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
   -H 'Accept: text/event-stream' \
   -H 'Content-Type: application/json' \
   --data '{"conversation_id":null,"message":"Explain generators in Python."}'
@@ -201,16 +205,22 @@ The explicit API uses the same validation and never accepts a client-supplied ow
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/memory \
+  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"category":"preference","key":"ui.theme","value":"dark"}'
 
-curl 'http://127.0.0.1:8000/api/memory?category=preference'
-curl 'http://127.0.0.1:8000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
+curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+  'http://127.0.0.1:8000/api/memory?category=preference'
+curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+  'http://127.0.0.1:8000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
 curl -X PATCH http://127.0.0.1:8000/api/memory/MEMORY_ID \
+  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"value":"light"}'
-curl -X DELETE http://127.0.0.1:8000/api/memory/MEMORY_ID
-curl 'http://127.0.0.1:8000/api/memory?status=deleted'
+curl -X DELETE http://127.0.0.1:8000/api/memory/MEMORY_ID \
+  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN"
+curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+  'http://127.0.0.1:8000/api/memory?status=deleted'
 ```
 
 Each logical `(owner, category, key)` has a stable slot ID and monotonically increasing revision.
@@ -326,9 +336,38 @@ and final persistence. Model execution sits behind a stateless `InferenceProvide
 
 ```text
 Aevon browser
-  -> local runtime.app API + local SQLite state
-    -> mock, local Transformers, or remote inference provider
+  -> local Next.js server
+    -> authenticated local runtime.app API + local SQLite state
+      -> mock, local Transformers, or remote inference provider
 ```
+
+The browser uses only relative `/api/*` URLs. A Next.js Route Handler reads
+`AMITAI_LOCAL_API_TOKEN` on the server and adds the backend bearer header while proxying; the
+token is never returned to browser JavaScript, stored in web storage, placed in a cookie, or put in
+a URL. Browser code currently persists only harmless UI preferences and the selected conversation
+ID—never conversations, messages, memory values, or credentials.
+
+Private `/api/chat*`, `/api/conversations*`, and `/api/memory*` routes reject missing or incorrect
+bearer authentication. `/api/health` remains a minimal unauthenticated readiness route. FastAPI
+docs, ReDoc, and OpenAPI are disabled by default; set `AMITAI_ENABLE_DEV_DOCS=1` only during
+intentional local development. FastAPI has no wildcard CORS policy because the normal browser
+path is same-origin browser-to-Next, followed by server-to-server Next-to-FastAPI traffic. Direct
+browser cross-origin FastAPI access is not supported.
+
+The canonical launcher enforces the network default it actually controls:
+
+```bash
+export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export AMITAI_HOST=127.0.0.1
+python -m runtime.serve
+```
+
+Do not use `0.0.0.0` for normal single-user operation. A deliberate LAN deployment requires
+`AMITAI_ALLOW_LAN=1` and still requires authentication. The FastAPI application cannot discover
+the socket address supplied by someone who bypasses this launcher with a raw Uvicorn command, so
+it does not pretend to enforce that external bind; local firewall configuration remains relevant.
+The canonical launcher also disables raw HTTP access logging so memory-search query strings are
+not copied into operational logs.
 
 The default provider is still `mock`. Local GPU inference remains available and preserves lazy
 one-model-per-process initialization plus serialized generation:
@@ -337,7 +376,8 @@ one-model-per-process initialization plus serialized generation:
 pip install -e '.[runtime]'
 export AMITAI_INFERENCE_PROVIDER=transformers
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
-uvicorn runtime.app:app --host 127.0.0.1 --port 8000 --workers 1
+export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+python -m runtime.serve
 ```
 
 `AMITAI_GENERATOR=mock|transformers` remains supported for existing deployments, but
@@ -377,20 +417,33 @@ export AMITAI_INFERENCE_PROVIDER=remote
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
 export AMITAI_REMOTE_INFERENCE_URL='https://your-development-endpoint.example'
 export AMITAI_REMOTE_INFERENCE_TOKEN='replace-with-the-same-development-token'
+export AMITAI_LOCAL_API_TOKEN='use-a-different-strong-local-control-plane-token'
 
-uvicorn runtime.app:app --host 127.0.0.1 --port 8000 --workers 1
+python -m runtime.serve
 ```
 
 The endpoint is disabled unless `remote` is explicitly selected and both variables are present.
+Remote inference requires HTTPS before any prompt or credential is sent. Plain HTTP is accepted
+only for explicit loopback development endpoints using `localhost`, `127.0.0.1`, or `::1`; it is
+rejected for LAN addresses and non-loopback hosts without silently upgrading the URL. Keep
+`AMITAI_LOCAL_API_TOKEN` distinct from the inference-service credential. The remote client uses
+`AMITAI_REMOTE_INFERENCE_TOKEN`, while the inference service receives the matching credential as
+`AMITAI_INFERENCE_AUTH_TOKEN`.
+
 The provider sends only a request ID, model messages, and generation settings. Tool execution,
 mechanical repair, memory mutation, and conversation persistence remain local, so a failed or
 interrupted remote generation cannot persist a partial assistant turn. Application logs omit
 prompt bodies, response bodies, memory values, and authorization tokens; operational entries may
 contain request IDs, provider names, latency, token counts, HTTP status, and sanitized error types.
 
-Set frontend `AMITAI_API_ORIGIN` to this **local** API, never directly to the GPU inference
+Set frontend server-side `AMITAI_API_ORIGIN` to this **local** API and give the Next.js server the
+same `AMITAI_LOCAL_API_TOKEN`; never point browser code or the proxy directly at the GPU inference
 service. Future local or confidential-GPU providers can implement the same boundary without
 changing the frontend or persistence layer.
+
+This milestone does not encrypt `amitai.db`; SQLCipher/database-at-rest encryption remains a
+separate future milestone. Local state isolation and HTTPS transport also do not make an ordinary
+RunPod provider blind to the generation payload it processes.
 
 ### Frontend development
 
@@ -399,17 +452,21 @@ frontend. Run the two development servers separately:
 
 ```bash
 # Terminal 1, from the repository root
-uvicorn backend.app:app --reload
+export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+python -m runtime.serve
 
-# Terminal 2
+# Terminal 2: use the same AMITAI_LOCAL_API_TOKEN value, server-side only
 cd frontend
+export AMITAI_LOCAL_API_TOKEN='copy-the-terminal-1-token-here'
+export AMITAI_API_ORIGIN='http://127.0.0.1:8000'
 npm install
 npm run dev
 ```
 
-Open the local Next.js address printed in Terminal 2. The development server proxies relative
-`/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default, so browser code
-does not need a separate CORS configuration.
+Open the local Next.js address printed in Terminal 2. Its server-only Route Handler streams
+relative `/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default and adds
+the local bearer credential. Do not use a `NEXT_PUBLIC_*` variable for this token. Browser code
+does not need or receive separate CORS access.
 
 Open **Memory** from Aevon's sidebar to manage Memory V1 without leaving the product UI. The page
 lists active structured memories, supports API-backed search and category filters, creates and
