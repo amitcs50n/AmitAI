@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "test": "node --import tsx --test lib/sse.test.ts lib/api.test.ts lib/privacy.test.ts \"app/api/**/route.test.ts\" components/MemoryView.test.tsx",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 
-import { GET, POST } from "./route.ts";
+import { DELETE, GET, PATCH, POST } from "./route.ts";
 
 const LOCAL_TOKEN = "LOCAL_API_SECRET_91233_secure_test_padding";
 const originalFetch = globalThis.fetch;
@@ -79,6 +79,7 @@ test("server proxy preserves SSE streaming without waiting for completion", asyn
     headers: {
       Accept: "text/event-stream",
       "Content-Type": "application/json",
+      Origin: "http://127.0.0.1:3000",
     },
     body: JSON.stringify({ conversation_id: null, message: "Stream" }),
   });
@@ -132,4 +133,64 @@ test("server proxy refuses a non-loopback backend unless LAN access is explicit"
 
   assert.equal(response.status, 503);
   assert.equal(fetchCalled, false);
+});
+
+test("server proxy rejects cross-origin state changes before forwarding", async () => {
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("must not run");
+  }) as typeof fetch;
+
+  const handlers = [POST, PATCH, DELETE];
+  const rejectedOrigins = [
+    "https://untrusted.example",
+    "http://127.0.0.1:4000",
+    "http://localhost:3000",
+    "null",
+  ];
+
+  for (const handler of handlers) {
+    for (const origin of rejectedOrigins) {
+      const response = await handler(
+        new Request("http://127.0.0.1:3000/api/memory/item-1", {
+          method: handler.name,
+          headers: {
+            "Content-Type": "application/json",
+            Origin: origin,
+          },
+          body: handler === DELETE ? undefined : JSON.stringify({ value: "private" }),
+        }),
+        context("memory", "item-1"),
+      );
+
+      assert.equal(response.status, 403);
+      assert.equal(await response.text(), '{"detail":"Cross-origin request denied"}');
+    }
+  }
+
+  assert.equal(fetchCalls, 0);
+});
+
+test("server proxy accepts matching localhost browser origin", async () => {
+  let upstreamCalls = 0;
+  globalThis.fetch = (async () => {
+    upstreamCalls += 1;
+    return Response.json({ id: "memory-1" }, { status: 201 });
+  }) as typeof fetch;
+
+  const response = await POST(
+    new Request("http://localhost:3000/api/memory", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "http://localhost:3000",
+      },
+      body: JSON.stringify({ category: "preference", key: "ui.theme", value: "dark" }),
+    }),
+    context("memory"),
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(upstreamCalls, 1);
 });

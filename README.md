@@ -344,8 +344,10 @@ Aevon browser
 The browser uses only relative `/api/*` URLs. A Next.js Route Handler reads
 `AMITAI_LOCAL_API_TOKEN` on the server and adds the backend bearer header while proxying; the
 token is never returned to browser JavaScript, stored in web storage, placed in a cookie, or put in
-a URL. Browser code currently persists only harmless UI preferences and the selected conversation
-ID—never conversations, messages, memory values, or credentials.
+a URL. State-changing proxy requests with an `Origin` header are accepted only when that origin
+exactly matches the loopback Aevon origin; cross-origin browser requests are rejected before they
+reach FastAPI. Browser code currently persists only harmless UI preferences and the selected
+conversation ID—never conversations, messages, memory values, or credentials.
 
 Private `/api/chat*`, `/api/conversations*`, and `/api/memory*` routes reject missing or incorrect
 bearer authentication. `/api/health` remains a minimal unauthenticated readiness route. FastAPI
@@ -462,6 +464,11 @@ export AMITAI_API_ORIGIN='http://127.0.0.1:8000'
 npm install
 npm run dev
 ```
+
+The supported `npm run dev` command binds Next.js explicitly to `127.0.0.1`; after `npm run build`,
+`npm run start` uses the same loopback-only default. The packaged launchers do not provide an
+implicit LAN mode. Any future supported LAN launcher must require an explicit
+`AMITAI_ALLOW_LAN=1` opt-in and retain authentication and origin protections.
 
 Open the local Next.js address printed in Terminal 2. Its server-only Route Handler streams
 relative `/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default and adds

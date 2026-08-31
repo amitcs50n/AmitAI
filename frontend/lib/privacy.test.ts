@@ -20,6 +20,9 @@ function sourceFiles(directory: string): SourceFile[] {
 
 const frontendRoot = fileURLToPath(new URL("../", import.meta.url));
 const sources = sourceFiles(frontendRoot);
+const packageJson = JSON.parse(readFileSync(`${frontendRoot}/package.json`, "utf8")) as {
+  scripts: Record<string, string>;
+};
 const appSource = sources.find(({ path }) => path.endsWith("/components/AmitaiApp.tsx"))!.source;
 const browserSources = sources.filter(
   ({ path, source }) =>
@@ -46,4 +49,11 @@ test("browser code persists only harmless UI preferences and selected conversati
     assert.doesNotMatch(source, /AMITAI_LOCAL_API_TOKEN/, path);
     assert.doesNotMatch(source, /Authorization\s*:/, path);
   }
+});
+
+test("supported Next launch commands bind to loopback", () => {
+  assert.equal(packageJson.scripts.dev, "next dev -H 127.0.0.1");
+  assert.equal(packageJson.scripts.start, "next start -H 127.0.0.1");
+  assert.doesNotMatch(packageJson.scripts.dev, /0\.0\.0\.0/);
+  assert.doesNotMatch(packageJson.scripts.start, /0\.0\.0\.0/);
 });

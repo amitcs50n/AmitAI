@@ -26,6 +26,29 @@ function isLoopbackHostname(hostname: string): boolean {
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 }
 
+function isStateChangingMethod(method: string): boolean {
+  return method === "POST" || method === "PATCH" || method === "DELETE";
+}
+
+function hasAllowedBrowserOrigin(request: Request): boolean {
+  if (!isStateChangingMethod(request.method)) return true;
+
+  const origin = request.headers.get("origin");
+  if (origin === null) return true;
+
+  try {
+    const browserOrigin = new URL(origin);
+    const aevonOrigin = new URL(request.url);
+    return (
+      isLoopbackHostname(browserOrigin.hostname) &&
+      isLoopbackHostname(aevonOrigin.hostname) &&
+      browserOrigin.origin === aevonOrigin.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
 function backendConfiguration(): { origin: string; token: string } | null {
   const token = process.env.AMITAI_LOCAL_API_TOKEN?.trim();
   if (!token || token.length < MIN_LOCAL_API_TOKEN_CHARS) return null;
@@ -72,6 +95,10 @@ function responseHeaders(upstream: Response): Headers {
 }
 
 async function proxyRequest(request: Request, context: RouteContext): Promise<Response> {
+  if (!hasAllowedBrowserOrigin(request)) {
+    return jsonError("Cross-origin request denied", 403);
+  }
+
   const configuration = backendConfiguration();
   if (!configuration) return jsonError("Local API proxy is not configured", 503);
 
