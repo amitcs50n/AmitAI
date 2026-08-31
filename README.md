@@ -318,33 +318,79 @@ output and persisted assistant message match. For mechanically constrained reque
 finishes first and validation/retries apply only to the final user-visible answer, which remains
 fully buffered under the existing constraint policy.
 
-### Real GPU runtime
+### Privacy-first local control plane and inference providers
 
-Use the CUDA/PyTorch environment supplied by the GPU host. The runtime extra intentionally does
-not install or replace PyTorch:
+The Aevon frontend always talks to the local AmitAI API. That local control plane owns
+`amitai.db`, conversations, messages, structured memory, preferences, tools, validator retries,
+and final persistence. Model execution sits behind a stateless `InferenceProvider` boundary:
+
+```text
+Aevon browser
+  -> local runtime.app API + local SQLite state
+    -> mock, local Transformers, or remote inference provider
+```
+
+The default provider is still `mock`. Local GPU inference remains available and preserves lazy
+one-model-per-process initialization plus serialized generation:
+
+```bash
+pip install -e '.[runtime]'
+export AMITAI_INFERENCE_PROVIDER=transformers
+export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
+uvicorn runtime.app:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+`AMITAI_GENERATOR=mock|transformers` remains supported for existing deployments, but
+`AMITAI_INFERENCE_PROVIDER` is the provider-oriented setting going forward.
+
+#### Remote development inference
+
+Ordinary RunPod is a **development inference provider**, not a privacy boundary. The remote host
+receives the model messages needed to generate a response, including relevant retrieved memory
+content when the local control plane selected it. RunPod or its infrastructure may therefore see
+prompts and outputs. This architecture keeps durable/private application state local and makes the
+compute provider replaceable; it does not make remote inference confidential.
+
+On the GPU host, run only the authenticated inference service. It exposes `/v1/generate` and
+`/v1/generate/stream`; it has no conversation, memory, preference, or user-facing chat routes and
+does not initialize a database:
 
 ```bash
 pip install -e '.[runtime]'
 export HF_HOME=/workspace/hf
 export HF_HUB_CACHE=/workspace/hf/hub
-export AMITAI_GENERATOR=transformers
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
+export AMITAI_INFERENCE_AUTH_TOKEN='replace-with-a-long-random-development-token'
 
-uvicorn runtime.app:app \
+uvicorn runtime.inference_app:app \
   --host 0.0.0.0 \
   --port 8000 \
   --workers 1
 ```
 
-Do **not** use `--reload` or multiple Uvicorn workers with the 27B runtime: either can load
-another roughly 55 GB model copy. The default `AMITAI_GENERATOR=mock` remains safe for local
-development. The transformers mode lazily loads one model per process on the first chat request,
-then reuses it while serializing GPU generation calls.
+Do **not** use `--reload` or multiple Uvicorn workers on the GPU host: either can load another
+roughly 55 GB model copy. Configure the local control plane explicitly with the remote base URL
+and the matching service credential; never commit either value:
 
-The real path loads its system prompt, pinned model revision, BF16 settings, generation settings,
-and mechanical-validator flag directly from the selected runtime YAML. To point the existing
-frontend proxy at a deployed GPU API, set `AMITAI_API_ORIGIN` in the frontend server environment;
-do not commit a RunPod URL or credentials.
+```bash
+export AMITAI_INFERENCE_PROVIDER=remote
+export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
+export AMITAI_REMOTE_INFERENCE_URL='https://your-development-endpoint.example'
+export AMITAI_REMOTE_INFERENCE_TOKEN='replace-with-the-same-development-token'
+
+uvicorn runtime.app:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+The endpoint is disabled unless `remote` is explicitly selected and both variables are present.
+The provider sends only a request ID, model messages, and generation settings. Tool execution,
+mechanical repair, memory mutation, and conversation persistence remain local, so a failed or
+interrupted remote generation cannot persist a partial assistant turn. Application logs omit
+prompt bodies, response bodies, memory values, and authorization tokens; operational entries may
+contain request IDs, provider names, latency, token counts, HTTP status, and sanitized error types.
+
+Set frontend `AMITAI_API_ORIGIN` to this **local** API, never directly to the GPU inference
+service. Future local or confidential-GPU providers can implement the same boundary without
+changing the frontend or persistence layer.
 
 ### Frontend development
 

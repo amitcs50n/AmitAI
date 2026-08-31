@@ -1,13 +1,12 @@
-"""Real Hugging Face chat adapter with bounded mechanical repair."""
+"""Provider-neutral chat orchestration with bounded mechanical repair."""
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from threading import Event
-from typing import Any, Protocol
+from typing import Any
 
 from backend.chat_service import (
     ChatGenerationDelta,
@@ -20,10 +19,15 @@ from evaluation.constraints import (
     parse_constraints,
     validate_with_bounded_retries,
 )
-from evaluation.hf_backend import GenerationOutput, TransformersGenerator
+from evaluation.hf_backend import GenerationOutput
 
 from .calculator import CalculatorTool
 from .config import RuntimeConfig
+from .providers import (
+    EngineFactory,
+    InferenceProvider,
+    LocalTransformersInferenceProvider,
+)
 from .tooling import (
     MAX_TOOL_ITERATIONS,
     LateToolProtocolFilter,
@@ -38,17 +42,6 @@ from .tooling import (
     parse_tool_call,
     sanitize_late_tool_protocol,
 )
-
-
-class DetailedGenerationEngine(Protocol):
-    def generate_detailed(
-        self,
-        messages: list[dict[str, str]],
-        generation_config: dict[str, object],
-    ) -> GenerationOutput: ...
-
-
-EngineFactory = Callable[[dict[str, object], int], DetailedGenerationEngine]
 
 
 @dataclass(frozen=True)
@@ -74,44 +67,26 @@ class _ToolBudget:
         return self.attempted_turns
 
 
-class TransformersChatGenerator:
-    """Adapt the tested text generator to the persistent chat backend contract."""
+class ProviderChatGenerator:
+    """Keep private chat orchestration local while delegating stateless inference."""
 
     def __init__(
         self,
         config: RuntimeConfig,
         *,
-        engine_factory: EngineFactory = TransformersGenerator,
+        provider: InferenceProvider,
         clock: Callable[[], float] = time.perf_counter,
         tool_registry: ToolRegistry | None = None,
     ) -> None:
         if not config.mechanical_constraints_enabled:
             raise ValueError("Runtime mechanical constraint validation must be enabled")
         self.config = config
-        self._engine_factory = engine_factory
+        self._provider = provider
         self._clock = clock
         self._tool_registry = tool_registry or ToolRegistry([CalculatorTool()])
-        self._engine: DetailedGenerationEngine | None = None
-        self._initialization_lock = threading.Lock()
-        self._generation_lock = threading.Lock()
-
-    def _get_engine(self) -> DetailedGenerationEngine:
-        engine = self._engine
-        if engine is not None:
-            return engine
-        with self._initialization_lock:
-            if self._engine is None:
-                candidate = self._engine_factory(
-                    dict(self.config.model),
-                    int(self.config.generation["seed"]),
-                )
-                self._engine = candidate
-            return self._engine
 
     def _generate_once(self, messages: list[dict[str, str]]) -> GenerationOutput:
-        engine = self._get_engine()
-        with self._generation_lock:
-            output = engine.generate_detailed(messages, dict(self.config.generation))
+        output = self._provider.generate(messages, self.config.generation)
         return self._validate_output(output, strip_text=True)
 
     @staticmethod
@@ -140,57 +115,46 @@ class TransformersChatGenerator:
         *,
         cancel_event: Event,
     ) -> Iterator[str | GenerationOutput]:
-        engine = self._get_engine()
-        stream_method = getattr(engine, "generate_detailed_stream", None)
-        if not callable(stream_method):
-            output = self._generate_once(messages)
-            if cancel_event.is_set():
-                return
-            yield output.text
-            yield output
-            return
-
-        with self._generation_lock:
-            stream = iter(
-                stream_method(
-                    messages,
-                    dict(self.config.generation),
-                    cancel_event=cancel_event,
-                )
+        stream = iter(
+            self._provider.stream(
+                messages,
+                self.config.generation,
+                cancel_event=cancel_event,
             )
-            chunks: list[str] = []
-            output: GenerationOutput | None = None
-            try:
-                for item in stream:
-                    if cancel_event.is_set():
-                        return
-                    if isinstance(item, str):
-                        if output is not None:
-                            raise TypeError("Runtime engine streamed text after final output")
-                        if not item:
-                            continue
-                        chunks.append(item)
-                        yield item
+        )
+        chunks: list[str] = []
+        output: GenerationOutput | None = None
+        try:
+            for item in stream:
+                if cancel_event.is_set():
+                    return
+                if isinstance(item, str):
+                    if output is not None:
+                        raise TypeError("Runtime provider streamed text after final output")
+                    if not item:
                         continue
-                    if isinstance(item, GenerationOutput):
-                        if output is not None:
-                            raise TypeError("Runtime engine returned final output more than once")
-                        output = self._validate_output(item, strip_text=False)
-                        continue
-                    raise TypeError(
-                        "Runtime stream must yield text chunks or GenerationOutput"
-                    )
-            finally:
-                close = getattr(stream, "close", None)
-                if callable(close):
-                    close()
+                    chunks.append(item)
+                    yield item
+                    continue
+                if isinstance(item, GenerationOutput):
+                    if output is not None:
+                        raise TypeError("Runtime provider returned final output more than once")
+                    output = self._validate_output(item, strip_text=False)
+                    continue
+                raise TypeError(
+                    "Runtime provider stream must yield text chunks or GenerationOutput"
+                )
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
 
         if cancel_event.is_set():
             return
         if output is None:
-            raise TypeError("Runtime engine stream ended without final output")
+            raise TypeError("Runtime provider stream ended without final output")
         if "".join(chunks) != output.text:
-            raise ValueError("Runtime engine chunks do not reconstruct its final output")
+            raise ValueError("Runtime provider chunks do not reconstruct its final output")
         yield output
 
     @staticmethod
@@ -520,7 +484,7 @@ class TransformersChatGenerator:
         latency_ms = max(0, int((self._clock() - start) * 1000))
         return ChatGenerationResult(
             response=validation["final_response"],
-            model=str(self.config.model["name"]),
+            model=self._provider.model_name,
             latency_ms=latency_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -607,11 +571,41 @@ class TransformersChatGenerator:
         latency_ms = max(0, int((self._clock() - start) * 1000))
         yield ChatGenerationResult(
             response=loop_output.output.text,
-            model=str(self.config.model["name"]),
+            model=self._provider.model_name,
             latency_ms=latency_ms,
             input_tokens=loop_output.output.input_tokens,
             output_tokens=loop_output.output.output_tokens,
             validator=self._validator_metadata(validation),
             tools=list(loop_output.tools),
             memory=[],
+        )
+
+
+class TransformersChatGenerator(ProviderChatGenerator):
+    """Backward-compatible local Transformers composition of the provider runtime."""
+
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        *,
+        engine_factory: EngineFactory | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
+        if engine_factory is None:
+            provider = LocalTransformersInferenceProvider(
+                config.model,
+                int(config.generation["seed"]),
+            )
+        else:
+            provider = LocalTransformersInferenceProvider(
+                config.model,
+                int(config.generation["seed"]),
+                engine_factory=engine_factory,
+            )
+        super().__init__(
+            config,
+            provider=provider,
+            clock=clock,
+            tool_registry=tool_registry,
         )

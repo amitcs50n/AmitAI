@@ -1,4 +1,4 @@
-"""Runtime-aware FastAPI entrypoint for mock or real model generation."""
+"""Local control-plane entrypoint with replaceable inference providers."""
 
 from __future__ import annotations
 
@@ -13,9 +13,11 @@ from backend.chat_service import ResponseGenerator
 from backend.database import DEFAULT_DATABASE_URL
 
 from .config import DEFAULT_RUNTIME_CONFIG_PATH, RuntimeConfig, load_runtime_config
-from .generator import TransformersChatGenerator
+from .generator import ProviderChatGenerator, TransformersChatGenerator
+from .providers import InferenceProvider, RemoteInferenceProvider
 
 RuntimeGeneratorFactory = Callable[[RuntimeConfig], ResponseGenerator]
+RemoteProviderFactory = Callable[..., InferenceProvider]
 
 
 def select_response_generator(
@@ -23,18 +25,43 @@ def select_response_generator(
     mode: str | None = None,
     config_path: str | Path | None = None,
     generator_factory: RuntimeGeneratorFactory = TransformersChatGenerator,
+    remote_endpoint: str | None = None,
+    remote_token: str | None = None,
+    remote_provider_factory: RemoteProviderFactory = RemoteInferenceProvider,
 ) -> ResponseGenerator | None:
-    selected_mode = (mode or os.getenv("AMITAI_GENERATOR", "mock")).strip().lower()
+    selected_mode = (
+        mode
+        or os.getenv("AMITAI_INFERENCE_PROVIDER")
+        or os.getenv("AMITAI_GENERATOR", "mock")
+    ).strip().lower()
     if selected_mode == "mock":
         return None
-    if selected_mode != "transformers":
-        raise ValueError("Unsupported AMITAI_GENERATOR value. Use 'mock' or 'transformers'.")
+    if selected_mode not in {"transformers", "remote"}:
+        raise ValueError(
+            "Unsupported inference provider. Use 'mock', 'transformers', or 'remote'."
+        )
 
     selected_config = config_path or os.getenv(
         "AMITAI_RUNTIME_CONFIG",
         str(DEFAULT_RUNTIME_CONFIG_PATH),
     )
-    return generator_factory(load_runtime_config(selected_config))
+    config = load_runtime_config(selected_config)
+    if selected_mode == "transformers":
+        return generator_factory(config)
+
+    endpoint = remote_endpoint or os.getenv("AMITAI_REMOTE_INFERENCE_URL")
+    token = remote_token or os.getenv("AMITAI_REMOTE_INFERENCE_TOKEN")
+    if not endpoint or not token:
+        raise ValueError(
+            "Remote inference requires AMITAI_REMOTE_INFERENCE_URL and "
+            "AMITAI_REMOTE_INFERENCE_TOKEN"
+        )
+    provider = remote_provider_factory(
+        endpoint=endpoint,
+        token=token,
+        model_name=str(config.model["name"]),
+    )
+    return ProviderChatGenerator(config, provider=provider)
 
 
 def create_runtime_app(
@@ -43,11 +70,17 @@ def create_runtime_app(
     mode: str | None = None,
     config_path: str | Path | None = None,
     generator_factory: RuntimeGeneratorFactory = TransformersChatGenerator,
+    remote_endpoint: str | None = None,
+    remote_token: str | None = None,
+    remote_provider_factory: RemoteProviderFactory = RemoteInferenceProvider,
 ) -> FastAPI:
     generator = select_response_generator(
         mode=mode,
         config_path=config_path,
         generator_factory=generator_factory,
+        remote_endpoint=remote_endpoint,
+        remote_token=remote_token,
+        remote_provider_factory=remote_provider_factory,
     )
     return create_backend_app(database_url, generator=generator)
 

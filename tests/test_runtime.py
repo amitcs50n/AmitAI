@@ -24,7 +24,7 @@ from runtime.config import (
     RuntimeConfig,
     load_runtime_config,
 )
-from runtime.generator import TransformersChatGenerator
+from runtime.generator import ProviderChatGenerator, TransformersChatGenerator
 from runtime.tooling import MAX_TOOL_ITERATIONS
 
 
@@ -708,8 +708,62 @@ def test_runtime_config_path_can_be_selected_from_the_environment(
 
 
 def test_runtime_mode_selection_rejects_unknown_values() -> None:
-    with pytest.raises(ValueError, match="Unsupported AMITAI_GENERATOR"):
+    with pytest.raises(ValueError, match="Unsupported inference provider"):
         select_response_generator(mode="surprise")
+
+
+def test_remote_provider_is_disabled_until_explicitly_selected_and_configured(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AMITAI_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.delenv("AMITAI_GENERATOR", raising=False)
+    monkeypatch.delenv("AMITAI_REMOTE_INFERENCE_URL", raising=False)
+    monkeypatch.delenv("AMITAI_REMOTE_INFERENCE_TOKEN", raising=False)
+
+    assert select_response_generator() is None
+    with pytest.raises(ValueError, match="AMITAI_REMOTE_INFERENCE_URL"):
+        select_response_generator(mode="remote")
+
+
+def test_provider_can_be_swapped_to_remote_using_environment_configuration(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    class SelectedProvider:
+        provider_name = "selected-remote"
+        model_name = EXPECTED_MODEL_NAME
+
+        def generate(self, messages, generation_config):
+            del messages, generation_config
+            return GenerationOutput("Selected", 1, 1)
+
+        def stream(self, messages, generation_config, *, cancel_event):
+            del messages, generation_config, cancel_event
+            yield "Selected"
+            yield GenerationOutput("Selected", 1, 1)
+
+    def provider_factory(**kwargs):
+        captured.update(kwargs)
+        return SelectedProvider()
+
+    monkeypatch.setenv("AMITAI_INFERENCE_PROVIDER", "remote")
+    monkeypatch.setenv("AMITAI_GENERATOR", "mock")
+    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_URL", "https://gpu.example")
+    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_TOKEN", "configured-token")
+
+    selected = select_response_generator(remote_provider_factory=provider_factory)
+
+    assert isinstance(selected, ProviderChatGenerator)
+    assert captured == {
+        "endpoint": "https://gpu.example",
+        "token": "configured-token",
+        "model_name": EXPECTED_MODEL_NAME,
+    }
+    result = selected.generate_response(
+        [GenerationMessage(role="user", content="Use selected provider")]
+    )
+    assert result.response == "Selected"
 
 
 def test_runtime_app_injects_only_the_explicitly_selected_generator(
