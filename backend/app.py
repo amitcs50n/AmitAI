@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, s
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .chat_service import (
     ChatGenerationError,
@@ -69,6 +70,9 @@ def get_session(request: Request) -> Iterator[Session]:
 def create_app(
     database_url: str = DEFAULT_DATABASE_URL,
     *,
+    database_key: str | None = None,
+    encrypted_storage: bool = True,
+    encrypt_existing_database: bool = False,
     generator: (
         ResponseGenerator | StreamingResponseGenerator | GenerationCallable | None
     ) = None,
@@ -77,7 +81,12 @@ def create_app(
     enforce_local_auth: bool = True,
     enable_dev_docs: bool = False,
 ) -> FastAPI:
-    database = Database.from_url(database_url)
+    database = Database.from_url(
+        database_url,
+        encrypted=encrypted_storage,
+        encryption_key=database_key,
+        migrate_plaintext=encrypt_existing_database,
+    )
     stream_executor: ThreadPoolExecutor | None = None
     stream_gate: asyncio.Semaphore | None = None
 
@@ -437,11 +446,36 @@ def create_app(
     return application
 
 
-app = create_app(
-    local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
-    enforce_local_auth=True,
-    enable_dev_docs=environment_flag(
-        "AMITAI_ENABLE_DEV_DOCS",
-        environ=os.environ,
-    ),
-)
+class LazyConfiguredApplication:
+    """Delay environment-backed construction until ASGI startup."""
+
+    def __init__(self, factory: Callable[[], ASGIApp]) -> None:
+        self.factory = factory
+        self.application: ASGIApp | None = None
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.application is None:
+            self.application = self.factory()
+        await self.application(scope, receive, send)
+
+
+def create_configured_app() -> FastAPI:
+    """Build the production backend from private server environment values."""
+
+    return create_app(
+        database_key=os.getenv("AMITAI_DB_KEY"),
+        encrypted_storage=True,
+        encrypt_existing_database=environment_flag(
+            "AMITAI_ENCRYPT_EXISTING_DB",
+            environ=os.environ,
+        ),
+        local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
+        enforce_local_auth=True,
+        enable_dev_docs=environment_flag(
+            "AMITAI_ENABLE_DEV_DOCS",
+            environ=os.environ,
+        ),
+    )
+
+
+app = LazyConfiguredApplication(create_configured_app)

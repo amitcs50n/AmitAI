@@ -88,7 +88,7 @@ The local machine does not need the 27B model just to work on the repo.
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e '.[dev]'
+pip install -e '.[dev,encrypted-storage]'
 pytest
 python -m training.validate_dataset
 ```
@@ -100,15 +100,17 @@ Local tests do not load the 27B checkpoint.
 Install the development dependencies and start the local API:
 
 ```bash
-pip install -e '.[dev]'
+pip install -e '.[dev,encrypted-storage]'
 export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export AMITAI_DB_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 python -m runtime.serve
 ```
 
-The API stores local conversations in `amitai.db` by default and currently returns a deterministic
-mock assistant response. `runtime.serve` binds to `127.0.0.1` and requires a strong local token;
-the normal backend entrypoints leave private routes locked when that token is missing. Run all
-backend, evaluation, and dataset tests with:
+The API stores local conversations in a SQLCipher-encrypted `amitai.db` by default and currently
+returns a deterministic mock assistant response. Preserve `AMITAI_DB_KEY` securely across
+restarts; generating a new value each launch will not unlock an existing database.
+`runtime.serve` binds to `127.0.0.1` and requires both the database key and a separate strong
+local API token. Run all backend, evaluation, and dataset tests with:
 
 ```bash
 pytest --basetemp .pytest_tmp
@@ -360,6 +362,7 @@ The canonical launcher enforces the network default it actually controls:
 
 ```bash
 export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export AMITAI_DB_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 export AMITAI_HOST=127.0.0.1
 python -m runtime.serve
 ```
@@ -371,14 +374,72 @@ it does not pretend to enforce that external bind; local firewall configuration 
 The canonical launcher also disables raw HTTP access logging so memory-search query strings are
 not copied into operational logs.
 
+#### Encrypted local storage
+
+AmitAI's persistent SQLite application state is encrypted at rest using SQLCipher. Install the
+required native driver with:
+
+```bash
+pip install -e '.[encrypted-storage]'
+```
+
+The dependency is pinned to `sqlcipher3==0.6.2`, which provides SQLCipher-enabled wheels for the
+project's supported Python versions on Windows and Linux. Startup verifies the native codec with
+`PRAGMA cipher_version` and fails closed instead of falling back to ordinary `sqlite3`.
+
+`AMITAI_DB_KEY` must be exactly 64 hexadecimal characters representing 256 random bits. Generate
+it once, store it securely outside the database, and keep it distinct from
+`AMITAI_LOCAL_API_TOKEN`:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+The key is never embedded in the SQLAlchemy URL or stored in `amitai.db`. Losing it can make the
+database unrecoverable. Key rotation is not implemented yet.
+
+An existing plaintext `amitai.db` is never migrated automatically. Startup refuses it unless one
+intentional launch has explicit authorization:
+
+```bash
+export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
+export AMITAI_ENCRYPT_EXISTING_DB=1
+python -m runtime.serve
+# after successful startup/migration, stop AmitAI and remove the one-shot flag
+unset AMITAI_ENCRYPT_EXISTING_DB
+```
+
+Migration checkpoints any plaintext WAL, requires exclusive access, exports the complete database
+into a sibling encrypted candidate, verifies integrity/schema/table counts and representative
+records, then atomically replaces the source. A failure before replacement retains the original
+plaintext database and removes the incomplete candidate. A successful migration does not leave a
+plaintext backup or obsolete plaintext `-wal`, `-shm`, or journal file. Normal operation
+preserves SQLite's existing `DELETE` journal mode; its transient rollback journal is also written
+through SQLCipher.
+
+This protects offline, copied, or stolen database files and database backups, including table
+pages, indexes, messages, and memory values. It does not provide secrecy while AmitAI is running
+and unlocked: application data and the key exist in process memory, and same-user malware or a
+compromised process can access the live application. BitLocker, LUKS, or another full-disk
+encryption layer is complementary protection. SQLCipher does not encrypt model weights and does
+not hide intentionally sent generation context from a remote inference provider such as RunPod.
+It is encryption at rest, not a claim of perfect privacy or physical secure erasure of deleted SSD
+blocks.
+
+Do not intentionally place the AmitAI data directory in OneDrive, Google Drive, Dropbox, iCloud,
+or another automatic sync folder unless you understand that encrypted database blobs and file
+metadata will be uploaded. Encryption makes copied blobs unreadable without the key; it does not
+prevent cloud copies from existing.
+
 The default provider is still `mock`. Local GPU inference remains available and preserves lazy
 one-model-per-process initialization plus serialized generation:
 
 ```bash
-pip install -e '.[runtime]'
+pip install -e '.[runtime,encrypted-storage]'
 export AMITAI_INFERENCE_PROVIDER=transformers
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
 export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 python -m runtime.serve
 ```
 
@@ -420,6 +481,7 @@ export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
 export AMITAI_REMOTE_INFERENCE_URL='https://your-development-endpoint.example'
 export AMITAI_REMOTE_INFERENCE_TOKEN='replace-with-the-same-development-token'
 export AMITAI_LOCAL_API_TOKEN='use-a-different-strong-local-control-plane-token'
+export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 
 python -m runtime.serve
 ```
@@ -443,9 +505,8 @@ same `AMITAI_LOCAL_API_TOKEN`; never point browser code or the proxy directly at
 service. Future local or confidential-GPU providers can implement the same boundary without
 changing the frontend or persistence layer.
 
-This milestone does not encrypt `amitai.db`; SQLCipher/database-at-rest encryption remains a
-separate future milestone. Local state isolation and HTTPS transport also do not make an ordinary
-RunPod provider blind to the generation payload it processes.
+Local state encryption and HTTPS transport do not make an ordinary RunPod provider blind to the
+generation payload it processes.
 
 ### Frontend development
 
@@ -455,6 +516,7 @@ frontend. Run the two development servers separately:
 ```bash
 # Terminal 1, from the repository root
 export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 python -m runtime.serve
 
 # Terminal 2: use the same AMITAI_LOCAL_API_TOKEN value, server-side only

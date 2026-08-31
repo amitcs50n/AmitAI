@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from backend.app import LazyConfiguredApplication
 from backend.app import create_app as create_backend_app
 from backend.chat_service import ResponseGenerator
 from backend.database import DEFAULT_DATABASE_URL
@@ -68,6 +69,9 @@ def select_response_generator(
 def create_runtime_app(
     database_url: str = DEFAULT_DATABASE_URL,
     *,
+    database_key: str | None = None,
+    encrypted_storage: bool = True,
+    encrypt_existing_database: bool = False,
     mode: str | None = None,
     config_path: str | Path | None = None,
     generator_factory: RuntimeGeneratorFactory = TransformersChatGenerator,
@@ -88,6 +92,9 @@ def create_runtime_app(
     )
     return create_backend_app(
         database_url,
+        database_key=database_key,
+        encrypted_storage=encrypted_storage,
+        encrypt_existing_database=encrypt_existing_database,
         generator=generator,
         local_api_token=local_api_token,
         enforce_local_auth=enforce_local_auth,
@@ -95,11 +102,23 @@ def create_runtime_app(
     )
 
 
-app = create_runtime_app(
-    local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
-    enforce_local_auth=True,
-    enable_dev_docs=environment_flag(
-        "AMITAI_ENABLE_DEV_DOCS",
-        environ=os.environ,
-    ),
-)
+def create_configured_app() -> FastAPI:
+    """Build the canonical encrypted local control plane from the environment."""
+
+    return create_runtime_app(
+        database_key=os.getenv("AMITAI_DB_KEY"),
+        encrypted_storage=True,
+        encrypt_existing_database=environment_flag(
+            "AMITAI_ENCRYPT_EXISTING_DB",
+            environ=os.environ,
+        ),
+        local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
+        enforce_local_auth=True,
+        enable_dev_docs=environment_flag(
+            "AMITAI_ENABLE_DEV_DOCS",
+            environ=os.environ,
+        ),
+    )
+
+
+app = LazyConfiguredApplication(create_configured_app)

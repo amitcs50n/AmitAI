@@ -7,6 +7,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from backend.database import validate_database_key
 from backend.security import environment_flag, validate_local_api_token
 
 
@@ -50,6 +51,7 @@ def load_local_server_config(
 
     if validate_local_api_token(values.get("AMITAI_LOCAL_API_TOKEN")) is None:
         raise ValueError("AMITAI_LOCAL_API_TOKEN must be configured")
+    validate_database_key(values.get("AMITAI_DB_KEY"))
     return LocalServerConfig(host=host, port=port)
 
 

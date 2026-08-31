@@ -10,6 +10,7 @@ from runtime.app import create_runtime_app
 from runtime.serve import LocalServerConfig, load_local_server_config, main
 
 LOCAL_TOKEN = "LOCAL_API_SECRET_91233_secure_test_padding"
+DATABASE_KEY = "a1" * 32
 AUTHORIZATION = {"Authorization": f"Bearer {LOCAL_TOKEN}"}
 
 
@@ -20,6 +21,7 @@ def _database_url(path: Path) -> str:
 def _secured_app(tmp_path: Path, **kwargs):
     return create_app(
         _database_url(tmp_path / "secured.sqlite3"),
+        encrypted_storage=False,
         local_api_token=LOCAL_TOKEN,
         **kwargs,
     )
@@ -79,6 +81,7 @@ def test_local_auth_uses_constant_time_comparison(
 def test_missing_server_token_fails_closed(tmp_path: Path) -> None:
     application = create_app(
         _database_url(tmp_path / "locked.sqlite3"),
+        encrypted_storage=False,
         local_api_token=None,
     )
 
@@ -90,6 +93,7 @@ def test_missing_server_token_fails_closed(tmp_path: Path) -> None:
 def test_runtime_factory_is_authenticated_by_default(tmp_path: Path) -> None:
     application = create_runtime_app(
         _database_url(tmp_path / "runtime-secured.sqlite3"),
+        encrypted_storage=False,
         mode="mock",
         local_api_token=LOCAL_TOKEN,
     )
@@ -102,9 +106,13 @@ def test_runtime_factory_is_authenticated_by_default(tmp_path: Path) -> None:
 def test_docs_and_openapi_are_disabled_by_default_and_explicitly_enabled_for_dev(
     tmp_path: Path,
 ) -> None:
-    default_app = create_app(_database_url(tmp_path / "no-docs.sqlite3"))
+    default_app = create_app(
+        _database_url(tmp_path / "no-docs.sqlite3"),
+        encrypted_storage=False,
+    )
     dev_app = create_app(
         _database_url(tmp_path / "dev-docs.sqlite3"),
+        encrypted_storage=False,
         enable_dev_docs=True,
     )
 
@@ -136,7 +144,12 @@ def test_control_plane_has_no_wildcard_cors(tmp_path: Path) -> None:
 
 
 def test_canonical_launcher_defaults_to_loopback_and_requires_a_strong_token() -> None:
-    config = load_local_server_config({"AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN})
+    config = load_local_server_config(
+        {
+            "AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN,
+            "AMITAI_DB_KEY": DATABASE_KEY,
+        }
+    )
 
     assert config.host == "127.0.0.1"
     assert config.port == 8000
@@ -148,6 +161,7 @@ def test_canonical_launcher_defaults_to_loopback_and_requires_a_strong_token() -
 def test_canonical_launcher_rejects_lan_binding_without_explicit_opt_in() -> None:
     values = {
         "AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN,
+        "AMITAI_DB_KEY": DATABASE_KEY,
         "AMITAI_HOST": "0.0.0.0",
     }
 

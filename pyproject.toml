@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+encrypted-storage = [
+    "sqlcipher3==0.6.2",
+]
 eval = [
     "transformers>=5.2,<6",
     "accelerate",

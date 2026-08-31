@@ -450,7 +450,10 @@ def test_staged_memory_write_is_absent_after_generation_failure(tmp_path: Path) 
 def test_staged_memory_write_is_absent_after_streaming_cancellation(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "memory-cancel.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "memory-cancel.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
 
     class PartialGenerator:
@@ -485,7 +488,10 @@ def test_staged_memory_write_is_absent_after_streaming_cancellation(
 def test_concurrent_revision_conflict_cannot_overwrite_committed_update(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "memory-conflict.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "memory-conflict.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as setup_session, setup_session.begin():
@@ -689,7 +695,10 @@ def test_memory_context_survives_mechanical_retry_and_only_final_answer_persists
 def test_memory_lookup_preserves_genuine_streaming_before_terminal_output(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "memory-stream.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "memory-stream.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
 
     class CausalEngine:
@@ -780,7 +789,10 @@ def test_irrelevant_memory_is_not_injected_or_reported(tmp_path: Path) -> None:
 def test_memory_lookup_and_generation_remain_outside_write_transaction(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "memory-transaction.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "memory-transaction.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:

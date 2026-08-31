@@ -146,7 +146,10 @@ def test_invalid_generator_metadata_rolls_back_before_response_validation(
 def test_existing_conversation_generation_runs_outside_a_transaction(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "transaction.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "transaction.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:
@@ -177,7 +180,10 @@ def test_existing_conversation_generation_runs_outside_a_transaction(
 
 
 def test_tool_execution_runs_outside_a_transaction(tmp_path: Path) -> None:
-    database = Database.from_url(_database_url(tmp_path / "tool-transaction.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "tool-transaction.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:
@@ -255,7 +261,10 @@ def test_tool_execution_runs_outside_a_transaction(tmp_path: Path) -> None:
 def test_existing_conversation_is_freshly_refetched_before_persistence(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "deleted-during-generation.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "deleted-during-generation.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:

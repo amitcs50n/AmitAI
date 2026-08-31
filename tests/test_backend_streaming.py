@@ -472,7 +472,10 @@ def test_streaming_generator_failure_never_persists_partial_output(
 def test_streaming_generation_and_iteration_run_outside_sql_transactions(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "stream-transaction.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "stream-transaction.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:
@@ -517,7 +520,10 @@ def test_streaming_generation_and_iteration_run_outside_sql_transactions(
 def test_stream_cancellation_does_not_persist_a_partial_assistant_turn(
     tmp_path: Path,
 ) -> None:
-    database = Database.from_url(_database_url(tmp_path / "stream-cancel.sqlite3"))
+    database = Database.from_url(
+        _database_url(tmp_path / "stream-cancel.sqlite3"),
+        encrypted=False,
+    )
     database.create_schema()
     try:
         with database.session_factory() as session:
