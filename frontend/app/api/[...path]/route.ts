@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
+
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
-const MIN_LOCAL_API_TOKEN_CHARS = 32;
+const LOCAL_API_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 const FORWARDED_REQUEST_HEADERS = ["accept", "content-type"] as const;
 const FORWARDED_RESPONSE_HEADERS = [
   "cache-control",
@@ -49,9 +53,41 @@ function hasAllowedBrowserOrigin(request: Request): boolean {
   }
 }
 
+function localApiTokenFile(): string | null {
+  const override = process.env.AMITAI_LOCAL_API_TOKEN_FILE;
+  if (override) return isAbsolute(override) ? override : null;
+  if (process.platform === "win32") {
+    const root = process.env.LOCALAPPDATA;
+    return root ? join(root, "AmitAI", "runtime", "local-api-token") : null;
+  }
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "AmitAI", "runtime", "local-api-token");
+  }
+  const runtimeRoot = process.env.XDG_RUNTIME_DIR;
+  if (runtimeRoot) return join(runtimeRoot, "amitai", "local-api-token");
+  const stateRoot = process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
+  return join(stateRoot, "amitai", "runtime", "local-api-token");
+}
+
+function readLocalApiToken(): string | null {
+  const path = localApiTokenFile();
+  if (!path) return null;
+  try {
+    const raw = readFileSync(/* turbopackIgnore: true */ path, {
+      encoding: "utf8",
+      flag: "r",
+    });
+    if (!/^[0-9a-f]{64}\r?\n?$/.test(raw)) return null;
+    const token = raw.replace(/\r?\n$/, "");
+    return LOCAL_API_TOKEN_PATTERN.test(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 function backendConfiguration(): { origin: string; token: string } | null {
-  const token = process.env.AMITAI_LOCAL_API_TOKEN?.trim();
-  if (!token || token.length < MIN_LOCAL_API_TOKEN_CHARS) return null;
+  const token = readLocalApiToken();
+  if (!token) return null;
 
   const configuredOrigin = process.env.AMITAI_API_ORIGIN ?? DEFAULT_BACKEND_ORIGIN;
   let parsed: URL;

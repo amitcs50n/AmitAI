@@ -1,31 +1,44 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 
 import { DELETE, GET, PATCH, POST } from "./route.ts";
 
-const LOCAL_TOKEN = "LOCAL_API_SECRET_91233_secure_test_padding";
+const LOCAL_TOKEN = "ab".repeat(32);
 const originalFetch = globalThis.fetch;
 const originalOrigin = process.env.AMITAI_API_ORIGIN;
-const originalToken = process.env.AMITAI_LOCAL_API_TOKEN;
+const originalTokenFile = process.env.AMITAI_LOCAL_API_TOKEN_FILE;
+const originalLegacyToken = process.env.AMITAI_LOCAL_API_TOKEN;
 const originalAllowLan = process.env.AMITAI_ALLOW_LAN;
+let privateDirectory = "";
+let tokenFile = "";
 
 function context(...path: string[]) {
   return { params: Promise.resolve({ path }) };
 }
 
 beforeEach(() => {
+  privateDirectory = mkdtempSync(join(tmpdir(), "amitai-token-"));
+  tokenFile = join(privateDirectory, "local-api-token");
+  writeFileSync(tokenFile, `${LOCAL_TOKEN}\n`, { encoding: "utf8", mode: 0o600 });
   process.env.AMITAI_API_ORIGIN = "http://127.0.0.1:8000";
-  process.env.AMITAI_LOCAL_API_TOKEN = LOCAL_TOKEN;
+  process.env.AMITAI_LOCAL_API_TOKEN_FILE = tokenFile;
+  process.env.AMITAI_LOCAL_API_TOKEN = "legacy-token-must-never-be-used".repeat(2);
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
   if (originalOrigin === undefined) delete process.env.AMITAI_API_ORIGIN;
   else process.env.AMITAI_API_ORIGIN = originalOrigin;
-  if (originalToken === undefined) delete process.env.AMITAI_LOCAL_API_TOKEN;
-  else process.env.AMITAI_LOCAL_API_TOKEN = originalToken;
+  if (originalTokenFile === undefined) delete process.env.AMITAI_LOCAL_API_TOKEN_FILE;
+  else process.env.AMITAI_LOCAL_API_TOKEN_FILE = originalTokenFile;
+  if (originalLegacyToken === undefined) delete process.env.AMITAI_LOCAL_API_TOKEN;
+  else process.env.AMITAI_LOCAL_API_TOKEN = originalLegacyToken;
   if (originalAllowLan === undefined) delete process.env.AMITAI_ALLOW_LAN;
   else process.env.AMITAI_ALLOW_LAN = originalAllowLan;
+  rmSync(privateDirectory, { recursive: true, force: true });
 });
 
 test("server proxy adds local auth without returning it to browser code", async () => {
@@ -99,7 +112,7 @@ test("server proxy preserves SSE streaming without waiting for completion", asyn
 });
 
 test("server proxy fails closed without exposing a missing secret", async () => {
-  delete process.env.AMITAI_LOCAL_API_TOKEN;
+  unlinkSync(tokenFile);
   let fetchCalled = false;
   globalThis.fetch = (async () => {
     fetchCalled = true;
@@ -115,6 +128,57 @@ test("server proxy fails closed without exposing a missing secret", async () => 
   assert.equal(fetchCalled, false);
   assert.equal(await response.text(), '{"detail":"Local API proxy is not configured"}');
   assert.equal(response.headers.get("authorization"), null);
+});
+
+test("server proxy rereads a replacement token file on every request", async () => {
+  const replacement = "cd".repeat(32);
+  const forwarded: string[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    forwarded.push(new Headers(init?.headers).get("authorization") ?? "");
+    return Response.json([]);
+  }) as typeof fetch;
+
+  const request = () =>
+    GET(new Request("http://127.0.0.1:3000/api/conversations"), context("conversations"));
+  await request();
+  writeFileSync(tokenFile, `${replacement}\n`, { encoding: "utf8", mode: 0o600 });
+  await request();
+
+  assert.deepEqual(forwarded, [`Bearer ${LOCAL_TOKEN}`, `Bearer ${replacement}`]);
+});
+
+test("server proxy rejects a malformed runtime token file", async () => {
+  writeFileSync(tokenFile, "not-a-valid-token\n", "utf8");
+  let fetchCalled = false;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    throw new Error("must not run");
+  }) as typeof fetch;
+
+  const response = await GET(
+    new Request("http://127.0.0.1:3000/api/conversations"),
+    context("conversations"),
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(fetchCalled, false);
+});
+
+test("server proxy rejects a relative runtime token path", async () => {
+  process.env.AMITAI_LOCAL_API_TOKEN_FILE = "relative/local-api-token";
+  let fetchCalled = false;
+  globalThis.fetch = (async () => {
+    fetchCalled = true;
+    throw new Error("must not run");
+  }) as typeof fetch;
+
+  const response = await GET(
+    new Request("http://127.0.0.1:3000/api/conversations"),
+    context("conversations"),
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(fetchCalled, false);
 });
 
 test("server proxy refuses a non-loopback backend unless LAN access is explicit", async () => {

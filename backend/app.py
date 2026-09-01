@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +25,7 @@ from .chat_service import (
     ResponseGenerator,
     StreamingResponseGenerator,
 )
-from .database import DEFAULT_DATABASE_URL, Database
+from .database import DEFAULT_DATABASE_URL, Database, DatabaseKeyInput
 from .memory import (
     LOCAL_MEMORY_OWNER_ID,
     MemoryConflictError,
@@ -46,7 +45,7 @@ from .schemas import (
     MemoryRead,
     MemoryUpdate,
 )
-from .security import LocalApiAuthMiddleware, environment_flag, security_state
+from .security import LocalApiAuthMiddleware, security_state
 
 LOGGER = logging.getLogger(__name__)
 SSE_HEARTBEAT_SECONDS = 15.0
@@ -70,7 +69,7 @@ def get_session(request: Request) -> Iterator[Session]:
 def create_app(
     database_url: str = DEFAULT_DATABASE_URL,
     *,
-    database_key: str | None = None,
+    database_key: DatabaseKeyInput | None = None,
     encrypted_storage: bool = True,
     encrypt_existing_database: bool = False,
     generator: (
@@ -460,21 +459,10 @@ class LazyConfiguredApplication:
 
 
 def create_configured_app() -> FastAPI:
-    """Build the production backend from private server environment values."""
+    """Fail closed when bypassing the interactive secure launcher."""
 
-    return create_app(
-        database_key=os.getenv("AMITAI_DB_KEY"),
-        encrypted_storage=True,
-        encrypt_existing_database=environment_flag(
-            "AMITAI_ENCRYPT_EXISTING_DB",
-            environ=os.environ,
-        ),
-        local_api_token=os.getenv("AMITAI_LOCAL_API_TOKEN"),
-        enforce_local_auth=True,
-        enable_dev_docs=environment_flag(
-            "AMITAI_ENABLE_DEV_DOCS",
-            environ=os.environ,
-        ),
+    raise RuntimeError(
+        "Direct backend ASGI startup is unsupported; use python -m runtime.serve"
     )
 
 

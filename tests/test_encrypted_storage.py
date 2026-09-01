@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 import backend.database as database_module
 from backend.app import create_app
+from backend.app import create_configured_app as create_backend_configured_app
 from backend.database import (
     MIGRATION_TEMP_MARKER,
     SQLITE_HEADER,
@@ -271,21 +272,29 @@ def test_ordinary_sqlite_driver_cannot_masquerade_as_encrypted_storage(
     assert not path.exists()
 
 
-def test_canonical_startup_requires_database_key_without_exposing_it(
+def test_direct_configured_factories_fail_closed_without_exposing_legacy_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AMITAI_LOCAL_API_TOKEN", LOCAL_TOKEN)
-    monkeypatch.delenv("AMITAI_DB_KEY", raising=False)
+    database_canary = "DB_ENV_CANARY_918273"
+    token_canary = "LOCAL_ENV_CANARY_817263"
+    monkeypatch.setenv("AMITAI_LOCAL_API_TOKEN", token_canary)
+    monkeypatch.setenv("AMITAI_DB_KEY", database_canary)
 
-    with pytest.raises(EncryptedStorageError):
-        load_local_server_config({"AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN})
-    with pytest.raises(EncryptedStorageError):
-        create_configured_app()
+    with pytest.raises(ValueError) as legacy:
+        load_local_server_config(
+            {
+                "AMITAI_LOCAL_API_TOKEN": token_canary,
+                "AMITAI_DB_KEY": database_canary,
+            }
+        )
+    assert database_canary not in str(legacy.value)
+    assert token_canary not in str(legacy.value)
 
-    monkeypatch.setenv("AMITAI_DB_KEY", MALFORMED_KEY)
-    with pytest.raises(EncryptedStorageError) as failure:
-        create_configured_app()
-    assert MALFORMED_KEY not in str(failure.value)
+    for factory in (create_configured_app, create_backend_configured_app):
+        with pytest.raises(RuntimeError, match="python -m runtime.serve") as failure:
+            factory()
+        assert database_canary not in str(failure.value)
+        assert token_canary not in str(failure.value)
 
 
 def test_plaintext_database_requires_explicit_migration_without_modification(

@@ -88,7 +88,7 @@ The local machine does not need the 27B model just to work on the repo.
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e '.[dev,encrypted-storage]'
+pip install -e '.[dev,encrypted-storage,secure-runtime]'
 pytest
 python -m training.validate_dataset
 ```
@@ -100,17 +100,16 @@ Local tests do not load the 27B checkpoint.
 Install the development dependencies and start the local API:
 
 ```bash
-pip install -e '.[dev,encrypted-storage]'
-export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export AMITAI_DB_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+pip install -e '.[dev,encrypted-storage,secure-runtime]'
+python -m runtime.keyctl init --database-file ./amitai.db
 python -m runtime.serve
 ```
 
 The API stores local conversations in a SQLCipher-encrypted `amitai.db` by default and currently
-returns a deterministic mock assistant response. Preserve `AMITAI_DB_KEY` securely across
-restarts; generating a new value each launch will not unlock an existing database.
-`runtime.serve` binds to `127.0.0.1` and requires both the database key and a separate strong
-local API token. Run all backend, evaluation, and dataset tests with:
+returns a deterministic mock assistant response. `keyctl init` generates the random database key,
+wraps it under an interactively entered passphrase, and never displays the key. The canonical
+launcher prompts for that passphrase, binds to `127.0.0.1`, and creates a fresh local API token for
+the process lifetime. Run all backend, evaluation, and dataset tests with:
 
 ```bash
 pytest --basetemp .pytest_tmp
@@ -126,8 +125,7 @@ progressive output can send the same request body to `POST /api/chat/stream` and
 SSE response:
 
 ```bash
-curl -N http://127.0.0.1:8000/api/chat/stream \
-  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+curl -N http://127.0.0.1:3000/api/chat/stream \
   -H 'Accept: text/event-stream' \
   -H 'Content-Type: application/json' \
   --data '{"conversation_id":null,"message":"Explain generators in Python."}'
@@ -206,23 +204,17 @@ or private keys.
 The explicit API uses the same validation and never accepts a client-supplied owner:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/memory \
-  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+curl -X POST http://127.0.0.1:3000/api/memory \
   -H 'Content-Type: application/json' \
   --data '{"category":"preference","key":"ui.theme","value":"dark"}'
 
-curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
-  'http://127.0.0.1:8000/api/memory?category=preference'
-curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
-  'http://127.0.0.1:8000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
-curl -X PATCH http://127.0.0.1:8000/api/memory/MEMORY_ID \
-  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
+curl 'http://127.0.0.1:3000/api/memory?category=preference'
+curl 'http://127.0.0.1:3000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
+curl -X PATCH http://127.0.0.1:3000/api/memory/MEMORY_ID \
   -H 'Content-Type: application/json' \
   --data '{"value":"light"}'
-curl -X DELETE http://127.0.0.1:8000/api/memory/MEMORY_ID \
-  -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN"
-curl -H "Authorization: Bearer $AMITAI_LOCAL_API_TOKEN" \
-  'http://127.0.0.1:8000/api/memory?status=deleted'
+curl -X DELETE http://127.0.0.1:3000/api/memory/MEMORY_ID
+curl 'http://127.0.0.1:3000/api/memory?status=deleted'
 ```
 
 Each logical `(owner, category, key)` has a stable slot ID and monotonically increasing revision.
@@ -343,10 +335,10 @@ Aevon browser
       -> mock, local Transformers, or remote inference provider
 ```
 
-The browser uses only relative `/api/*` URLs. A Next.js Route Handler reads
-`AMITAI_LOCAL_API_TOKEN` on the server and adds the backend bearer header while proxying; the
-token is never returned to browser JavaScript, stored in web storage, placed in a cookie, or put in
-a URL. State-changing proxy requests with an `Origin` header are accepted only when that origin
+The browser uses only relative `/api/*` URLs. A Next.js Route Handler rereads the owner-only
+runtime token file on the server for each request and adds the backend bearer header while
+proxying; the token is never returned to browser JavaScript, stored in web storage, placed in a
+cookie, or put in a URL. State-changing proxy requests with an `Origin` header are accepted only when that origin
 exactly matches the loopback Aevon origin; cross-origin browser requests are rejected before they
 reach FastAPI. Browser code currently persists only harmless UI preferences and the selected
 conversation ID—never conversations, messages, memory values, or credentials.
@@ -361,8 +353,6 @@ browser cross-origin FastAPI access is not supported.
 The canonical launcher enforces the network default it actually controls:
 
 ```bash
-export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export AMITAI_DB_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 export AMITAI_HOST=127.0.0.1
 python -m runtime.serve
 ```
@@ -372,7 +362,9 @@ Do not use `0.0.0.0` for normal single-user operation. A deliberate LAN deployme
 the socket address supplied by someone who bypasses this launcher with a raw Uvicorn command, so
 it does not pretend to enforce that external bind; local firewall configuration remains relevant.
 The canonical launcher also disables raw HTTP access logging so memory-search query strings are
-not copied into operational logs.
+not copied into operational logs. Starting either `uvicorn runtime.app:app` or
+`uvicorn backend.app:app` directly fails closed; production secrets are injected only by the
+interactive `python -m runtime.serve` path.
 
 #### Inference context minimization
 
@@ -396,26 +388,87 @@ plaintext to the inference provider while it executes.
 #### Encrypted local storage
 
 AmitAI's persistent SQLite application state is encrypted at rest using SQLCipher. Install the
-required native driver with:
+native driver and secure key-management libraries with:
 
 ```bash
-pip install -e '.[encrypted-storage]'
+pip install -e '.[encrypted-storage,secure-runtime]'
 ```
 
 The dependency is pinned to `sqlcipher3==0.6.2`, which provides SQLCipher-enabled wheels for the
 project's supported Python versions on Windows and Linux. Startup verifies the native codec with
 `PRAGMA cipher_version` and fails closed instead of falling back to ordinary `sqlite3`.
 
-`AMITAI_DB_KEY` must be exactly 64 hexadecimal characters representing 256 random bits. Generate
-it once, store it securely outside the database, and keep it distinct from
-`AMITAI_LOCAL_API_TOKEN`:
+Initialize a new installation interactively:
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+python -m runtime.keyctl init --database-file ./amitai.db
+python -m runtime.keyctl status
 ```
 
-The key is never embedded in the SQLAlchemy URL or stored in `amitai.db`. Losing it can make the
-database unrecoverable. Key rotation is not implemented yet.
+`init` prompts twice for an unlock passphrase, generates a random 256-bit SQLCipher key, derives a
+256-bit wrapping key with Argon2id (65,536 KiB, three iterations, parallelism one), and stores only
+an AES-256-GCM-authenticated, versioned key envelope. The raw database key is never displayed,
+embedded in the SQLAlchemy URL, or placed in `amitai.db`. The default envelope lives outside the
+repository at `%LOCALAPPDATA%\AmitAI\secrets\database-key.json` on Windows,
+`~/Library/Application Support/AmitAI/secrets/database-key.json` on macOS, or the XDG data
+directory on Linux. Paths inside this repository or a detected Windows OneDrive root are refused.
+Secret directories/files are created owner-only (0700/0600 on POSIX and a protected current-user
+DACL on Windows); failure to establish or verify those protections fails closed.
+
+Every `python -m runtime.serve` launch prompts once for the passphrase. The passphrase is not a
+command-line or environment option. A wrong passphrase, modified envelope, unsupported version,
+weakened/absurd KDF settings, or invalid authenticated ciphertext produces only `Unlock failed`.
+Losing both the passphrase and usable key envelope can make the database unrecoverable; do not
+store the passphrase beside the envelope.
+
+The canonical launcher creates a fresh 256-bit local API bearer token after unlock and writes it
+to an owner-only runtime file for the local Next.js server. The plaintext token file is protected
+by its short lifetime, loopback boundary, and file permissions—not by database encryption. It is
+atomically replaced before serving, removed on clean shutdown, and regenerated after every
+restart, so stale tokens no longer authenticate. The optional
+`AMITAI_LOCAL_API_TOKEN_FILE` setting changes only this non-secret shared path and must match in
+the backend and Next server environments; an override must be absolute.
+
+Change only the unlock passphrase without modifying the database key or database bytes:
+
+```bash
+python -m runtime.keyctl change-passphrase
+```
+
+Rotate the actual SQLCipher key only while every AmitAI backend/frontend process is stopped:
+
+```bash
+python -m runtime.keyctl rotate-db-key --database-file ./amitai.db
+```
+
+Rotation exports the old encrypted database directly to an encrypted candidate under a fresh key,
+verifies SQLCipher, schema, table counts, representative rows, `user_version`, integrity and the
+locked source fingerprint, then atomically replaces the database. A restricted authenticated
+recovery journal stores both old and new keys only in wrapped form before any database change. If
+the process stops at any phase, the next unlock safely tests which wrapped key opens the database,
+finalizes the matching envelope, and removes obsolete artifacts; if neither or both keys appear
+valid, recovery fails closed and retains recovery material. A busy database aborts immediately
+with `Database is busy; stop AmitAI before key rotation` and leaves the source unchanged.
+
+Changing or rotating the key prevents normal access with obsolete credentials, but atomic file
+replacement/removal cannot guarantee physical erasure of old flash pages because filesystems and
+SSD wear leveling may retain remnants.
+
+For an existing database created with the former raw-key environment workflow, do not run `init`.
+Use the one-time import path, paste the existing 64-hex key only into its hidden prompt, then choose
+a new passphrase:
+
+```bash
+python -m runtime.keyctl import-existing --database-file ./amitai.db
+```
+
+The command proves that the supplied key opens the encrypted database, writes the wrapped
+envelope atomically, and does not modify the database. It never accepts a database key on the
+command line and never reads it from an environment variable. After importing, remove the legacy
+`AMITAI_DB_KEY`, `AMITAI_LOCAL_API_TOKEN`, and `AMITAI_UNLOCK_PASSPHRASE` variables from the parent
+shell or service configuration. AmitAI refusing or clearing a variable in its child process does
+not erase a value exported by the parent shell (`unset ...` on POSIX, or
+`Remove-Item Env:NAME` in PowerShell).
 
 An existing plaintext `amitai.db` is never migrated automatically. Startup refuses it unless one
 intentional launch has explicit authorization. Migration is an offline operation: stop every
@@ -423,9 +476,9 @@ AmitAI process first, and do not run another backend against `amitai.db` while m
 progress. `AMITAI_ENCRYPT_EXISTING_DB=1` is only for this one intentional offline migration launch:
 
 ```bash
-export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
+python -m runtime.keyctl init --database-file ./amitai.db
 export AMITAI_ENCRYPT_EXISTING_DB=1
-python -m runtime.serve
+python -m runtime.serve --database-file ./amitai.db
 # after successful startup/migration, stop AmitAI and remove the one-shot flag
 unset AMITAI_ENCRYPT_EXISTING_DB
 ```
@@ -447,8 +500,12 @@ and unlocked: application data and the key exist in process memory, and same-use
 compromised process can access the live application. BitLocker, LUKS, or another full-disk
 encryption layer is complementary protection. SQLCipher does not encrypt model weights and does
 not hide intentionally sent generation context from a remote inference provider such as RunPod.
-It is encryption at rest, not a claim of perfect privacy or physical secure erasure of deleted SSD
-blocks.
+The canonical process disables POSIX core dumps and Linux process dumpability when supported, and
+keeps the long-lived database key in a mutable locked buffer that is explicitly zeroed on
+shutdown. Windows uses `VirtualLock`; system crash-dump/diagnostic policy remains an OS-level
+consideration. SQLCipher APIs and Python itself may still create transient copies, so memory
+locking and zeroization reduce exposure rather than providing a formally zero-copy environment.
+This is encryption at rest, not a claim of perfect privacy.
 
 Do not intentionally place the AmitAI data directory in OneDrive, Google Drive, Dropbox, iCloud,
 or another automatic sync folder unless you understand that encrypted database blobs and file
@@ -459,11 +516,9 @@ The default provider is still `mock`. Local GPU inference remains available and 
 one-model-per-process initialization plus serialized generation:
 
 ```bash
-pip install -e '.[runtime,encrypted-storage]'
+pip install -e '.[runtime,encrypted-storage,secure-runtime]'
 export AMITAI_INFERENCE_PROVIDER=transformers
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
-export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 python -m runtime.serve
 ```
 
@@ -504,8 +559,6 @@ export AMITAI_INFERENCE_PROVIDER=remote
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
 export AMITAI_REMOTE_INFERENCE_URL='https://your-development-endpoint.example'
 export AMITAI_REMOTE_INFERENCE_TOKEN='replace-with-the-same-development-token'
-export AMITAI_LOCAL_API_TOKEN='use-a-different-strong-local-control-plane-token'
-export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 
 python -m runtime.serve
 ```
@@ -513,10 +566,10 @@ python -m runtime.serve
 The endpoint is disabled unless `remote` is explicitly selected and both variables are present.
 Remote inference requires HTTPS before any prompt or credential is sent. Plain HTTP is accepted
 only for explicit loopback development endpoints using `localhost`, `127.0.0.1`, or `::1`; it is
-rejected for LAN addresses and non-loopback hosts without silently upgrading the URL. Keep
-`AMITAI_LOCAL_API_TOKEN` distinct from the inference-service credential. The remote client uses
-`AMITAI_REMOTE_INFERENCE_TOKEN`, while the inference service receives the matching credential as
-`AMITAI_INFERENCE_AUTH_TOKEN`.
+rejected for LAN addresses and non-loopback hosts without silently upgrading the URL. The
+ephemeral local control-plane token is independent of the inference-service credential. The
+remote client uses `AMITAI_REMOTE_INFERENCE_TOKEN`, while the inference service receives the
+matching credential as `AMITAI_INFERENCE_AUTH_TOKEN`.
 
 The provider sends only a request ID, model messages, and generation settings. Tool execution,
 mechanical repair, memory mutation, and conversation persistence remain local, so a failed or
@@ -524,10 +577,10 @@ interrupted remote generation cannot persist a partial assistant turn. Applicati
 prompt bodies, response bodies, memory values, and authorization tokens; operational entries may
 contain request IDs, provider names, latency, token counts, HTTP status, and sanitized error types.
 
-Set frontend server-side `AMITAI_API_ORIGIN` to this **local** API and give the Next.js server the
-same `AMITAI_LOCAL_API_TOKEN`; never point browser code or the proxy directly at the GPU inference
-service. Future local or confidential-GPU providers can implement the same boundary without
-changing the frontend or persistence layer.
+Set frontend server-side `AMITAI_API_ORIGIN` to this **local** API. The Next.js server reads the
+same runtime token file created by `runtime.serve`; never point browser code or the proxy directly
+at the GPU inference service. Future local or confidential-GPU providers can implement the same
+boundary without changing the frontend or persistence layer.
 
 Local state encryption and HTTPS transport do not make an ordinary RunPod provider blind to the
 generation payload it processes.
@@ -539,13 +592,10 @@ frontend. Run the two development servers separately:
 
 ```bash
 # Terminal 1, from the repository root
-export AMITAI_LOCAL_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
-export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
 python -m runtime.serve
 
-# Terminal 2: use the same AMITAI_LOCAL_API_TOKEN value, server-side only
+# Terminal 2: the proxy reads Terminal 1's owner-only runtime token file
 cd frontend
-export AMITAI_LOCAL_API_TOKEN='copy-the-terminal-1-token-here'
 export AMITAI_API_ORIGIN='http://127.0.0.1:8000'
 npm install
 npm run dev
@@ -558,8 +608,10 @@ implicit LAN mode. Any future supported LAN launcher must require an explicit
 
 Open the local Next.js address printed in Terminal 2. Its server-only Route Handler streams
 relative `/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default and adds
-the local bearer credential. Do not use a `NEXT_PUBLIC_*` variable for this token. Browser code
-does not need or receive separate CORS access.
+the ephemeral local bearer credential from the private runtime file. Do not copy that token into
+an environment variable, `NEXT_PUBLIC_*` variable, browser storage, HTML, cookies, URLs, or logs.
+Browser code does not need or receive separate CORS access. A missing or malformed runtime token
+file makes the proxy fail closed with HTTP 503.
 
 Open **Memory** from Aevon's sidebar to manage Memory V1 without leaving the product UI. The page
 lists active structured memories, supports API-backed search and category filters, creates and

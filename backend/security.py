@@ -36,7 +36,7 @@ def validate_local_api_token(token: str | None) -> str | None:
     normalized = token.strip()
     if len(normalized) < MIN_LOCAL_API_TOKEN_CHARS:
         raise ValueError(
-            f"AMITAI_LOCAL_API_TOKEN must contain at least {MIN_LOCAL_API_TOKEN_CHARS} characters"
+            f"Local API token must contain at least {MIN_LOCAL_API_TOKEN_CHARS} characters"
         )
     return normalized
 

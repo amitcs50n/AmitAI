@@ -7,10 +7,9 @@ from fastapi.testclient import TestClient
 from backend.app import create_app
 from backend.chat_service import ChatGenerationDelta
 from runtime.app import create_runtime_app
-from runtime.serve import LocalServerConfig, load_local_server_config, main
+from runtime.serve import load_local_server_config
 
 LOCAL_TOKEN = "LOCAL_API_SECRET_91233_secure_test_padding"
-DATABASE_KEY = "a1" * 32
 AUTHORIZATION = {"Authorization": f"Bearer {LOCAL_TOKEN}"}
 
 
@@ -143,25 +142,15 @@ def test_control_plane_has_no_wildcard_cors(tmp_path: Path) -> None:
     assert "access-control-allow-origin" not in response.headers
 
 
-def test_canonical_launcher_defaults_to_loopback_and_requires_a_strong_token() -> None:
-    config = load_local_server_config(
-        {
-            "AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN,
-            "AMITAI_DB_KEY": DATABASE_KEY,
-        }
-    )
+def test_canonical_launcher_defaults_to_loopback_without_env_secrets() -> None:
+    config = load_local_server_config({})
 
     assert config.host == "127.0.0.1"
     assert config.port == 8000
 
-    with pytest.raises(ValueError, match="AMITAI_LOCAL_API_TOKEN"):
-        load_local_server_config({})
-
 
 def test_canonical_launcher_rejects_lan_binding_without_explicit_opt_in() -> None:
     values = {
-        "AMITAI_LOCAL_API_TOKEN": LOCAL_TOKEN,
-        "AMITAI_DB_KEY": DATABASE_KEY,
         "AMITAI_HOST": "0.0.0.0",
     }
 
@@ -170,34 +159,6 @@ def test_canonical_launcher_rejects_lan_binding_without_explicit_opt_in() -> Non
 
     allowed = load_local_server_config({**values, "AMITAI_ALLOW_LAN": "1"})
     assert allowed.host == "0.0.0.0"
-
-
-def test_canonical_launcher_disables_unsanitized_access_logs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = []
-    monkeypatch.setattr(
-        "runtime.serve.load_local_server_config",
-        lambda: LocalServerConfig(host="127.0.0.1", port=8000),
-    )
-    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: calls.append((args, kwargs)))
-
-    main()
-
-    assert calls == [
-        (
-            ("runtime.app:app",),
-            {
-                "host": "127.0.0.1",
-                "port": 8000,
-                "workers": 1,
-                "reload": False,
-                "access_log": False,
-            },
-        )
-    ]
-
-
 def test_sensitive_local_values_never_enter_operational_logs(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
