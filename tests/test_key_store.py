@@ -10,6 +10,7 @@ from runtime.key_store import (
     ENVELOPE_PURPOSE,
     ENVELOPE_VERSION,
     KDF_NAME,
+    ROTATION_RECOVERY_REQUIRED_MESSAGE,
     WRAP_ALGORITHM,
     Argon2Parameters,
     KeyStore,
@@ -19,6 +20,7 @@ from runtime.key_store import (
     file_sha256,
 )
 from runtime.keyctl import _parser, command_init
+from runtime.keyctl import main as keyctl_main
 from runtime.paths import (
     PrivatePathError,
     assert_owner_only,
@@ -308,3 +310,23 @@ def test_keyctl_has_no_secret_arguments_and_prompts_for_creation(
         "Confirm new unlock passphrase: ",
     ]
     assert PASSPHRASE not in "".join(prompts)
+
+
+def test_keyctl_change_passphrase_refuses_recovery_before_prompt(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.initialize(PASSPHRASE, database_key=DATABASE_KEY)
+    atomic_write_private(store.rotation_file, b"pending authenticated recovery state\n")
+    prompts: list[str] = []
+
+    def prompt(label: str) -> str:
+        prompts.append(label)
+        raise AssertionError("change-passphrase must refuse before prompting")
+
+    with pytest.raises(SystemExit, match=f"^{ROTATION_RECOVERY_REQUIRED_MESSAGE}$"):
+        keyctl_main(
+            ["change-passphrase", "--key-file", str(store.key_file)],
+            prompt=prompt,
+        )
+
+    assert prompts == []
+    assert store.rotation_file.exists()

@@ -10,7 +10,13 @@ from pathlib import Path
 
 from backend.database import EncryptedStorageError
 
-from .key_store import MIN_PASSPHRASE_CHARS, KeyStore, KeyStoreError
+from .key_store import (
+    MIN_PASSPHRASE_CHARS,
+    ROTATION_RECOVERY_REQUIRED_MESSAGE,
+    KeyRotationError,
+    KeyStore,
+    KeyStoreError,
+)
 from .paths import PrivatePathError, default_key_file
 from .secure_memory import SecureMemoryError
 
@@ -73,11 +79,14 @@ def command_change_passphrase(
     *,
     prompt: SecretPrompt = getpass.getpass,
 ) -> None:
+    store = _store(arguments)
+    if store.rotation_recovery_required:
+        raise KeyRotationError(ROTATION_RECOVERY_REQUIRED_MESSAGE)
     old_passphrase = prompt("Current unlock passphrase: ")
     new_passphrase = ""
     try:
         new_passphrase = _confirmed_passphrase(prompt)
-        _store(arguments).change_passphrase(old_passphrase, new_passphrase)
+        store.change_passphrase(old_passphrase, new_passphrase)
     finally:
         old_passphrase = ""
         new_passphrase = ""

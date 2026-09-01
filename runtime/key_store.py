@@ -48,6 +48,9 @@ DATABASE_KEY_BYTES = 32
 GCM_TAG_BYTES = 16
 MAX_JSON_TEXT_CHARS = 32 * 1024
 ROTATION_STATES = frozenset({"prepared", "database_replaced", "finalized"})
+ROTATION_RECOVERY_REQUIRED_MESSAGE = (
+    "Database key rotation recovery is required before changing passphrase"
+)
 
 
 class KeyStoreError(RuntimeError):
@@ -355,6 +358,10 @@ class KeyStore:
         self.rotation_file = rotation_journal_path(self.key_file)
         self.policy = policy
 
+    @property
+    def rotation_recovery_required(self) -> bool:
+        return self.rotation_file.exists()
+
     def _read_envelope(self) -> tuple[dict[str, Any], dict[str, Any], Argon2Parameters, bytes]:
         document = _require_exact_keys(
             _json_without_duplicates(read_private(self.key_file)),
@@ -482,6 +489,8 @@ class KeyStore:
             raise UnlockError("Unlock failed") from None
 
     def change_passphrase(self, old_passphrase: str, new_passphrase: str) -> None:
+        if self.rotation_recovery_required:
+            raise KeyRotationError(ROTATION_RECOVERY_REQUIRED_MESSAGE)
         _validate_passphrase(new_passphrase)
         try:
             database_key, wrapping_key, _ = self._unlock_material(old_passphrase)
@@ -704,7 +713,7 @@ class KeyStore:
                 time_cost=None,
                 parallelism=None,
                 key_file=str(self.key_file),
-                rotation_recovery_required=self.rotation_file.exists(),
+                rotation_recovery_required=self.rotation_recovery_required,
             )
         document, _, parameters, _ = self._read_envelope()
         return KeyStoreStatus(
@@ -715,7 +724,7 @@ class KeyStore:
             time_cost=parameters.time_cost,
             parallelism=parameters.parallelism,
             key_file=str(self.key_file),
-            rotation_recovery_required=self.rotation_file.exists(),
+            rotation_recovery_required=self.rotation_recovery_required,
         )
 
 

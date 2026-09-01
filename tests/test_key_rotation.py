@@ -7,10 +7,18 @@ from fastapi.testclient import TestClient
 import backend.database as database_module
 from backend.app import create_app
 from backend.database import SQLITE_HEADER, database_key_opens
-from runtime.key_store import KeyRotationError, KeyStore, KeyStorePolicy, file_sha256
+from runtime.key_store import (
+    ROTATION_RECOVERY_REQUIRED_MESSAGE,
+    KeyRotationError,
+    KeyStore,
+    KeyStorePolicy,
+    UnlockError,
+    file_sha256,
+)
 from runtime.paths import rotation_candidate_path
 
 PASSPHRASE = "rotation passphrase for tests"
+NEW_PASSPHRASE = "new rotation passphrase for tests"
 OLD_KEY = b"OLD_DB_KEY_CANARY_12345678901234"
 NEW_KEY = b"NEW_DB_KEY_CANARY_98765432109876"
 MESSAGE_CANARY = "ROTATION_MESSAGE_CANARY_918273"
@@ -70,8 +78,10 @@ def _assert_preserved(
     database_path: Path,
     conversation_id: str,
     memory_id: str,
+    *,
+    passphrase: str = PASSPHRASE,
 ) -> None:
-    with store.unlock(PASSPHRASE, database_path=database_path) as handle:
+    with store.unlock(passphrase, database_path=database_path) as handle:
         application = create_app(
             _database_url(database_path),
             database_key=handle,
@@ -96,6 +106,10 @@ def _assert_no_raw_keys(path: Path) -> None:
     for key in (OLD_KEY, NEW_KEY):
         assert key not in raw
         assert key.hex().encode() not in raw
+
+
+def _temporary_key_store_artifacts(store: KeyStore) -> list[Path]:
+    return list(store.key_file.parent.glob(".*.tmp-*"))
 
 
 def test_database_key_rotation_preserves_data_and_rejects_old_key(
@@ -175,6 +189,112 @@ def test_rotation_recovers_deterministically_from_every_crash_phase(
         assert recovered.copy_bytes() in {OLD_KEY, NEW_KEY}
     _assert_no_raw_keys(store.key_file)
     _assert_preserved(store, database_path, conversation_id, memory_id)
+
+
+def test_passphrase_change_refuses_pending_post_replacement_rotation_then_recovers(
+    tmp_path: Path,
+) -> None:
+    store, database_path, conversation_id, memory_id = _initialize_database(tmp_path)
+    stable_envelope_before_rotation = file_sha256(store.key_file)
+
+    def crash_after_replacement(phase: str) -> None:
+        if phase == "after_database_replaced":
+            raise SimulatedCrash(phase)
+
+    with pytest.raises(SimulatedCrash, match="after_database_replaced"):
+        store.rotate_database_key(
+            database_path,
+            PASSPHRASE,
+            new_database_key=NEW_KEY,
+            phase_hook=crash_after_replacement,
+        )
+
+    assert store.rotation_recovery_required is True
+    assert file_sha256(store.key_file) == stable_envelope_before_rotation
+    assert database_path.read_bytes()[: len(SQLITE_HEADER)] != SQLITE_HEADER
+    assert (
+        database_key_opens(database_path, OLD_KEY.hex()),
+        database_key_opens(database_path, NEW_KEY.hex()),
+    ) == (False, True)
+    database_before_refusal = file_sha256(database_path)
+    envelope_before_refusal = file_sha256(store.key_file)
+    journal_before_refusal = file_sha256(store.rotation_file)
+
+    with pytest.raises(
+        KeyRotationError,
+        match=f"^{ROTATION_RECOVERY_REQUIRED_MESSAGE}$",
+    ):
+        store.change_passphrase(PASSPHRASE, NEW_PASSPHRASE)
+
+    assert file_sha256(database_path) == database_before_refusal
+    assert file_sha256(store.key_file) == envelope_before_refusal
+    assert file_sha256(store.rotation_file) == journal_before_refusal
+    assert _temporary_key_store_artifacts(store) == []
+
+    store.recover_rotation(database_path, PASSPHRASE)
+
+    assert store.rotation_recovery_required is False
+    assert not store.rotation_file.exists()
+    assert file_sha256(database_path) == database_before_refusal
+    assert database_key_opens(database_path, OLD_KEY.hex()) is False
+    assert database_key_opens(database_path, NEW_KEY.hex()) is True
+    with store.unlock(PASSPHRASE) as recovered:
+        assert recovered.copy_bytes() == NEW_KEY
+    _assert_preserved(store, database_path, conversation_id, memory_id)
+
+    database_before_passphrase_change = file_sha256(database_path)
+    store.change_passphrase(PASSPHRASE, NEW_PASSPHRASE)
+
+    assert file_sha256(database_path) == database_before_passphrase_change
+    with pytest.raises(UnlockError, match="^Unlock failed$"):
+        store.unlock(PASSPHRASE)
+    with store.unlock(NEW_PASSPHRASE) as unlocked:
+        assert unlocked.copy_bytes() == NEW_KEY
+    _assert_preserved(
+        store,
+        database_path,
+        conversation_id,
+        memory_id,
+        passphrase=NEW_PASSPHRASE,
+    )
+
+
+def test_passphrase_change_refuses_pending_pre_replacement_rotation(
+    tmp_path: Path,
+) -> None:
+    store, database_path, _conversation_id, _memory_id = _initialize_database(tmp_path)
+
+    def crash_after_journal(phase: str) -> None:
+        if phase == "after_journal_written":
+            raise SimulatedCrash(phase)
+
+    with pytest.raises(SimulatedCrash, match="after_journal_written"):
+        store.rotate_database_key(
+            database_path,
+            PASSPHRASE,
+            new_database_key=NEW_KEY,
+            phase_hook=crash_after_journal,
+        )
+
+    assert store.rotation_recovery_required is True
+    assert (
+        database_key_opens(database_path, OLD_KEY.hex()),
+        database_key_opens(database_path, NEW_KEY.hex()),
+    ) == (True, False)
+    database_before_refusal = file_sha256(database_path)
+    envelope_before_refusal = file_sha256(store.key_file)
+    journal_before_refusal = file_sha256(store.rotation_file)
+
+    with pytest.raises(
+        KeyRotationError,
+        match=f"^{ROTATION_RECOVERY_REQUIRED_MESSAGE}$",
+    ):
+        store.change_passphrase(PASSPHRASE, NEW_PASSPHRASE)
+
+    assert file_sha256(database_path) == database_before_refusal
+    assert file_sha256(store.key_file) == envelope_before_refusal
+    assert file_sha256(store.rotation_file) == journal_before_refusal
+    assert _temporary_key_store_artifacts(store) == []
 
 
 def test_busy_database_aborts_rotation_without_source_mutation(tmp_path: Path) -> None:
