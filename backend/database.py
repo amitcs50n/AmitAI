@@ -301,6 +301,7 @@ def _migrate_plaintext_database(path: Path, key: str, driver: ModuleType) -> Non
     expected_schema: tuple[tuple[Any, ...], ...] = ()
     expected_counts: dict[str, int] = {}
     expected_rows: dict[str, tuple[Any, ...] | None] = {}
+    locked_source_fingerprint: tuple[tuple[str, int, str], ...] = ()
     try:
         connection = driver.connect(str(path), timeout=0, isolation_level=None)
         cursor = connection.cursor()
@@ -348,6 +349,12 @@ def _migrate_plaintext_database(path: Path, key: str, driver: ModuleType) -> Non
             if not _integrity_is_ok(cursor, "encrypted"):
                 raise EncryptedStorageError("Encrypted database migration verification failed")
 
+            # Capture the exact source artifacts represented by the export while
+            # BEGIN EXCLUSIVE still prevents another SQLite writer from changing
+            # them. The WAL has already been checkpointed and journal mode has
+            # been normalized, so any later sidecar change is meaningful.
+            locked_source_fingerprint = _artifact_fingerprint(path)
+
             cursor.execute("COMMIT")
             transaction_open = False
             cursor.execute("DETACH DATABASE encrypted")
@@ -356,10 +363,6 @@ def _migrate_plaintext_database(path: Path, key: str, driver: ModuleType) -> Non
             cursor.close()
             connection.close()
             connection = None
-
-        for sidecar in _sidecar_paths(path):
-            _remove_file(sidecar)
-        source_fingerprint = _artifact_fingerprint(path)
 
         _verify_encrypted_candidate(
             candidate,
@@ -371,7 +374,7 @@ def _migrate_plaintext_database(path: Path, key: str, driver: ModuleType) -> Non
             expected_rows=expected_rows,
         )
         _fsync_file(candidate)
-        if _artifact_fingerprint(path) != source_fingerprint:
+        if _artifact_fingerprint(path) != locked_source_fingerprint:
             raise EncryptedStorageError(
                 "Plaintext database changed during migration; stop AmitAI and retry"
             )

@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+import backend.database as database_module
 from backend.app import create_app
 from backend.database import (
     MIGRATION_TEMP_MARKER,
@@ -34,6 +35,7 @@ PRIVATE_MESSAGE = "PRIVATE_DB_MESSAGE_192837"
 PRIVATE_MEMORY = "PRIVATE_DB_MEMORY_817263"
 MALFORMED_KEY = "DB_SECRET_KEY_CANARY_918273"
 WAL_CANARY = "PLAINTEXT_WAL_CANARY_6619042"
+LATE_MIGRATION_WRITE = "LATE_PLAINTEXT_MIGRATION_WRITE_726451"
 
 
 def _database_url(path: Path) -> str:
@@ -388,6 +390,54 @@ def test_plaintext_migration_checkpoints_unclosed_wal_before_export(
     assert not wal.exists()
     assert not shm.exists()
     assert not Path(f"{path}-journal").exists()
+
+
+def test_plaintext_migration_rejects_write_after_export_before_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "plaintext-changed-after-export.sqlite3"
+    conversation_id, _ = _seed_plaintext_database(path)
+    verify_candidate = database_module._verify_encrypted_candidate
+
+    def verify_then_write(*args, **kwargs) -> None:
+        verify_candidate(*args, **kwargs)
+        connection = sqlite3.connect(path)
+        try:
+            connection.execute(
+                "UPDATE conversations SET title=? WHERE id=?",
+                (LATE_MIGRATION_WRITE, conversation_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    monkeypatch.setattr(
+        database_module,
+        "_verify_encrypted_candidate",
+        verify_then_write,
+    )
+
+    with pytest.raises(EncryptedStorageError) as failure:
+        Database.from_url(
+            _database_url(path),
+            encryption_key=KEY_A,
+            migrate_plaintext=True,
+        )
+
+    assert str(failure.value) == (
+        "Plaintext database changed during migration; stop AmitAI and retry"
+    )
+    assert path.read_bytes().startswith(SQLITE_HEADER)
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute(
+            "SELECT title FROM conversations WHERE id=?",
+            (conversation_id,),
+        ).fetchone() == (LATE_MIGRATION_WRITE,)
+    finally:
+        connection.close()
+    assert _migration_candidates(path) == []
 
 
 def test_busy_plaintext_database_refuses_migration_and_preserves_source(

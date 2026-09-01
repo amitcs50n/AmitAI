@@ -399,7 +399,9 @@ The key is never embedded in the SQLAlchemy URL or stored in `amitai.db`. Losing
 database unrecoverable. Key rotation is not implemented yet.
 
 An existing plaintext `amitai.db` is never migrated automatically. Startup refuses it unless one
-intentional launch has explicit authorization:
+intentional launch has explicit authorization. Migration is an offline operation: stop every
+AmitAI process first, and do not run another backend against `amitai.db` while migration is in
+progress. `AMITAI_ENCRYPT_EXISTING_DB=1` is only for this one intentional offline migration launch:
 
 ```bash
 export AMITAI_DB_KEY='copy-the-preserved-64-hex-database-key-here'
@@ -409,13 +411,16 @@ python -m runtime.serve
 unset AMITAI_ENCRYPT_EXISTING_DB
 ```
 
-Migration checkpoints any plaintext WAL, requires exclusive access, exports the complete database
-into a sibling encrypted candidate, verifies integrity/schema/table counts and representative
-records, then atomically replaces the source. A failure before replacement retains the original
-plaintext database and removes the incomplete candidate. A successful migration does not leave a
-plaintext backup or obsolete plaintext `-wal`, `-shm`, or journal file. Normal operation
-preserves SQLite's existing `DELETE` journal mode; its transient rollback journal is also written
-through SQLCipher.
+Migration checkpoints any plaintext WAL, normalizes journal mode, requires exclusive access, and
+exports the complete locked source snapshot into a sibling encrypted candidate. It captures the
+source fingerprint while that lock is still held, verifies the candidate, and checks the source
+fingerprint again immediately before atomic replacement. A changed database or reappearing
+sidecar fails migration; the original plaintext database is retained and the incomplete candidate
+is removed. These application-level checks support the required offline workflow but cannot
+protect indefinitely against arbitrary external writers, which is why every AmitAI process must
+remain stopped. A successful migration does not leave a plaintext backup or obsolete plaintext
+`-wal`, `-shm`, or journal file. Normal operation preserves SQLite's existing `DELETE` journal
+mode; its transient rollback journal is also written through SQLCipher.
 
 This protects offline, copied, or stolen database files and database backups, including table
 pages, indexes, messages, and memory values. It does not provide secrecy while AmitAI is running
