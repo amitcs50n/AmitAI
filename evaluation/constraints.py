@@ -4,7 +4,6 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-
 SUPPORTED_CONSTRAINT_TYPES = (
     "exact_words",
     "exact_bullets",
@@ -469,7 +468,11 @@ def validate_with_bounded_retries(
     original_response: str,
     retry: Callable[[str], str],
     max_retries: int = MAX_MECHANICAL_RETRIES,
+    *,
+    retry_original_prompt: str | None = None,
 ) -> dict[str, Any]:
+    # Constraints always come from the original request. Runtime callers may supply
+    # a provider-safe projection solely for the corrective model-facing prompt.
     if (
         isinstance(max_retries, bool)
         or not isinstance(max_retries, int)
@@ -506,7 +509,7 @@ def validate_with_bounded_retries(
     for attempt_number in range(1, max_retries + 1):
         retry_reason = "\n".join(latest_validation["failures"])
         retry_prompt = build_retry_prompt(
-            original_prompt,
+            original_prompt if retry_original_prompt is None else retry_original_prompt,
             latest_response,
             latest_validation,
         )

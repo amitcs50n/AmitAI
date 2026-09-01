@@ -26,6 +26,7 @@ from runtime.config import (
 )
 from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES
 from runtime.generator import ProviderChatGenerator, TransformersChatGenerator
+from runtime.privacy import InferenceExecutionScope
 from runtime.tooling import MAX_TOOL_ITERATIONS
 from tests.app_factory import create_test_runtime_app as create_runtime_app
 
@@ -844,6 +845,7 @@ def test_provider_can_be_swapped_to_remote_using_environment_configuration(
     captured = {}
 
     class SelectedProvider:
+        execution_scope = InferenceExecutionScope.REMOTE
         provider_name = "selected-remote"
         model_name = EXPECTED_MODEL_NAME
 

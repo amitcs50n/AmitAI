@@ -12,6 +12,7 @@ from backend.chat_service import (
     ChatGenerationDelta,
     ChatGenerationError,
     ChatGenerationResult,
+    ChatPrivacyError,
     GenerationMessage,
 )
 from evaluation.constraints import (
@@ -24,6 +25,7 @@ from evaluation.hf_backend import GenerationOutput
 from .calculator import CalculatorTool
 from .config import RuntimeConfig
 from .context import compile_model_messages
+from .privacy import RemoteDisclosureBlockedError, require_execution_scope
 from .providers import (
     EngineFactory,
     InferenceProvider,
@@ -83,11 +85,15 @@ class ProviderChatGenerator:
             raise ValueError("Runtime mechanical constraint validation must be enabled")
         self.config = config
         self._provider = provider
+        self._execution_scope = require_execution_scope(provider)
         self._clock = clock
         self._tool_registry = tool_registry or ToolRegistry([CalculatorTool()])
 
     def _generate_once(self, messages: list[dict[str, str]]) -> GenerationOutput:
-        output = self._provider.generate(messages, self.config.generation)
+        try:
+            output = self._provider.generate(messages, self.config.generation)
+        except RemoteDisclosureBlockedError:
+            raise ChatPrivacyError() from None
         return self._validate_output(output, strip_text=True)
 
     @staticmethod
@@ -116,16 +122,13 @@ class ProviderChatGenerator:
         *,
         cancel_event: Event,
     ) -> Iterator[str | GenerationOutput]:
-        stream = iter(
-            self._provider.stream(
-                messages,
-                self.config.generation,
-                cancel_event=cancel_event,
-            )
-        )
+        stream: Iterator[str | GenerationOutput] | None = None
         chunks: list[str] = []
         output: GenerationOutput | None = None
         try:
+            stream = iter(self._provider.stream(
+                messages, self.config.generation, cancel_event=cancel_event,
+            ))
             for item in stream:
                 if cancel_event.is_set():
                     return
@@ -145,6 +148,8 @@ class ProviderChatGenerator:
                 raise TypeError(
                     "Runtime provider stream must yield text chunks or GenerationOutput"
                 )
+        except RemoteDisclosureBlockedError:
+            raise ChatPrivacyError() from None
         finally:
             close = getattr(stream, "close", None)
             if callable(close):
@@ -408,6 +413,7 @@ class ProviderChatGenerator:
             messages,
             runtime_system_prompt=self.config.runtime_system_prompt,
             tool_instructions=self._tool_registry.instructions(),
+            execution_scope=self._execution_scope,
         )
 
     @staticmethod
@@ -459,7 +465,8 @@ class ProviderChatGenerator:
             tool_records.extend(loop_output.tools)
             return loop_output.output.text
 
-        original_response = generate(self._model_messages(messages))
+        model_messages = self._model_messages(messages)
+        original_response = generate(model_messages)
 
         def retry(corrective_prompt: str) -> str:
             retry_messages = (
@@ -473,6 +480,7 @@ class ProviderChatGenerator:
             original_response,
             retry,
             max_retries=MAX_MECHANICAL_RETRIES,
+            retry_original_prompt=model_messages[-1]["content"],
         )
         if validation["final_validation"]["passed"] is not True:
             raise ChatGenerationError("Assistant generation failed")

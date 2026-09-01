@@ -237,6 +237,23 @@ historical revisions; deleted and stale revisions are never retrieved. Explicitl
 forgotten key reactivates the same slot with a new revision while old values remain redacted.
 Optimistic revision/status checks reject concurrent lost updates.
 
+Every memory has a separate `sensitivity`: `local_only` (default) or `remote_allowed`.
+New API/chat memories and existing pre-policy records default to `local_only`. Startup upgrades
+the existing memory table transactionally before serving requests, including encrypted databases;
+it does not reset data, export plaintext, or change keys. Reactivating a forgotten memory defaults
+to local-only again. A value-only update preserves the active memory's current sensitivity.
+The local Memory API exposes sensitivity, but chat metadata stays reference-only and unchanged.
+POST accepts optional sensitivity; PATCH accepts value, sensitivity, or both, rejects empty/null
+updates and unknown policies, and uses the same atomic revision/conflict checks for policy changes.
+To explicitly allow a memory for remote inference:
+
+```bash
+curl -X PATCH http://127.0.0.1:3000/api/memory/MEMORY_ID \
+  -H 'Origin: http://127.0.0.1:3000' \
+  -H 'Content-Type: application/json' \
+  --data '{"sensitivity":"remote_allowed"}'
+```
+
 Retrieval is deterministic and conservative: key/category matches dominate value overlap, with at
 most eight active items and about 4,000 serialized characters. Selected items are injected as a
 runtime-generated `MEMORY_CONTEXT_V1` system message with deterministic JSON. That block is
@@ -453,18 +470,61 @@ interactive `python -m runtime.serve` path.
 AmitAI keeps complete conversation history in the local database, but the model does not
 automatically receive that unlimited history. Before either a local or remote provider runs, one
 deterministic compiler selects at most the 20 newest complete prior messages and at most 20,000
-characters of prior-message content. The current user request remains intact outside that budget;
+characters of prior-message content, after applying the provider-safe projection. The current
+user turn remains outside that budget; ordinary text is preserved intact, while remote memory
+commands use the generic projection described below. Local raw requests remain intact;
 dropped history is neither truncated nor summarized, and local persisted history is unchanged.
 
 Structured memory retrieval remains relevance-based and capped at 8 records and 4,000 characters.
 Rich memory records stay in the local control plane for persistence and auditing, while the model
-receives only each selected memory's `category`, `key`, and `value`. Memory IDs, source
+receives only each permitted selected memory's `category`, `key`, and `value`. Memory IDs, source
 conversation/message IDs, timestamps, revision details, status, and persistence operations are
-not included in the retrieved-memory prompt.
+not included in the retrieved-memory prompt. Sensitivity is not model-visible either.
+
+#### Remote inference disclosure policy
+
+Providers explicitly declare a typed local/remote execution scope; absent or invalid scope fails
+closed, and provider names never determine trust. Local Transformers keeps relevant local-only
+and remote-allowed memory. Remote inference receives only `remote_allowed` records from the
+existing relevance-selected set, with no replacement retrieval after filtering. An all-local set
+produces no remote memory block, key list, count, or placeholder.
+
+Explicit current remember/update/forget commands are processed locally. Remote inference gets
+only a deterministic generic operation/status acknowledgment request, never the command's raw
+category, key, value, or identifiers. Detected but unapplied commands get a generic not-applied
+request. Remote command acknowledgments receive neither the secondary memory-command system
+block nor retrieved memories (including previously opted-in targets). Historical memory commands
+and their immediately paired assistant acknowledgments are projected to generic text before
+history budgeting; stored history and the conversation API remain untouched.
+
+Constraint validation still evaluates the original local request. Mechanical retry prompts use
+the selected provider-safe current request, so retries cannot restore raw memory commands. The
+same compilation applies to sync/stream generation and tool-loop base context; bounded current
+tool messages are appended locally, never reloading dropped history.
+
+Immediately before **every** remote HTTP request, including retries and tool follow-ups, the
+client scans the exact outgoing JSON body and decoded fields with the shared memory credential
+heuristic. It covers labeled passwords/passcodes, API keys, access/refresh/auth tokens, client
+secrets, PEM private-key markers, JWT-shaped strings, and explicit `Authorization: Bearer ...`
+values. The configured remote bearer token is also blocked anywhere in the body, including
+JSON-escaped strings and generation configuration; its authentication header remains permitted.
+No environment scanning, matched-text logging, silent redaction, or local-model fallback occurs.
+
+A block sends no HTTP request for that invocation and returns only
+`Remote inference blocked by local privacy policy`: HTTP 422 on `/api/chat`, or a terminal SSE
+`error` without successful `final`/`done` on `/api/chat/stream`. No conversation turn or staged
+memory mutation is committed. An earlier safe invocation may already have run before a later
+retry/tool follow-up is blocked. This is an input guard, not output DLP.
+
+This is deliberately a heuristic, not a guarantee that every arbitrary secret is detected.
+Ordinary noncredential text (including names and other PII) still goes to remote inference.
+Benign discussions of API key rotation, password hashing, Authorization, and JWTs are not blocked.
+It does not protect against same-user malware or browser extensions, add TLS pinning/mTLS/TEE,
+or hide plaintext from a remote GPU operator. Unlocked local process memory is still plaintext.
 
 This minimization reduces disclosure to remote inference; it does not make the provider blind or
 provide zero-knowledge inference. The current request, retained recent history, selected memory
-values, tool-loop context, and any other text intentionally compiled into the model prompt are
+values explicitly allowed by policy, tool-loop context, and any other text intentionally compiled into the model prompt are
 plaintext to the inference provider while it executes.
 
 #### Encrypted local storage
@@ -701,6 +761,11 @@ lists active structured memories, supports API-backed search and category filter
 edits explicit entries, confirms value-redacting forget operations, and can inspect safe forgotten
 tombstones. Memory values come only from `/api/memory`; chat bubbles and developer metadata keep
 using the reference-only memory contract.
+Active cards show **Local only** or **Remote allowed**. In **New memory** or **Edit**, the
+**Inference access** selector controls disclosure; new entries default to Local only and require
+an explicit selection to allow remote use. Policy-only edits send only sensitivity in the PATCH
+body. Value-only edits preserve the policy, edits refetch the current search/filter, and no memory
+values or sensitivity settings are saved in browser storage.
 
 ## Run the base-model evaluation
 

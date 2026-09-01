@@ -5,6 +5,7 @@ from runtime.context import (
     MAX_HISTORY_MESSAGES,
     compile_model_messages,
 )
+from runtime.privacy import InferenceExecutionScope
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ def _compile(messages: list[Message]) -> list[dict[str, str]]:
         messages,
         runtime_system_prompt="Runtime rules",
         tool_instructions="Tool rules",
+        execution_scope=InferenceExecutionScope.LOCAL,
     )
 
 

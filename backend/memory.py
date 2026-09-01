@@ -15,12 +15,14 @@ from sqlalchemy.orm import Session
 
 from .models import MemoryRevision, MemorySlot, Message, new_uuid, utc_now
 from .repositories import MemoryRepository
+from .secret_detection import contains_credential_like_text
 
 LOCAL_MEMORY_OWNER_ID = "local-default"
 MEMORY_CATEGORIES = frozenset(
     {"preference", "profile", "project", "workflow", "instruction"}
 )
 MEMORY_STATUSES = frozenset({"active", "deleted"})
+MemorySensitivity = Literal["local_only", "remote_allowed"]
 MAX_MEMORY_KEY_CHARS = 128
 MAX_MEMORY_VALUE_CHARS = 1_000
 MAX_RETRIEVED_MEMORIES = 8
@@ -41,15 +43,6 @@ _FORGET_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _COMMAND_LEADS = ("remember", "update", "forget")
-_SECRET_PATTERNS = (
-    re.compile(
-        r"\b(?:password|passcode|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|"
-        r"auth[_ -]?token|client[_ -]?secret)\b\s*[:=]\s*\S+",
-        re.IGNORECASE,
-    ),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
-)
 _STOPWORDS = frozenset(
     {
         "a",
@@ -127,6 +120,13 @@ class StagedMemoryMutation:
     value: str | None
     expected_revision: int | None
     expected_status: str | None
+    sensitivity: MemorySensitivity = "local_only"
+
+
+def validate_memory_sensitivity(value: str) -> MemorySensitivity:
+    if value not in ("local_only", "remote_allowed"):
+        raise MemoryValidationError("Memory sensitivity is invalid")
+    return cast(MemorySensitivity, value)
 
 
 def normalize_memory_key(value: str) -> str:
@@ -151,7 +151,7 @@ def validate_memory_value(value: str) -> str:
     normalized = " ".join(unicodedata.normalize("NFKC", value).split())
     if not normalized or len(normalized) > MAX_MEMORY_VALUE_CHARS:
         raise MemoryValidationError("Memory value is invalid")
-    if any(pattern.search(normalized) for pattern in _SECRET_PATTERNS):
+    if contains_credential_like_text(normalized):
         raise MemoryValidationError("Sensitive credentials cannot be stored in memory")
     return normalized
 
@@ -244,6 +244,7 @@ def _memory_record(
         "category": memory.category,
         "key": memory.key,
         "status": memory.status,
+        "sensitivity": memory.sensitivity,
         "source": _source_record(revision),
         "updated_at": memory.updated_at.isoformat(),
     }
@@ -407,6 +408,10 @@ class MemoryService:
                 value=command.value,
                 expected_revision=memory.current_revision,
                 expected_status=memory.status,
+                sensitivity=(
+                    validate_memory_sensitivity(memory.sensitivity)
+                    if memory.status == "active" else "local_only"
+                ),
             )
         if memory is None or memory.status != "active":
             return None
@@ -419,6 +424,7 @@ class MemoryService:
             value=command.value,
             expected_revision=memory.current_revision,
             expected_status="active",
+            sensitivity=validate_memory_sensitivity(memory.sensitivity),
         )
 
     def stage_create(
@@ -427,10 +433,12 @@ class MemoryService:
         category: str,
         key: str,
         value: str,
+        sensitivity: MemorySensitivity = "local_only",
     ) -> StagedMemoryMutation:
         category = validate_memory_category(category)
         key = normalize_memory_key(key)
         value = validate_memory_value(value)
+        sensitivity = validate_memory_sensitivity(sensitivity)
         memory = self.repository.get_slot_by_key(
             owner_id=self.owner_id,
             category=category,
@@ -447,15 +455,32 @@ class MemoryService:
             value=value,
             expected_revision=memory.current_revision if memory is not None else None,
             expected_status=memory.status if memory is not None else None,
+            sensitivity=sensitivity,
         )
 
-    def stage_update(self, memory_id: str, *, value: str) -> StagedMemoryMutation:
-        value = validate_memory_value(value)
+    def stage_update(
+        self,
+        memory_id: str,
+        *,
+        value: str | None = None,
+        sensitivity: MemorySensitivity | None = None,
+    ) -> StagedMemoryMutation:
+        if value is None and sensitivity is None:
+            raise MemoryValidationError("Memory update must contain a change")
+        if value is not None:
+            value = validate_memory_value(value)
+        if sensitivity is not None:
+            sensitivity = validate_memory_sensitivity(sensitivity)
         memory = self.repository.get_slot(memory_id)
         if memory is None or memory.owner_id != self.owner_id:
             raise MemoryNotFoundError("Memory not found")
         if memory.status != "active":
             raise MemoryConflictError("Deleted memory cannot be updated")
+        if value is None:
+            revision = self.repository.get_current_revision(memory)
+            if revision is None or revision.value is None:
+                raise MemoryConflictError("Memory changed concurrently")
+            value = revision.value
         return StagedMemoryMutation(
             operation="updated",
             memory_id=memory.id,
@@ -465,6 +490,10 @@ class MemoryService:
             value=value,
             expected_revision=memory.current_revision,
             expected_status="active",
+            sensitivity=(
+                sensitivity if sensitivity is not None
+                else validate_memory_sensitivity(memory.sensitivity)
+            ),
         )
 
     def stage_delete(self, memory_id: str) -> StagedMemoryMutation:
@@ -482,6 +511,7 @@ class MemoryService:
             value=None,
             expected_revision=memory.current_revision,
             expected_status="active",
+            sensitivity=validate_memory_sensitivity(memory.sensitivity),
         )
 
     def apply(
@@ -504,6 +534,7 @@ class MemoryService:
                 category=mutation.category,
                 key=mutation.key,
                 status="active",
+                sensitivity=mutation.sensitivity,
                 current_revision=1,
                 created_at=timestamp,
                 updated_at=timestamp,
@@ -536,6 +567,7 @@ class MemoryService:
             .values(
                 status="deleted" if mutation.operation == "deleted" else "active",
                 current_revision=next_revision,
+                sensitivity=mutation.sensitivity,
                 updated_at=timestamp,
                 deleted_at=timestamp if mutation.operation == "deleted" else None,
             )

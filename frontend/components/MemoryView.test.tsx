@@ -54,6 +54,7 @@ function memory(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     category: "preference",
     key: "ui.theme",
     value: "dark",
+    sensitivity: "local_only",
     status: "active",
     source: { conversation_id: null, message_id: null },
     updated_at: "2026-08-30T10:00:00Z",
@@ -141,6 +142,7 @@ test("lists active memories with category, key, value, and timestamp", async () 
   assert.match(container.textContent ?? "", /ui\.theme/);
   assert.match(container.textContent ?? "", /dark/);
   assert.match(container.textContent ?? "", /Updated/);
+  assert.match(container.textContent ?? "", /Local only/);
 });
 
 test("shows the active-memory empty state", async () => {
@@ -173,9 +175,9 @@ test("search and category filtering refetch with the correct query", async () =>
 });
 
 test("edits a memory and refetches without changing the current filter", async () => {
-  const updated = memory({ value: "light" });
+  const updated = memory({ value: "light", sensitivity: "remote_allowed" });
   const calls = mockFetch([
-    jsonResponse([memory()]),
+    jsonResponse([memory({ sensitivity: "remote_allowed" })]),
     jsonResponse(updated),
     jsonResponse([updated]),
   ]);
@@ -191,6 +193,66 @@ test("edits a memory and refetches without changing the current filter", async (
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { value: "light" });
   assert.equal(calls[2].input, "/api/memory");
   assert.match(container.textContent ?? "", /light/);
+  assert.match(container.textContent ?? "", /Remote allowed/);
+});
+
+for (const sensitivity of ["local_only", "remote_allowed"] as const) {
+  test(`create defaults local-only and requires an explicit action for ${sensitivity}`, async () => {
+    const created = memory({ sensitivity });
+    const calls = mockFetch([jsonResponse([]), jsonResponse(created, 201), jsonResponse([created])]);
+    await render(<MemoryView />);
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "New memory")!);
+    const dialog = container.querySelector('[role="dialog"]')!;
+    const policy = dialog.querySelectorAll("select")[1];
+    assert.equal(policy.value, "local_only");
+    await setControlValue(dialog.querySelector("input")!, "ui.theme");
+    await setControlValue(dialog.querySelector("textarea")!, "dark");
+    if (sensitivity === "remote_allowed") await setControlValue(policy, sensitivity);
+    await submit(dialog.querySelector("form")!);
+    assert.deepEqual(JSON.parse(String(calls[1].init?.body)), {
+      category: "preference", key: "ui.theme", value: "dark", sensitivity,
+    });
+    assert.equal(calls[1].input, "/api/memory");
+    assert.equal(calls[1].init?.method, "POST");
+    assert.equal(calls[2].input, "/api/memory");
+    assert.equal(dom.window.localStorage.length, 0);
+  });
+}
+
+test("sensitivity-only edit sends no value and preserves the search on refetch", async () => {
+  const updated = memory({ sensitivity: "remote_allowed" });
+  const calls = mockFetch([
+    jsonResponse([memory()]), jsonResponse([memory()]), jsonResponse(updated), jsonResponse([updated]),
+  ]);
+  await render(<MemoryView />);
+  await setControlValue(container.querySelector('input[placeholder="Search memories"]')!, "theme");
+  await submit(container.querySelector('form[role="search"]')!);
+  await click(container.querySelector('button[aria-label="Edit ui.theme"]')!);
+  const dialog = container.querySelector('[role="dialog"]')!;
+  assert.equal((dialog.querySelector('button[type="submit"]') as HTMLButtonElement).disabled, true);
+  await setControlValue(dialog.querySelectorAll("select")[1], "remote_allowed");
+  await submit(dialog.querySelector("form")!);
+  assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { sensitivity: "remote_allowed" });
+  assert.equal(calls[2].input, "/api/memory/memory-1");
+  assert.equal(calls[3].input, "/api/memory/search");
+  assert.deepEqual(JSON.parse(String(calls[3].init?.body)), { query: "theme" });
+  assert.match(container.textContent ?? "", /Remote allowed/);
+  assert.equal(dom.window.localStorage.length, 0);
+});
+
+test("combined value/policy edits send both fields and policy conflicts stay in the editor", async () => {
+  const calls = mockFetch([
+    jsonResponse([memory()]), jsonResponse({ detail: "Memory changed concurrently" }, 409),
+  ]);
+  await render(<MemoryView />);
+  await click(container.querySelector('button[aria-label="Edit ui.theme"]')!);
+  const dialog = container.querySelector('[role="dialog"]')!;
+  await setControlValue(dialog.querySelectorAll("select")[1], "remote_allowed");
+  await setControlValue(dialog.querySelector("textarea")!, "light");
+  await submit(dialog.querySelector("form")!);
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { value: "light", sensitivity: "remote_allowed" });
+  assert.match(container.textContent ?? "", /changed elsewhere/);
+  assert.equal(dialog.querySelectorAll("select")[1].value, "remote_allowed");
 });
 
 test("forget requires confirmation and refetches after deletion", async () => {

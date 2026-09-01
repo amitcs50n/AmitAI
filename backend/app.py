@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .chat_service import (
     ChatGenerationError,
+    ChatPrivacyError,
     ChatService,
     ChatStreamEvent,
     ConversationNotFoundError,
@@ -219,6 +220,8 @@ def create_app(
             )
         except ConversationNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Conversation not found") from exc
+        except ChatPrivacyError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
         except ChatGenerationError as exc:
             raise HTTPException(status_code=500, detail="Assistant generation failed") from exc
         except MemoryConflictError as exc:
@@ -283,6 +286,11 @@ def create_app(
                             event="error",
                             data={"detail": "Conversation not found"},
                         ),
+                        force=True,
+                    )
+                except ChatPrivacyError as exc:
+                    publish(
+                        ChatStreamEvent(event="error", data={"detail": str(exc)}),
                         force=True,
                     )
                 except ChatGenerationError:
@@ -396,6 +404,7 @@ def create_app(
                     category=payload.category,
                     key=payload.key,
                     value=payload.value,
+                    sensitivity=payload.sensitivity,
                 )
                 record = service.apply(mutation)
         except MemoryConflictError as exc:
@@ -412,7 +421,9 @@ def create_app(
         service = MemoryService(session, owner_id=memory_owner_id)
         try:
             with session.begin():
-                mutation = service.stage_update(memory_id, value=payload.value)
+                mutation = service.stage_update(
+                    memory_id, value=payload.value, sensitivity=payload.sensitivity
+                )
                 record = service.apply(mutation)
         except MemoryNotFoundError as exc:
             session.rollback()

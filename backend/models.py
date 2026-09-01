@@ -122,6 +122,10 @@ class MemorySlot(Base):
     __tablename__ = "memory_slots"
     __table_args__ = (
         CheckConstraint(
+            "sensitivity IN ('local_only', 'remote_allowed')",
+            name="ck_memory_slots_valid_sensitivity",
+        ),
+        CheckConstraint(
             "status IN ('active', 'deleted')",
             name="ck_memory_slots_valid_status",
         ),
@@ -150,6 +154,9 @@ class MemorySlot(Base):
     key: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     current_revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    sensitivity: Mapped[str] = mapped_column(
+        String(16), default="local_only", server_default="local_only", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

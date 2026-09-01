@@ -20,16 +20,24 @@ from .memory import (
     memory_metadata_reference,
     parse_memory_command,
 )
-from .models import utc_now
+from .models import Message, utc_now
 from .repositories import ConversationRepository, MessageRepository
 
 MOCK_RESPONSE = "This is a mocked AmitAI response."
 
 
 @dataclass(frozen=True)
+class RemoteProjection:
+    """Request-local replacement; content=None omits the message remotely."""
+
+    content: str | None
+
+
+@dataclass(frozen=True)
 class GenerationMessage:
     role: str
     content: str
+    remote_projection: RemoteProjection | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +92,11 @@ class ChatGenerationError(RuntimeError):
     pass
 
 
+class ChatPrivacyError(ChatGenerationError):
+    def __init__(self) -> None:
+        super().__init__("Remote inference blocked by local privacy policy")
+
+
 @dataclass(frozen=True)
 class ChatResult:
     conversation_id: str
@@ -122,6 +135,37 @@ def _timestamp_after(previous: datetime | None) -> datetime:
     if previous is not None and timestamp <= previous:
         return previous + timedelta(microseconds=1)
     return timestamp
+
+
+def _command_projection(decision: MemoryCommandDecision) -> RemoteProjection | None:
+    if not decision.intent_detected:
+        return None
+    if decision.command is None:
+        return RemoteProjection("The local memory command was not applied. Acknowledge briefly.")
+    return RemoteProjection(
+        f"A local memory {decision.command.operation} operation is staged. "
+        "Acknowledge briefly; it becomes durable only if this chat succeeds."
+    )
+
+
+def _history_context(history: Sequence[Message]) -> list[GenerationMessage]:
+    """Protect legacy commands and their paired acknowledgments without rewriting storage."""
+
+    result: list[GenerationMessage] = []
+    previous_was_command = False
+    for message in history:
+        projection = None
+        if message.role == "user":
+            decision = parse_memory_command(message.content)
+            previous_was_command = decision.intent_detected
+            if previous_was_command:
+                projection = RemoteProjection("A local memory command was requested.")
+        else:
+            if message.role == "assistant" and previous_was_command:
+                projection = RemoteProjection("The local memory command was acknowledged.")
+            previous_was_command = False
+        result.append(GenerationMessage(message.role, message.content, projection))
+    return result
 
 
 class ChatService:
@@ -249,10 +293,7 @@ class ChatService:
                 previous_timestamp = (
                     history[-1].created_at if history else conversation.created_at
                 )
-                history_messages = [
-                    GenerationMessage(role=item.role, content=item.content)
-                    for item in history
-                ]
+                history_messages = _history_context(history)
                 title = ""
 
             decision = parse_memory_command(message)
@@ -275,19 +316,33 @@ class ChatService:
         user_created_at = _timestamp_after(previous_timestamp)
         generation_messages: list[GenerationMessage] = []
         if retrieved_memory:
+            # Filter only the already-selected bounded records. Command acknowledgments
+            # need no remote memory context, even if the target was previously opted in.
+            remote_memory = [
+                record for record in retrieved_memory
+                if record["sensitivity"] == "remote_allowed" and not decision.intent_detected
+            ]
             generation_messages.append(
                 GenerationMessage(
                     role="system",
                     content=format_memory_context(retrieved_memory),
+                    remote_projection=RemoteProjection(
+                        format_memory_context(remote_memory) if remote_memory else None
+                    ),
                 )
             )
         command_context = format_memory_command_context(decision)
         if command_context is not None:
             generation_messages.append(
-                GenerationMessage(role="system", content=command_context)
+                GenerationMessage(
+                    role="system", content=command_context,
+                    remote_projection=RemoteProjection(None),
+                )
             )
         generation_messages.extend(history_messages)
-        generation_messages.append(GenerationMessage(role="user", content=message))
+        generation_messages.append(GenerationMessage(
+            role="user", content=message, remote_projection=_command_projection(decision)
+        ))
         return _PreparedChat(
             conversation_id=conversation_id,
             message=message,
@@ -394,6 +449,8 @@ class ChatService:
             )
             try:
                 generation = self._generate(prepared.generation_messages)
+            except ChatPrivacyError:
+                raise
             except Exception as exc:
                 raise ChatGenerationError("Assistant generation failed") from exc
             return self._persist_chat(prepared, generation)
@@ -436,6 +493,8 @@ class ChatService:
                         yield ChatStreamEvent(event="text", data={"delta": item.delta})
                     else:
                         generation = item
+            except ChatPrivacyError:
+                raise
             except Exception as exc:
                 raise ChatGenerationError("Assistant generation failed") from exc
 

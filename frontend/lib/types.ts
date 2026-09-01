@@ -12,6 +12,7 @@ export const MEMORY_CATEGORIES = [
 
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
 export type MemoryStatus = "active" | "deleted";
+export type MemorySensitivity = "local_only" | "remote_allowed";
 export type MemoryOperation = "current" | "retrieved" | "stored" | "updated" | "deleted";
 
 export interface MemorySource {
@@ -25,6 +26,7 @@ export interface MemoryRecord {
   category: MemoryCategory;
   key: string;
   value: string | null;
+  sensitivity: MemorySensitivity;
   status: MemoryStatus;
   source: MemorySource;
   updated_at: string;
@@ -44,10 +46,12 @@ export interface MemoryCreateInput {
   category: MemoryCategory;
   key: string;
   value: string;
+  sensitivity?: MemorySensitivity;
 }
 
 export interface MemoryUpdateInput {
-  value: string;
+  value?: string;
+  sensitivity?: MemorySensitivity;
 }
 
 export interface MemoryListOptions {

@@ -16,11 +16,13 @@ from runtime.config import (
 )
 from runtime.generator import ProviderChatGenerator
 from runtime.inference_app import create_inference_app
+from runtime.privacy import InferenceExecutionScope
 from runtime.providers import InferenceProviderError, RemoteInferenceProvider
 from tests.app_factory import create_test_runtime_app as create_runtime_app
 
 
 class RecordingProvider:
+    execution_scope = InferenceExecutionScope.REMOTE
     provider_name = "recording"
     model_name = EXPECTED_MODEL_NAME
 
@@ -360,6 +362,7 @@ def test_remote_chat_keeps_conversation_and_memory_persistence_local(
                 "category": "project",
                 "key": "project.name",
                 "value": "AmitAI",
+                "sensitivity": "remote_allowed",
             },
         )
         response = client.post(

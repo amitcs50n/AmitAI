@@ -16,6 +16,7 @@ const memory: MemoryRecord = {
   category: "preference",
   key: "ui.theme",
   value: "dark",
+  sensitivity: "local_only",
   status: "active",
   source: { conversation_id: null, message_id: null },
   updated_at: "2026-08-30T10:00:00Z",
@@ -70,6 +71,7 @@ test("memory mutation client uses typed JSON routes and encoded ids", async () =
     await createMemory({ category: "preference", key: "ui.theme", value: "dark" });
     await updateMemory("memory/one", { value: "light" });
     await deleteMemory("memory/one");
+    await updateMemory("memory/one", { sensitivity: "remote_allowed" });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -86,6 +88,10 @@ test("memory mutation client uses typed JSON routes and encoded ids", async () =
   assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { value: "light" });
   assert.equal(requests[2].input, "/api/memory/memory%2Fone");
   assert.equal(requests[2].init?.method, "DELETE");
+  assert.equal(requests[3].input, "/api/memory/memory%2Fone");
+  assert.equal(requests[3].init?.method, "PATCH");
+  assert.deepEqual(JSON.parse(String(requests[3].init?.body)), { sensitivity: "remote_allowed" });
+  assert.ok(requests.every(({ input }) => !input.includes("remote_allowed")));
 });
 
 test("memory client preserves 409 and 422 ApiError details", async () => {

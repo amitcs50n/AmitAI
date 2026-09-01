@@ -14,7 +14,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -757,4 +757,16 @@ class Database:
         # Importing registers all mapped classes on Base.metadata.
         from . import models as _models  # noqa: F401
 
-        Base.metadata.create_all(self.engine)
+        with self.engine.begin() as connection:
+            # Serialize SQLite/SQLCipher startup upgrades, including concurrent launches.
+            # Explicit BEGIN also makes DDL transactional on legacy sqlite3 drivers.
+            if self.engine.dialect.name == "sqlite":
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            Base.metadata.create_all(connection)
+            columns = inspect(connection).get_columns("memory_slots")
+            if not any(column["name"] == "sensitivity" for column in columns):
+                connection.exec_driver_sql(
+                    "ALTER TABLE memory_slots ADD COLUMN sensitivity VARCHAR(16) "
+                    "NOT NULL DEFAULT 'local_only' "
+                    "CHECK (sensitivity IN ('local_only', 'remote_allowed'))"
+                )

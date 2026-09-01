@@ -107,6 +107,7 @@ def test_memory_api_revision_tombstone_redaction_and_reactivation(
                 "category": "preference",
                 "key": "ui.theme",
                 "value": None,
+                "sensitivity": "local_only",
                 "status": "deleted",
                 "source": tombstones[0]["source"],
                 "updated_at": tombstones[0]["updated_at"],
@@ -187,7 +188,8 @@ def test_memory_search_post_preserves_relevance_shape_limits_and_storage(
         assert "PRIVATE_CANARY" not in response.text
         assert "FORGOTTEN_CANARY" not in response.text
         assert set(response.json()[0]) == {
-            "id", "operation", "category", "key", "value", "status", "source", "updated_at"
+            "id", "operation", "category", "key", "value", "status", "source", "updated_at",
+            "sensitivity",
         }
         assert response.json()[0]["operation"] == "retrieved"
         assert client.post("/api/memory/search", json={"query": "zzzznomatch"}).json() == []

@@ -17,6 +17,8 @@ import httpx
 
 from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 
+from .privacy import InferenceExecutionScope, guarded_request_body
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class InferenceProvider(Protocol):
 
     provider_name: str
     model_name: str
+    execution_scope: InferenceExecutionScope
 
     def generate(
         self,
@@ -60,6 +63,7 @@ class LocalTransformersInferenceProvider:
     """Lazy, single-instance, serialized local Hugging Face inference provider."""
 
     provider_name = "local-transformers"
+    execution_scope = InferenceExecutionScope.LOCAL
 
     def __init__(
         self,
@@ -202,6 +206,7 @@ class RemoteInferenceProvider:
     """Authenticated client for the stateless AmitAI inference service."""
 
     provider_name = "remote"
+    execution_scope = InferenceExecutionScope.REMOTE
 
     def __init__(
         self,
@@ -219,7 +224,11 @@ class RemoteInferenceProvider:
             raise ValueError("Remote inference timeout must be positive")
         self.endpoint = _validate_remote_url(endpoint)
         self.model_name = model_name
-        self._headers = {"Authorization": f"Bearer {normalized_token}"}
+        self._transport_token = normalized_token
+        self._headers = {
+            "Authorization": f"Bearer {normalized_token}",
+            "Content-Type": "application/json",
+        }
         self._client = httpx.Client(
             timeout=httpx.Timeout(timeout_seconds),
             transport=transport,
@@ -273,10 +282,14 @@ class RemoteInferenceProvider:
         request_id = str(uuid4())
         started_at = time.perf_counter()
         try:
+            body = guarded_request_body(
+                self._request_payload(request_id, messages, generation_config),
+                transport_token=self._transport_token,
+            )
             response = self._client.post(
                 f"{self.endpoint}/v1/generate",
                 headers=self._headers,
-                json=self._request_payload(request_id, messages, generation_config),
+                content=body,
             )
             if response.status_code != 200:
                 self._log_failure(request_id, f"http_{response.status_code}")
@@ -326,11 +339,15 @@ class RemoteInferenceProvider:
             return name, data
 
         try:
+            body = guarded_request_body(
+                self._request_payload(request_id, messages, generation_config),
+                transport_token=self._transport_token,
+            )
             with self._client.stream(
                 "POST",
                 f"{self.endpoint}/v1/generate/stream",
                 headers=self._headers,
-                json=self._request_payload(request_id, messages, generation_config),
+                content=body,
             ) as response:
                 if response.status_code != 200:
                     self._log_failure(request_id, f"http_{response.status_code}")

@@ -10,7 +10,7 @@ import {
   listMemories,
   updateMemory,
 } from "@/lib/api";
-import type { MemoryCategory, MemoryRecord, MemoryStatus } from "@/lib/types";
+import type { MemoryCategory, MemoryRecord, MemorySensitivity, MemoryStatus, MemoryUpdateInput } from "@/lib/types";
 import { MEMORY_CATEGORIES } from "@/lib/types";
 
 type CategoryFilter = MemoryCategory | "all";
@@ -40,7 +40,7 @@ interface MemoryEditorDialogProps {
   error: string | null;
   saving: boolean;
   onCancel: () => void;
-  onSave: (input: { category: MemoryCategory; key: string; value: string }) => void;
+  onSave: (input: { category: MemoryCategory; key: string; value: string; sensitivity: MemorySensitivity }) => void;
 }
 
 function MemoryEditorDialog({
@@ -55,14 +55,16 @@ function MemoryEditorDialog({
   );
   const [key, setKey] = useState(memory?.key ?? "");
   const [value, setValue] = useState(memory?.value ?? "");
+  const [sensitivity, setSensitivity] = useState<MemorySensitivity>(memory?.sensitivity ?? "local_only");
   const editing = memory !== null;
+  const unchanged = editing && value.trim() === memory.value && sensitivity === memory.sensitivity;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const normalizedKey = key.trim();
     const normalizedValue = value.trim();
-    if (!normalizedKey || !normalizedValue || saving) return;
-    onSave({ category, key: normalizedKey, value: normalizedValue });
+    if (!normalizedKey || !normalizedValue || saving || unchanged) return;
+    onSave({ category, key: normalizedKey, value: normalizedValue, sensitivity });
   }
 
   return (
@@ -139,6 +141,22 @@ function MemoryEditorDialog({
             />
           </label>
 
+          <label className="block text-xs uppercase tracking-[0.15em] text-[#9a9189]">
+            Inference access
+            <select
+              className="mt-2 h-11 w-full rounded-xl border border-[#765038]/65 bg-[#0d0e0e] px-3 text-sm text-[#eee8e1] outline-none focus:border-[#bd8254]"
+              disabled={saving}
+              onChange={(event) => setSensitivity(event.target.value as MemorySensitivity)}
+              value={sensitivity}
+            >
+              <option value="local_only">Local only</option>
+              <option value="remote_allowed">Remote allowed</option>
+            </select>
+          </label>
+          <p className="text-xs leading-5 text-[#8c857f]">
+            Remote allowed lets a remote inference provider read this memory when relevant.
+          </p>
+
           {error ? (
             <p aria-live="polite" className="rounded-lg border border-[#754735]/60 bg-[#241813] px-3 py-2 text-sm text-[#dda08d]">
               {error}
@@ -156,7 +174,7 @@ function MemoryEditorDialog({
             </button>
             <button
               className="rounded-lg bg-[#a87349] px-4 py-2 text-sm font-medium text-[#0c0b0a] hover:bg-[#bd8558] disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e4b487]"
-              disabled={saving || !key.trim() || !value.trim()}
+              disabled={saving || !key.trim() || !value.trim() || unchanged}
               type="submit"
             >
               {saving ? "Saving…" : editing ? "Save changes" : "Create memory"}
@@ -291,6 +309,7 @@ export function MemoryView() {
     category: MemoryCategory;
     key: string;
     value: string;
+    sensitivity: MemorySensitivity;
   }) {
     if (mutationPending) return;
     setMutationPending(true);
@@ -299,7 +318,11 @@ export function MemoryView() {
       if (editing === "create") {
         await createMemory(input);
       } else if (editing) {
-        await updateMemory(editing.id, { value: input.value });
+        const changes: MemoryUpdateInput = {};
+        if (input.value !== editing.value) changes.value = input.value;
+        if (input.sensitivity !== editing.sensitivity) changes.sensitivity = input.sensitivity;
+        if (Object.keys(changes).length === 0) return;
+        await updateMemory(editing.id, changes);
       } else {
         return;
       }
@@ -472,6 +495,11 @@ export function MemoryView() {
                       <span className={`text-[0.68rem] uppercase tracking-[0.13em] ${memory.status === "deleted" ? "text-[#9a7469]" : "text-[#7f8d79]"}`}>
                         {memory.status === "deleted" ? "Forgotten" : "Active"}
                       </span>
+                      {memory.status === "active" ? (
+                        <span className="text-[0.68rem] text-[#b69c86]">
+                          {memory.sensitivity === "remote_allowed" ? "Remote allowed" : "Local only"}
+                        </span>
+                      ) : null}
                     </div>
                     <h3 className="mt-3 break-all font-mono text-sm text-[#e9e2db]">{memory.key}</h3>
                   </div>

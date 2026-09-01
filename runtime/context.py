@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Protocol
+
+from backend.chat_service import RemoteProjection
+
+from .privacy import InferenceExecutionScope
 
 MAX_HISTORY_MESSAGES = 20
 MAX_HISTORY_CONTEXT_CHARS = 20_000
@@ -17,6 +22,28 @@ _TRUSTED_CONTEXT_PREFIXES = (
 class ContextMessage(Protocol):
     role: str
     content: str
+
+
+@dataclass(frozen=True)
+class _ProjectedMessage:
+    role: str
+    content: str
+
+
+def _project(
+    messages: Sequence[ContextMessage], scope: InferenceExecutionScope
+) -> list[ContextMessage]:
+    projected: list[ContextMessage] = []
+    for message in messages:
+        projection = getattr(message, "remote_projection", None)
+        if scope is InferenceExecutionScope.REMOTE and projection is not None:
+            if not isinstance(projection, RemoteProjection):
+                raise TypeError("Invalid remote context projection")
+            if projection.content is not None:
+                projected.append(_ProjectedMessage(message.role, projection.content))
+        else:
+            projected.append(message)
+    return projected
 
 
 def _is_trusted_runtime_context(message: ContextMessage) -> bool:
@@ -50,9 +77,12 @@ def compile_model_messages(
     *,
     runtime_system_prompt: str,
     tool_instructions: str,
+    execution_scope: InferenceExecutionScope,
 ) -> list[dict[str, str]]:
     """Compile the minimum deterministic context shared by every provider."""
 
+    if not isinstance(execution_scope, InferenceExecutionScope):
+        raise TypeError("Invalid inference execution scope")
     if not messages or messages[-1].role != "user":
         raise ValueError("Runtime chat messages must end with the current user turn")
 
@@ -67,8 +97,14 @@ def compile_model_messages(
     else:
         history_start = len(prior_messages)
 
-    recent_history = _select_recent_history(prior_messages[history_start:])
-    current_user = messages[-1]
+    trusted_context = _project(trusted_context, execution_scope)
+    recent_history = _select_recent_history(
+        _project(prior_messages[history_start:], execution_scope)
+    )
+    projected_current = _project(messages[-1:], execution_scope)
+    if not projected_current:
+        raise ValueError("Current user context must not be omitted")
+    current_user = projected_current[0]
     return [
         {
             "role": "system",

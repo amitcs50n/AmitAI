@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .memory import (
     MAX_MEMORY_KEY_CHARS,
     MAX_MEMORY_VALUE_CHARS,
+    MemorySensitivity,
     normalize_memory_key,
     validate_memory_category,
     validate_memory_value,
@@ -138,6 +139,7 @@ class MemoryCreate(BaseModel):
     category: str = Field(max_length=32)
     key: str = Field(max_length=MAX_MEMORY_KEY_CHARS)
     value: str = Field(max_length=MAX_MEMORY_VALUE_CHARS)
+    sensitivity: MemorySensitivity = "local_only"
 
     @field_validator("category")
     @classmethod
@@ -169,7 +171,15 @@ class MemorySearch(BaseModel):
 class MemoryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    value: str = Field(max_length=MAX_MEMORY_VALUE_CHARS)
+    value: str | None = Field(default=None, max_length=MAX_MEMORY_VALUE_CHARS)
+    sensitivity: MemorySensitivity | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_changes(cls, data: Any) -> Any:
+        if isinstance(data, dict) and (not data or any(value is None for value in data.values())):
+            raise ValueError("Memory update must contain non-null changes")
+        return data
 
     @field_validator("value")
     @classmethod
@@ -188,6 +198,7 @@ class MemoryRead(BaseModel):
     category: str
     key: str
     value: str | None = None
+    sensitivity: MemorySensitivity
     status: str
     source: MemorySourceRead
     updated_at: datetime
