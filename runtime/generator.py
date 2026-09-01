@@ -23,6 +23,7 @@ from evaluation.hf_backend import GenerationOutput
 
 from .calculator import CalculatorTool
 from .config import RuntimeConfig
+from .context import compile_model_messages
 from .providers import (
     EngineFactory,
     InferenceProvider,
@@ -403,16 +404,11 @@ class ProviderChatGenerator:
         self,
         messages: Sequence[GenerationMessage],
     ) -> list[dict[str, str]]:
-        return [
-            {
-                "role": "system",
-                "content": (
-                    f"{self.config.runtime_system_prompt}\n\n"
-                    f"{self._tool_registry.instructions()}"
-                ),
-            },
-            *[{"role": item.role, "content": item.content} for item in messages],
-        ]
+        return compile_model_messages(
+            messages,
+            runtime_system_prompt=self.config.runtime_system_prompt,
+            tool_instructions=self._tool_registry.instructions(),
+        )
 
     @staticmethod
     def _validator_metadata(validation: dict[str, Any]) -> dict[str, Any]:

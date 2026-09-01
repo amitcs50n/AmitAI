@@ -268,8 +268,16 @@ def memory_metadata_reference(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_memory_context(records: list[dict[str, Any]]) -> str:
+    model_items = [
+        {
+            "category": record["category"],
+            "key": record["key"],
+            "value": record["value"],
+        }
+        for record in records
+    ]
     payload = json.dumps(
-        {"items": records},
+        {"items": model_items},
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,

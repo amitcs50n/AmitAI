@@ -374,6 +374,25 @@ it does not pretend to enforce that external bind; local firewall configuration 
 The canonical launcher also disables raw HTTP access logging so memory-search query strings are
 not copied into operational logs.
 
+#### Inference context minimization
+
+AmitAI keeps complete conversation history in the local database, but the model does not
+automatically receive that unlimited history. Before either a local or remote provider runs, one
+deterministic compiler selects at most the 20 newest complete prior messages and at most 20,000
+characters of prior-message content. The current user request remains intact outside that budget;
+dropped history is neither truncated nor summarized, and local persisted history is unchanged.
+
+Structured memory retrieval remains relevance-based and capped at 8 records and 4,000 characters.
+Rich memory records stay in the local control plane for persistence and auditing, while the model
+receives only each selected memory's `category`, `key`, and `value`. Memory IDs, source
+conversation/message IDs, timestamps, revision details, status, and persistence operations are
+not included in the retrieved-memory prompt.
+
+This minimization reduces disclosure to remote inference; it does not make the provider blind or
+provide zero-knowledge inference. The current request, retained recent history, selected memory
+values, tool-loop context, and any other text intentionally compiled into the model prompt are
+plaintext to the inference provider while it executes.
+
 #### Encrypted local storage
 
 AmitAI's persistent SQLite application state is encrypted at rest using SQLCipher. Install the

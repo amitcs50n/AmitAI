@@ -7,8 +7,14 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.chat_service import GenerationMessage
 from evaluation.hf_backend import GenerationOutput
-from runtime.config import DEFAULT_RUNTIME_CONFIG_PATH, EXPECTED_MODEL_NAME
+from runtime.config import (
+    DEFAULT_RUNTIME_CONFIG_PATH,
+    EXPECTED_MODEL_NAME,
+    load_runtime_config,
+)
+from runtime.generator import ProviderChatGenerator
 from runtime.inference_app import create_inference_app
 from runtime.providers import InferenceProviderError, RemoteInferenceProvider
 from tests.app_factory import create_test_runtime_app as create_runtime_app
@@ -165,6 +171,94 @@ def test_remote_provider_streams_deltas_and_terminal_metadata() -> None:
     ]
 
 
+def test_remote_normal_and_streaming_bodies_share_compiled_context_without_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_key = "ab" * 32
+    local_token = "LOCAL_TOKEN_CANARY_554433"
+    remote_token = "REMOTE_TOKEN_CANARY_665544"
+    monkeypatch.setenv("AMITAI_DB_KEY", database_key)
+    monkeypatch.setenv("AMITAI_LOCAL_API_TOKEN", local_token)
+    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_TOKEN", remote_token)
+    captured: dict[str, dict] = {}
+    raw_bodies: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raw_body = request.content.decode()
+        raw_bodies.append(raw_body)
+        payload = json.loads(raw_body)
+        captured[request.url.path] = payload
+        assert request.headers["Authorization"] == f"Bearer {remote_token}"
+        if request.url.path == "/v1/generate":
+            return httpx.Response(
+                200,
+                json={
+                    "request_id": payload["request_id"],
+                    "model": EXPECTED_MODEL_NAME,
+                    "text": "Remote answer",
+                    "input_tokens": 12,
+                    "output_tokens": 2,
+                },
+            )
+        body = (
+            'event: delta\ndata: {"delta":"Remote"}\n\n'
+            'event: delta\ndata: {"delta":" answer"}\n\n'
+            "event: final\ndata: "
+            + json.dumps(
+                {
+                    "request_id": payload["request_id"],
+                    "model": EXPECTED_MODEL_NAME,
+                    "text": "Remote answer",
+                    "input_tokens": 12,
+                    "output_tokens": 2,
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        )
+        return httpx.Response(
+            200,
+            text=body,
+            headers={"content-type": "text/event-stream"},
+        )
+
+    provider = RemoteInferenceProvider(
+        "https://gpu.example",
+        remote_token,
+        EXPECTED_MODEL_NAME,
+        transport=httpx.MockTransport(handler),
+    )
+    generator = ProviderChatGenerator(load_runtime_config(), provider=provider)
+    messages = [
+        GenerationMessage(role="user", content="Earlier question"),
+        GenerationMessage(role="assistant", content="Earlier answer"),
+        GenerationMessage(role="user", content="Current request"),
+    ]
+    try:
+        generator.generate_response(messages)
+        list(
+            generator.stream_response(
+                messages,
+                cancel_event=threading.Event(),
+            )
+        )
+    finally:
+        provider.close()
+
+    normal = captured["/v1/generate"]
+    streaming = captured["/v1/generate/stream"]
+    assert normal["messages"] == streaming["messages"]
+    assert normal["generation_config"] == streaming["generation_config"]
+    assert normal["messages"][-1] == {
+        "role": "user",
+        "content": "Current request",
+    }
+    for body in raw_bodies:
+        assert database_key not in body
+        assert local_token not in body
+        assert remote_token not in body
+
+
 def test_successful_remote_inference_logs_only_operational_metadata(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -289,6 +383,65 @@ def test_remote_chat_keeps_conversation_and_memory_persistence_local(
     assert not hasattr(provider, "database")
     serialized_request = json.dumps(provider.generate_calls)
     assert str(database_path) not in serialized_request
+
+
+def test_remote_provider_gets_minimized_history_while_local_history_stays_complete(
+    tmp_path: Path,
+) -> None:
+    old_canary = "OLD_PRIVATE_HISTORY_CANARY_918273"
+    very_old_canary = "VERY_OLD_PRIVATE_HISTORY_CANARY_817263"
+    recent_canary = "RECENT_HISTORY_CANARY_192837"
+    current_request = "CURRENT_USER_REQUEST_CANARY_445566"
+    provider = RecordingProvider()
+    application = _remote_app(tmp_path, provider)
+
+    with TestClient(application) as client:
+        conversation_id = None
+        for index in range(11):
+            prefix = f"historical request {index}"
+            if index == 0:
+                prefix += f" {very_old_canary}"
+            elif index == 1:
+                prefix += f" {old_canary}"
+            elif index == 10:
+                prefix += f" {recent_canary}"
+            response = client.post(
+                "/api/chat",
+                json={
+                    "conversation_id": conversation_id,
+                    "message": prefix + " " + ("history " * 300),
+                },
+            )
+            assert response.status_code == 200
+            conversation_id = response.json()["conversation_id"]
+
+        final_response = client.post(
+            "/api/chat",
+            json={
+                "conversation_id": conversation_id,
+                "message": current_request,
+            },
+        )
+        detail = client.get(f"/api/conversations/{conversation_id}").json()
+
+    assert final_response.status_code == 200
+    provider_messages = provider.generate_calls[-1][0]
+    serialized_provider_context = json.dumps(provider_messages)
+    assert old_canary not in serialized_provider_context
+    assert very_old_canary not in serialized_provider_context
+    assert recent_canary in serialized_provider_context
+    assert provider_messages[-1] == {
+        "role": "user",
+        "content": current_request,
+    }
+    assert len(provider_messages[1:-1]) <= 20
+    assert sum(len(message["content"]) for message in provider_messages[1:-1]) <= 20_000
+
+    persisted_history = json.dumps(detail["messages"])
+    assert old_canary in persisted_history
+    assert very_old_canary in persisted_history
+    assert recent_canary in persisted_history
+    assert len(detail["messages"]) == 24
 
 
 def test_streaming_crosses_provider_boundary_and_persists_final_local_text(

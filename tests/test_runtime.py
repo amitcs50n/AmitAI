@@ -24,6 +24,7 @@ from runtime.config import (
     RuntimeConfig,
     load_runtime_config,
 )
+from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES
 from runtime.generator import ProviderChatGenerator, TransformersChatGenerator
 from runtime.tooling import MAX_TOOL_ITERATIONS
 from tests.app_factory import create_test_runtime_app as create_runtime_app
@@ -193,7 +194,7 @@ def test_runtime_config_rejects_invalid_or_drifted_settings(
         load_runtime_config(path)
 
 
-def test_original_call_prepends_system_prompt_and_preserves_full_history() -> None:
+def test_original_call_prepends_system_prompt_and_preserves_recent_history() -> None:
     generator, engine, factory_calls = _generator_with_engine(
         [GenerationOutput("Second answer", input_tokens=20, output_tokens=3)]
     )
@@ -232,6 +233,117 @@ def test_original_call_prepends_system_prompt_and_preserves_full_history() -> No
     }
     assert result.tools == []
     assert result.memory == []
+
+
+def _over_limit_history(current_prompt: str) -> list[GenerationMessage]:
+    messages = [
+        GenerationMessage(
+            role="user",
+            content="VERY_OLD_PRIVATE_HISTORY_CANARY_817263 " + ("v" * 1_050),
+        ),
+        GenerationMessage(
+            role="assistant",
+            content="OLD_PRIVATE_HISTORY_CANARY_918273 " + ("o" * 1_050),
+        ),
+    ]
+    for index in range(10):
+        user_content = f"historical-user-{index} " + ("u" * 1_050)
+        if index == 9:
+            user_content += " RECENT_HISTORY_CANARY_192837"
+        messages.extend(
+            (
+                GenerationMessage(role="user", content=user_content),
+                GenerationMessage(
+                    role="assistant",
+                    content=f"historical-assistant-{index} " + ("a" * 1_050),
+                ),
+            )
+        )
+    messages.append(GenerationMessage(role="user", content=current_prompt))
+    assert len(messages[:-1]) > MAX_HISTORY_MESSAGES
+    assert sum(len(message.content) for message in messages[:-1]) > (
+        MAX_HISTORY_CONTEXT_CHARS
+    )
+    return messages
+
+
+def _assert_minimized_privacy_history(messages: list[dict[str, str]]) -> None:
+    serialized = json.dumps(messages)
+    assert "OLD_PRIVATE_HISTORY_CANARY_918273" not in serialized
+    assert "VERY_OLD_PRIVATE_HISTORY_CANARY_817263" not in serialized
+    assert "RECENT_HISTORY_CANARY_192837" in serialized
+
+
+def test_every_mechanical_retry_reuses_the_same_minimized_history() -> None:
+    prompt = "Answer in exactly 3 words."
+    generator, engine, _ = _generator_with_engine(
+        [
+            GenerationOutput("Only two", 10, 2),
+            GenerationOutput("One two three", 12, 3),
+        ]
+    )
+
+    result = generator.generate_response(_over_limit_history(prompt))
+
+    assert result.response == "One two three"
+    assert len(engine.calls) == 2
+    for messages, _ in engine.calls:
+        _assert_minimized_privacy_history(messages)
+        assert prompt in messages[-1]["content"]
+
+
+def test_tool_followup_keeps_minimized_base_context_without_restoring_history() -> None:
+    call = _tool_call("calculator", {"expression": "17 * 83"})
+    generator, engine, _ = _generator_with_engine(
+        [
+            GenerationOutput(call, 10, 10),
+            GenerationOutput("The answer is 1411.", 12, 5),
+        ]
+    )
+
+    result = generator.generate_response(
+        _over_limit_history("What is 17 * 83?")
+    )
+
+    assert result.tools[0]["result"] == "1411"
+    assert len(engine.calls) == 2
+    initial_messages = engine.calls[0][0]
+    followup_messages = engine.calls[1][0]
+    _assert_minimized_privacy_history(initial_messages)
+    _assert_minimized_privacy_history(followup_messages)
+    assert followup_messages[:-2] == initial_messages
+    assert followup_messages[-2] == {"role": "assistant", "content": call}
+    assert followup_messages[-1]["content"].startswith("<tool_result>")
+
+
+def test_buffered_streaming_retry_reuses_the_same_minimized_history() -> None:
+    prompt = "Answer in exactly 3 words."
+    engine = StreamingSequenceEngine(
+        [
+            ["Only", " two", GenerationOutput("Only two", 10, 2)],
+            ["One two", " three", GenerationOutput("One two three", 12, 3)],
+        ]
+    )
+    generator = TransformersChatGenerator(
+        _runtime_config(),
+        engine_factory=lambda _model, _seed: engine,
+    )
+
+    stream_items = list(
+        generator.stream_response(
+            _over_limit_history(prompt),
+            cancel_event=threading.Event(),
+        )
+    )
+
+    final = next(
+        item for item in stream_items if isinstance(item, ChatGenerationResult)
+    )
+    assert final.response == "One two three"
+    assert len(engine.calls) == 2
+    for messages, _ in engine.calls:
+        _assert_minimized_privacy_history(messages)
+        assert prompt in messages[-1]["content"]
 
 
 def test_constraints_are_parsed_only_from_the_current_user_message() -> None:
