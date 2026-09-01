@@ -12,7 +12,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -121,6 +123,14 @@ def create_app(
         redoc_url="/redoc" if enable_dev_docs else None,
         openapi_url="/openapi.json" if enable_dev_docs else None,
     )
+
+    @application.exception_handler(RequestValidationError)
+    async def safe_memory_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if request.url.path == "/api/memory" or request.url.path.startswith("/api/memory/"):
+            # Pydantic's default errors include rejected input, which can be a secret.
+            return JSONResponse(status_code=422, content={"detail": "Memory request is invalid"})
+        return await request_validation_exception_handler(request, exc)
+
     if enforce_local_auth:
         application.add_middleware(LocalApiAuthMiddleware, token=local_api_token)
     application.state.database = database
@@ -407,6 +417,9 @@ def create_app(
                     sensitivity=payload.sensitivity,
                 )
                 record = service.apply(mutation)
+        except MemoryValidationError:
+            session.rollback()
+            raise HTTPException(status_code=422, detail="Memory request is invalid") from None
         except MemoryConflictError as exc:
             session.rollback()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -425,6 +438,9 @@ def create_app(
                     memory_id, value=payload.value, sensitivity=payload.sensitivity
                 )
                 record = service.apply(mutation)
+        except MemoryValidationError:
+            session.rollback()
+            raise HTTPException(status_code=422, detail="Memory request is invalid") from None
         except MemoryNotFoundError as exc:
             session.rollback()
             raise HTTPException(status_code=404, detail="Memory not found") from exc

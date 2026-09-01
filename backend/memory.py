@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .models import MemoryRevision, MemorySlot, Message, new_uuid, utc_now
 from .repositories import MemoryRepository
-from .secret_detection import contains_credential_like_text
+from .secret_detection import contains_credential_like_pair, contains_credential_like_text
 
 LOCAL_MEMORY_OWNER_ID = "local-default"
 MEMORY_CATEGORIES = frozenset(
@@ -156,6 +156,15 @@ def validate_memory_value(value: str) -> str:
     return normalized
 
 
+def validate_memory_content(key: str, value: str) -> str:
+    """Apply the shared credential policy to both the value and its structured key."""
+
+    normalized = validate_memory_value(value)
+    if contains_credential_like_pair(key, normalized):
+        raise MemoryValidationError("Sensitive credentials cannot be stored in memory")
+    return normalized
+
+
 def parse_memory_command(message: str) -> MemoryCommandDecision:
     """Parse only the explicit, documented Memory V1 chat grammar."""
 
@@ -170,6 +179,7 @@ def parse_memory_command(message: str) -> MemoryCommandDecision:
     if match is not None:
         operation, category, key, value = match.groups()
         try:
+            key = normalize_memory_key(key)
             return MemoryCommandDecision(
                 intent_detected=True,
                 command=ParsedMemoryCommand(
@@ -178,8 +188,8 @@ def parse_memory_command(message: str) -> MemoryCommandDecision:
                         operation.casefold(),
                     ),
                     category=validate_memory_category(category),
-                    key=normalize_memory_key(key),
-                    value=validate_memory_value(value),
+                    key=key,
+                    value=validate_memory_content(key, value),
                 ),
             )
         except MemoryValidationError as exc:
@@ -437,7 +447,7 @@ class MemoryService:
     ) -> StagedMemoryMutation:
         category = validate_memory_category(category)
         key = normalize_memory_key(key)
-        value = validate_memory_value(value)
+        value = validate_memory_content(key, value)
         sensitivity = validate_memory_sensitivity(sensitivity)
         memory = self.repository.get_slot_by_key(
             owner_id=self.owner_id,
@@ -481,6 +491,9 @@ class MemoryService:
             if revision is None or revision.value is None:
                 raise MemoryConflictError("Memory changed concurrently")
             value = revision.value
+        # Also reject policy-only promotion of a credential in a legacy slot.
+        # Validate without rewriting the existing value during policy-only edits.
+        validate_memory_content(memory.key, value)
         return StagedMemoryMutation(
             operation="updated",
             memory_id=memory.id,

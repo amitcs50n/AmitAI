@@ -23,7 +23,7 @@ from backend.memory import (
     MemoryValidationError,
     validate_memory_value,
 )
-from backend.models import Conversation, MemoryRevision, Message, MessageMetadata
+from backend.models import Conversation, MemoryRevision, MemorySlot, Message, MessageMetadata
 from backend.secret_detection import contains_credential_like_text
 from evaluation.hf_backend import GenerationOutput
 from runtime.config import DEFAULT_RUNTIME_CONFIG_PATH, EXPECTED_MODEL_NAME, load_runtime_config
@@ -32,6 +32,7 @@ from runtime.generator import ProviderChatGenerator
 from runtime.privacy import InferenceExecutionScope, RemoteDisclosureBlockedError
 from runtime.providers import LocalTransformersInferenceProvider, RemoteInferenceProvider
 from tests.app_factory import create_test_app
+from tests.test_secret_detection import BENIGN_TEXT
 
 REMOTE_TOKEN = 'REMOTE_TRANSPORT_CANARY_92731_"quoted\\token'
 PRIVATE = "LOCAL_ONLY_VALUE_CANARY_981237"
@@ -48,6 +49,7 @@ class RemoteHarness:
         self.outputs = deque(outputs)
         self.calls: list[dict] = []
         self.paths: list[str] = []
+        self.bodies: list[bytes] = []
         self.provider = RemoteInferenceProvider(
             "https://inference.invalid", REMOTE_TOKEN, EXPECTED_MODEL_NAME,
             transport=httpx.MockTransport(self.handle),
@@ -59,6 +61,7 @@ class RemoteHarness:
         assert request.headers["Content-Type"] == "application/json"
         payload = json.loads(request.content)
         self.calls.append(payload)
+        self.bodies.append(request.content)
         self.paths.append(request.url.path)
         answer = self.outputs.popleft() if self.outputs else "A safe answer"
         final = {
@@ -261,6 +264,9 @@ def test_command_retry_and_calculator_followup_cannot_restore_private_context(st
 
 
 CREDENTIALS = [
+    "OPENAI_API_KEY=REMOTE_ENV_CANARY_1122", "MY_PASSWORD=PASSWORD_ENV_CANARY_3344",
+    "GITHUB_ACCESS_TOKEN=GITHUB_ENV_CANARY_5566",
+    '{"api_key":"QUOTED_JSON_SECRET_CANARY"}',
     "password: PASSWORD_CANARY_73612", "passcode=PASSCODE_CANARY_98217",
     "api_key: API_KEY_CANARY_87612", "access token=ACCESS_CANARY_67512",
     "refresh-token: REFRESH_CANARY_85211", "auth token: AUTH_CANARY_91627",
@@ -360,9 +366,12 @@ def test_last_mile_scans_full_body_and_exact_token_including_json_escaping(strea
 
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("later_request", ["retry", "tool"])
-def test_every_later_invocation_is_guarded_and_rolls_back(streaming, later_request) -> None:
+@pytest.mark.parametrize("prefixed", [False, True])
+def test_every_later_invocation_is_guarded_and_rolls_back(streaming, later_request, prefixed) -> None:
     bad_output = ("password: RETRY_CREDENTIAL_CANARY four words" if later_request == "retry" else
                   '<tool_call>{"name":"calculator","arguments":{"expression":"password: TOOL_CREDENTIAL_CANARY"}}</tool_call>')
+    if prefixed:
+        bad_output = bad_output.replace("password:", "OPENAI_API_KEY=")
     harness = RemoteHarness([bad_output])
     app = create_test_app("sqlite+pysqlite:///:memory:", generator=harness.generator)
     with TestClient(app) as client:
@@ -398,6 +407,151 @@ def test_unknown_provider_scope_fails_closed_without_name_based_trust(scope) -> 
         ProviderChatGenerator(CONFIG, provider=Provider())
     with pytest.raises(TypeError, match="valid execution scope"):
         ProviderChatGenerator(CONFIG, provider=object())
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("text", BENIGN_TEXT)
+def test_benign_decoded_content_reaches_real_remote_transport(text, streaming):
+    harness = RemoteHarness()
+    messages = [{"role": "user", "content": text}]
+    if streaming:
+        events = list(harness.provider.stream(messages, {"max_tokens": 20}, cancel_event=Event()))
+        assert "".join(event for event in events if isinstance(event, str)) == "A safe answer"
+        assert events[-1].text == "A safe answer"
+    else:
+        assert harness.provider.generate(messages, {"max_tokens": 20}).text == "A safe answer"
+    assert len(harness.calls) == 1
+    assert harness.calls[0]["messages"] == messages
+    if text == "password:":
+        assert b'"content":"password:"' in harness.bodies[0]
+    assert harness.paths == ["/v1/generate/stream" if streaming else "/v1/generate"]
+    harness.provider.close()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("content,config", [
+    ('{"api_key":"QUOTED_JSON_SECRET_CANARY"}', {}),
+    ('{"OPENAI_API_KEY":"QUOTED_ENV_SECRET_CANARY"}', {}),
+    (('MEMORY_CONTEXT_V1 <memory_context>{"items":[{"key":"openai_api_key",'
+      '"value":"STRUCTURED_PAIR_CANARY"}]}</memory_context>'), {}),
+    ("Safe prompt", {"OPENAI_API_KEY": "GENERATION_CONFIG_SECRET_CANARY"}),
+    ("Safe prompt", {"nested": [{"OPENAI_API_KEY": "NESTED_CONFIG_CANARY"}]}),
+    ("Safe prompt", {"nested": [{"key": "my_password", "value": "NESTED_PAIR_CANARY"}]}),
+    ("Safe prompt", {"nested": {"OPENAI_API_KEY=KEY_CANARY": None}}),
+])
+def test_semantic_credentials_block_low_level_provider_before_http(content, config, streaming, caplog):
+    caplog.set_level(logging.INFO)
+    harness = RemoteHarness()
+    with pytest.raises(RemoteDisclosureBlockedError, match=f"^{ERROR}$") as caught:
+        if streaming:
+            list(harness.provider.stream([{"role": "user", "content": content}], config,
+                                         cancel_event=Event()))
+        else:
+            harness.provider.generate([{"role": "user", "content": content}], config)
+    assert harness.calls == []
+    assert "CANARY" not in str(caught.value) and "CANARY" not in caplog.text
+    assert REMOTE_TOKEN not in caplog.text
+    harness.provider.close()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("existing", [False, True])
+def test_seeded_remote_allowed_credential_pair_is_independently_blocked(streaming, existing, caplog):
+    caplog.set_level(logging.INFO)
+    harness = RemoteHarness()
+    app = create_test_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        conversation_id = None
+        if existing:
+            conversation_id = client.post("/api/chat", json={"message": "Hello"}).json()["conversation_id"]
+        with app.state.database.session_factory() as session, session.begin():
+            slot = MemorySlot(owner_id="local-default", category="project", key="openai_api_key",
+                              sensitivity="remote_allowed")
+            session.add(slot)
+            session.flush()
+            session.add(MemoryRevision(memory_id=slot.id, revision=1, status="active",
+                                       value="LEGACY_REMOTE_SECRET_CANARY_7788"))
+        before = durable_snapshot(app)
+        with app.state.database.engine.connect() as connection:
+            before_memory = [connection.execute(select(table)).all()
+                             for table in (MemorySlot.__table__, MemoryRevision.__table__)]
+        app.state.generator = harness.generator
+        response, events = chat(client, "Tell me about my project", streaming, conversation_id)
+        assert_blocked(response, events, streaming)
+        assert harness.calls == []
+        assert durable_snapshot(app) == before
+        with app.state.database.engine.connect() as connection:
+            assert [connection.execute(select(table)).all()
+                    for table in (MemorySlot.__table__, MemoryRevision.__table__)] == before_memory
+        assert "CANARY" not in response.text and "CANARY" not in caplog.text
+        assert "openai_api_key" not in response.text and "openai_api_key" not in caplog.text
+    harness.provider.close()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("remote", [False, True])
+def test_credential_memory_command_is_not_applied_in_either_scope(remote, streaming, caplog):
+    caplog.set_level(logging.INFO)
+    harness = RemoteHarness()
+    local_calls = []
+
+    class Engine:
+        def generate_detailed(self, messages, generation_config):
+            local_calls.append(messages)
+            return GenerationOutput("Memory was not stored", 11, 4)
+
+    local_provider = LocalTransformersInferenceProvider(CONFIG.model, 42,
+                                                       engine_factory=lambda *_: Engine())
+    generator = harness.generator if remote else ProviderChatGenerator(CONFIG, provider=local_provider)
+    app = create_test_app("sqlite+pysqlite:///:memory:", generator=generator)
+    command = "Remember project openai_api_key: MEMORY_COMMAND_PAIR_CANARY"
+    with TestClient(app) as client:
+        response, events = chat(client, command, streaming)
+        result = assert_success(response, events, streaming)
+        assert client.get("/api/memory").json() == []
+        with app.state.database.session_factory() as session:
+            assert session.scalar(select(func.count()).select_from(MemorySlot)) == 0
+            assert session.scalar(select(func.count()).select_from(MemoryRevision)) == 0
+        if remote:
+            messages = harness.calls[0]["messages"]
+            assert messages[-1]["content"] == "The local memory command was not applied. Acknowledge briefly."
+            assert "openai_api_key" not in json.dumps(messages)
+            assert "MEMORY_COMMAND_PAIR_CANARY" not in json.dumps(messages)
+        else:
+            assert local_calls[0][-1]["content"] == command
+            assert "not_applied" in json.dumps(local_calls[0])
+        assert result["metadata"]["memory"] == []
+        assert "CANARY" not in response.text and "CANARY" not in caplog.text
+        # Ordinary local conversation text is not rewritten by storage rejection.
+        stored = client.get(f"/api/conversations/{result['conversation_id']}").json()
+        assert stored["messages"][0]["content"] == command
+        if not remote:
+            response, events = chat(client, "OPENAI_API_KEY=LOCAL_ONLY_CANARY", streaming)
+            assert_success(response, events, streaming)
+            assert local_calls[-1][-1]["content"] == "OPENAI_API_KEY=LOCAL_ONLY_CANARY"
+    harness.provider.close()
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("token", ['quote"and\\slash', "unicode秘密é", "Ｆｕｌｌｗｉｄｔｈ"])
+def test_escaped_transport_token_cannot_reach_http(token, streaming, caplog):
+    caplog.set_level(logging.INFO)
+    calls = []
+
+    def unexpected_http(request):
+        calls.append(request)
+        raise AssertionError("Guard must run before transport")
+
+    provider = RemoteInferenceProvider("https://inference.invalid", token, EXPECTED_MODEL_NAME,
+                                       transport=httpx.MockTransport(unexpected_http))
+    messages = [{"role": "user", "content": json.dumps({"note": token}, ensure_ascii=True)}]
+    with pytest.raises(RemoteDisclosureBlockedError, match=f"^{ERROR}$"):
+        if streaming:
+            list(provider.stream(messages, {}, cancel_event=Event()))
+        else:
+            provider.generate(messages, {})
+    assert calls == [] and token not in caplog.text
+    provider.close()
 
 
 def test_remote_projection_precedes_history_budget_and_preserves_orphan_rule() -> None:

@@ -503,12 +503,25 @@ same compilation applies to sync/stream generation and tool-loop base context; b
 tool messages are appended locally, never reloading dropped history.
 
 Immediately before **every** remote HTTP request, including retries and tool follow-ups, the
-client scans the exact outgoing JSON body and decoded fields with the shared memory credential
-heuristic. It covers labeled passwords/passcodes, API keys, access/refresh/auth tokens, client
-secrets, PEM private-key markers, JWT-shaped strings, and explicit `Authorization: Bearer ...`
-values. The configured remote bearer token is also blocked anywhere in the body, including
+client checks an owned snapshot of the decoded payload with the shared memory credential
+heuristic, then serializes that checked snapshot once and sends those exact bytes. Checks inspect
+actual strings, nested mappings, and embedded JSON (including memory `key`/`value` records), not
+JSON serialization punctuation. They cover labeled passwords/passcodes, API keys,
+access/refresh/auth tokens, client secrets, PEM private-key markers, JWT-shaped strings, and
+explicit `Authorization: Bearer ...` values. Labels use NFKC/casefold and space/hyphen/underscore/dot
+separator normalization; known families also match suffixes such as `OPENAI_API_KEY`,
+`MY_PASSWORD`, and `GITHUB_ACCESS_TOKEN`. Quoted assignments are recognized; empty assignments
+such as `password:` or `"api_key":""` and labels such as `password_hash_algorithm` remain safe.
+The configured remote bearer token is also blocked anywhere in the body, including
 JSON-escaped strings and generation configuration; its authentication header remains permitted.
 No environment scanning, matched-text logging, silent redaction, or local-model fallback occurs.
+
+Memory storage applies this same policy to the **key and value together**, regardless of memory
+sensitivity. Credential-shaped creates, value edits, and sensitivity-only edits of legacy bad
+records return a generic HTTP 422 without echoing submitted values. Such chat memory commands
+are not applied and receive only the existing generic not-applied projection remotely. Legacy
+records that bypassed storage validation are independently checked by the outbound guard.
+Ordinary local-model conversation text is not blocked by the remote disclosure policy.
 
 A block sends no HTTP request for that invocation and returns only
 `Remote inference blocked by local privacy policy`: HTTP 422 on `/api/chat`, or a terminal SSE

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.app import create_app
 from backend.database import Base, Database
-from backend.memory import MemoryConflictError, MemoryService
+from backend.memory import MemoryConflictError, MemoryService, parse_memory_command
 from backend.models import MemoryRevision, MemorySlot
 from tests.app_factory import create_test_app
 
@@ -201,3 +202,81 @@ def test_new_schema_rejects_invalid_sensitivity_structurally() -> None:
         session.add(MemorySlot(owner_id="local-default", category="project", key="name", sensitivity="public"))
         session.flush()
     database.engine.dispose()
+
+
+def memory_snapshot(app):
+    with app.state.database.engine.connect() as connection:
+        return {table.name: connection.execute(select(table)).all()
+                for table in (MemorySlot.__table__, MemoryRevision.__table__)}
+
+
+@pytest.mark.parametrize("key", ["api_key", "openai_api_key", "my_password", "github_access_token"])
+@pytest.mark.parametrize("sensitivity", ["local_only", "remote_allowed"])
+def test_memory_create_rejects_credential_pairs_without_reflection(key, sensitivity, caplog):
+    caplog.set_level(logging.INFO)
+    app = create_test_app("sqlite+pysqlite:///:memory:")
+    canary = "MEMORY_PAIR_SECRET_CANARY"
+    with TestClient(app) as client:
+        before = memory_snapshot(app)
+        response = client.post("/api/memory", json={
+            "category": "project", "key": key, "value": canary, "sensitivity": sensitivity,
+        })
+        assert response.status_code == 422
+        assert response.json() == {"detail": "Memory request is invalid"}
+        assert canary not in response.text and canary not in caplog.text
+        assert memory_snapshot(app) == before
+        assert client.get("/api/memory").json() == []
+    decision = parse_memory_command(f"Remember project {key}: {canary}")
+    assert decision.intent_detected and decision.command is None
+    assert canary not in decision.reason
+
+
+@pytest.mark.parametrize("patch", [
+    {"value": "MEMORY_UPDATE_SECRET_CANARY"},
+    {"sensitivity": "remote_allowed"},
+    {"value": "MEMORY_UPDATE_SECRET_CANARY", "sensitivity": "remote_allowed"},
+])
+def test_legacy_credential_key_blocks_value_update_and_policy_promotion(patch, caplog):
+    caplog.set_level(logging.INFO)
+    app = create_test_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        # Seed legacy state without weakening public API validation for the fixture.
+        with app.state.database.session_factory() as session, session.begin():
+            slot = MemorySlot(owner_id="local-default", category="project", key="openai_api_key")
+            session.add(slot)
+            session.flush()
+            memory_id = slot.id
+            session.add(MemoryRevision(memory_id=slot.id, revision=1,
+                                       value="LEGACY_PAIR_SECRET_CANARY", status="active"))
+        before = memory_snapshot(app)
+        response = client.patch(f"/api/memory/{memory_id}", json=patch)
+        assert response.status_code == 422
+        assert response.json() == {"detail": "Memory request is invalid"}
+        assert memory_snapshot(app) == before
+        assert "CANARY" not in response.text and "CANARY" not in caplog.text
+        # Forget remains available even for a legacy credential-shaped record.
+        assert client.delete(f"/api/memory/{memory_id}").status_code == 204
+        with app.state.database.session_factory() as session:
+            revisions = list(session.scalars(select(MemoryRevision)))
+            assert revisions and all(revision.value is None for revision in revisions)
+
+
+@pytest.mark.parametrize("value", ["password: FIELD_VALIDATOR_CANARY", "CANARY" * 200])
+def test_memory_schema_validation_never_echoes_rejected_values(value, caplog):
+    caplog.set_level(logging.INFO)
+    app = create_test_app("sqlite+pysqlite:///:memory:")
+    with TestClient(app) as client:
+        created = client.post("/api/memory", json={
+            "category": "project", "key": "project.name", "value": "Aevon",
+        }).json()
+        before = memory_snapshot(app)
+        responses = [
+            client.post("/api/memory", json={"category": "project", "key": "name", "value": value}),
+            client.patch(f"/api/memory/{created['id']}", json={"value": value}),
+        ]
+        for response in responses:
+            assert response.status_code == 422
+            assert response.json() == {"detail": "Memory request is invalid"}
+            assert "CANARY" not in response.text
+        assert "CANARY" not in caplog.text
+        assert memory_snapshot(app) == before
