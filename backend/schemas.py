@@ -155,6 +155,17 @@ class MemoryCreate(BaseModel):
         return validate_memory_value(value)
 
 
+class MemorySearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(strict=True, min_length=1, max_length=2_000)
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def trim_query(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+
 class MemoryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -30,27 +30,31 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 test("memory list client uses active, search, category, and deleted routes", async () => {
   const originalFetch = globalThis.fetch;
-  const requests: string[] = [];
-  globalThis.fetch = (async (input) => {
-    requests.push(String(input));
+  const requests: Array<{ input: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({ input: String(input), init });
     return jsonResponse([memory]);
   }) as typeof fetch;
 
   try {
     await listMemories();
-    await listMemories({ query: "UI theme + color" });
+    await listMemories({ query: "  SEARCH_CANARY + color  ", category: "profile", status: "deleted" });
     await listMemories({ category: "project" });
     await listMemories({ category: "instruction", status: "deleted" });
   } finally {
     globalThis.fetch = originalFetch;
   }
 
-  assert.deepEqual(requests, [
+  assert.deepEqual(requests.map(({ input }) => input), [
     "/api/memory",
-    "/api/memory?query=UI+theme+%2B+color",
+    "/api/memory/search",
     "/api/memory?category=project",
     "/api/memory?category=instruction&status=deleted",
   ]);
+  assert.equal(requests[1].init?.method, "POST");
+  assert.equal(new Headers(requests[1].init?.headers).get("content-type"), "application/json");
+  assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { query: "SEARCH_CANARY + color" });
+  assert.ok(requests.every(({ input }) => !input.includes("SEARCH_CANARY")));
 });
 
 test("memory mutation client uses typed JSON routes and encoded ids", async () => {

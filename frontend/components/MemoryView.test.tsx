@@ -162,7 +162,9 @@ test("search and category filtering refetch with the correct query", async () =>
   const search = container.querySelector('input[placeholder="Search memories"]') as HTMLInputElement;
   await setControlValue(search, "UI theme");
   await submit(container.querySelector('form[role="search"]') as HTMLFormElement);
-  assert.equal(calls[1].input, "/api/memory?query=UI+theme");
+  assert.equal(calls[1].input, "/api/memory/search");
+  assert.equal(calls[1].init?.method, "POST");
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { query: "UI theme" });
 
   const category = container.querySelector('select[aria-label="Memory category"]') as HTMLSelectElement;
   await setControlValue(category, "project");

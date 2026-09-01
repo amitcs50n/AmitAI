@@ -126,6 +126,7 @@ SSE response:
 
 ```bash
 curl -N http://127.0.0.1:3000/api/chat/stream \
+  -H 'Origin: http://127.0.0.1:3000' \
   -H 'Accept: text/event-stream' \
   -H 'Content-Type: application/json' \
   --data '{"conversation_id":null,"message":"Explain generators in Python."}'
@@ -205,17 +206,30 @@ The explicit API uses the same validation and never accepts a client-supplied ow
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/memory \
+  -H 'Origin: http://127.0.0.1:3000' \
   -H 'Content-Type: application/json' \
   --data '{"category":"preference","key":"ui.theme","value":"dark"}'
 
 curl 'http://127.0.0.1:3000/api/memory?category=preference'
-curl 'http://127.0.0.1:3000/api/memory?query=Which%20UI%20theme%20do%20I%20prefer%3F'
+curl -X POST http://127.0.0.1:3000/api/memory/search \
+  -H 'Origin: http://127.0.0.1:3000' \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"Which UI theme do I prefer?"}'
 curl -X PATCH http://127.0.0.1:3000/api/memory/MEMORY_ID \
+  -H 'Origin: http://127.0.0.1:3000' \
   -H 'Content-Type: application/json' \
   --data '{"value":"light"}'
-curl -X DELETE http://127.0.0.1:3000/api/memory/MEMORY_ID
+curl -X DELETE http://127.0.0.1:3000/api/memory/MEMORY_ID \
+  -H 'Origin: http://127.0.0.1:3000'
 curl 'http://127.0.0.1:3000/api/memory?status=deleted'
 ```
+
+Replace `MEMORY_ID` with the UUID returned by the API. Search accepts a strict string `query`,
+trimmed at its edges, with 1–2,000 characters. Search text travels only in a POST JSON body;
+`GET /api/memory?query=...` is rejected, not a compatibility search endpoint. Search still uses
+the existing relevance rules and 8-record / 4,000-character limits, without modifying memory.
+GET lists accept only `category` and `status` filters. The Memory UI keeps search precedence over
+filters and requires no new user workflow.
 
 Each logical `(owner, category, key)` has a stable slot ID and monotonically increasing revision.
 Updates mark the previous revision stale. Forget creates a tombstone and redacts values from all
@@ -338,10 +352,78 @@ Aevon browser
 The browser uses only relative `/api/*` URLs. A Next.js Route Handler rereads the owner-only
 runtime token file on the server for each request and adds the backend bearer header while
 proxying; the token is never returned to browser JavaScript, stored in web storage, placed in a
-cookie, or put in a URL. State-changing proxy requests with an `Origin` header are accepted only when that origin
-exactly matches the loopback Aevon origin; cross-origin browser requests are rejected before they
-reach FastAPI. Browser code currently persists only harmless UI preferences and the selected
+cookie, or put in a URL. State-changing proxy requests **require** an `Origin` header that exactly
+matches the loopback Aevon origin, including scheme, hostname, and port. Missing, `null`, malformed,
+or different origins are rejected before token access or FastAPI. `localhost` and `127.0.0.1` are
+not interchangeable origins. Browser code currently persists only harmless UI preferences and the selected
 conversation ID—never conversations, messages, memory values, or credentials.
+
+#### Browser proxy boundary
+
+The browser-facing proxy is deny-by-default. These are its complete method/path contracts:
+
+| Path | Methods |
+| --- | --- |
+| `/api/health` | GET |
+| `/api/conversations` | GET, POST |
+| `/api/conversations/{uuid}` | GET, PATCH, DELETE |
+| `/api/chat`, `/api/chat/stream` | POST |
+| `/api/memory` | GET, POST |
+| `/api/memory/search` | POST |
+| `/api/memory/{uuid}` | PATCH, DELETE |
+
+Unknown paths/methods (including HEAD/OPTIONS), malformed/non-UUID IDs, encoded separators,
+dot segments, controls, and extra segments are rejected without forwarding. Adding a backend
+endpoint does not expose it automatically through Next. The only allowed URL parameters are
+one `status=active|deleted` and/or one supported `category` on GET `/api/memory`; all other query
+keys and duplicate parameters are rejected. Parameters are reconstructed, never blindly copied.
+
+Every browser request must address a loopback host (`localhost`, `127.0.0.1`, or `[::1]`), even
+when `AMITAI_ALLOW_LAN=1`. Explicit `Sec-Fetch-Site: cross-site` is rejected for reads and writes.
+Next's loopback URL alias normalization is disabled, and a differing HTTP Host is rejected too.
+Use the exact loopback address printed by the launcher, not a hostname alias of that listener.
+Missing fetch metadata is tolerated, but never substitutes for the mandatory mutation Origin.
+Origin is a browser CSRF boundary, not authentication against arbitrary local processes that can
+forge headers. Non-browser clients should normally call the authenticated FastAPI endpoint;
+the curl examples through Next explicitly supply the same Origin as the target URL.
+
+Validation order is browser origin/host/fetch metadata, route/method, query/body, runtime token
+read, backend configuration, then fetch. JSON routes require `application/json` (UTF-8 charset
+permitted) and a top-level object. POST conversation creation alone may omit its body. Actual
+request bytes are capped at 256 KiB regardless of `Content-Length`; over-limit requests get 413,
+unsupported media types 415, invalid JSON/query/body 400, disallowed routes 404, and denied
+browser origins 403. GET/DELETE bodies are rejected; HEAD is unsupported. Domain validation
+remains in FastAPI. Proxy errors contain no raw content, token, path, or exception details.
+
+Only Accept/Content-Type and the server-generated bearer header go upstream: browser
+Authorization, Cookie, Proxy-Authorization, Host, Forwarded, and X-Forwarded-* are not forwarded.
+Only Content-Type/X-Accel-Buffering may return from upstream; upstream cookies, auth/debug/version
+headers and cache policy are discarded. All API successes/errors use `Cache-Control: no-store`.
+SSE uses `no-store, no-transform` and `X-Accel-Buffering: no`. Only bounded request JSON is buffered;
+response streams remain incremental and client abort signals propagate upstream.
+
+Next sets global browser headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+`X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`,
+`Cross-Origin-Resource-Policy: same-origin`, `X-DNS-Prefetch-Control: off`,
+`X-Permitted-Cross-Domain-Policies: none`, and
+`Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()`.
+Its version header is disabled. HSTS is deliberately absent for local HTTP operation.
+
+The production Content-Security-Policy is:
+
+```text
+default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self'; worker-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'
+```
+
+No external analytics/CDN/font or inference origins are allowed. Inline scripts are needed for
+current Next hydration, and inline styles for the existing UI; these compatibility exceptions
+mean CSP is not a complete inline-injection defense. There is no nonce infrastructure in this
+version. `unsafe-eval` is allowed only when `NODE_ENV !== "production"` for development tooling,
+never in production; network connections remain self-only.
+
+These controls do not stop same-user malware or malicious browser extensions from reading
+visible content. Localhost HTTP is for local-only operation; supported LAN/TLS is future work,
+not enabled by this proxy. None of these browser controls make remote inference provider-blind.
 
 Private `/api/chat*`, `/api/conversations*`, and `/api/memory*` routes reject missing or incorrect
 bearer authentication. `/api/health` remains a minimal unauthenticated readiness route. FastAPI
@@ -361,8 +443,8 @@ Do not use `0.0.0.0` for normal single-user operation. A deliberate LAN deployme
 `AMITAI_ALLOW_LAN=1` and still requires authentication. The FastAPI application cannot discover
 the socket address supplied by someone who bypasses this launcher with a raw Uvicorn command, so
 it does not pretend to enforce that external bind; local firewall configuration remains relevant.
-The canonical launcher also disables raw HTTP access logging so memory-search query strings are
-not copied into operational logs. Starting either `uvicorn runtime.app:app` or
+The canonical launcher also disables raw HTTP access logging. Memory search now uses a JSON
+body rather than a URL; request/response content is not logged by the proxy. Starting either `uvicorn runtime.app:app` or
 `uvicorn backend.app:app` directly fails closed; production secrets are injected only by the
 interactive `python -m runtime.serve` path.
 
@@ -604,7 +686,8 @@ npm run dev
 The supported `npm run dev` command binds Next.js explicitly to `127.0.0.1`; after `npm run build`,
 `npm run start` uses the same loopback-only default. The packaged launchers do not provide an
 implicit LAN mode. Any future supported LAN launcher must require an explicit
-`AMITAI_ALLOW_LAN=1` opt-in and retain authentication and origin protections.
+`AMITAI_ALLOW_LAN=1` opt-in and retain authentication and origin protections. The current browser
+proxy rejects non-loopback hosts regardless of that setting.
 
 Open the local Next.js address printed in Terminal 2. Its server-only Route Handler streams
 relative `/api/*` requests to the FastAPI backend at `http://127.0.0.1:8000` by default and adds

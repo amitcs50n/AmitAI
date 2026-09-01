@@ -43,6 +43,7 @@ from .schemas import (
     ConversationRename,
     MemoryCreate,
     MemoryRead,
+    MemorySearch,
     MemoryUpdate,
 )
 from .security import LocalApiAuthMiddleware, security_state
@@ -357,26 +358,26 @@ def create_app(
 
     @application.get("/api/memory", response_model=list[MemoryRead])
     def list_memory(
+        request: Request,
         memory_status: str = Query(default="active", alias="status"),
         category: str | None = None,
-        query: str | None = None,
         session: Session = Depends(get_session),
     ) -> list[MemoryRead]:
+        if any(key not in {"status", "category"} for key in request.query_params):
+            raise HTTPException(status_code=422, detail="Unsupported memory list parameter")
         service = MemoryService(session, owner_id=memory_owner_id)
         try:
-            if query is not None:
-                if memory_status != "active" or category is not None:
-                    raise MemoryValidationError(
-                        "Query cannot be combined with status or category filters"
-                    )
-                records = service.retrieve(query)
-            else:
-                records = service.list_memories(
-                    status=memory_status,
-                    category=category,
-                )
+            records = service.list_memories(status=memory_status, category=category)
         except MemoryValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return [MemoryRead.model_validate(record) for record in records]
+
+    @application.post("/api/memory/search", response_model=list[MemoryRead])
+    def search_memory(
+        payload: MemorySearch,
+        session: Session = Depends(get_session),
+    ) -> list[MemoryRead]:
+        records = MemoryService(session, owner_id=memory_owner_id).retrieve(payload.query)
         return [MemoryRead.model_validate(record) for record in records]
 
     @application.post(

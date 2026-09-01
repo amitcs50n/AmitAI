@@ -1,12 +1,18 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import {
+  hasAllowedBrowserOrigin,
+  isLoopbackHostname,
+  resolveProxyQuery,
+  resolveProxyRoute,
+  validateProxyBody,
+} from "../../../lib/proxyPolicy.ts";
 
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8000";
 const LOCAL_API_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 const FORWARDED_REQUEST_HEADERS = ["accept", "content-type"] as const;
 const FORWARDED_RESPONSE_HEADERS = [
-  "cache-control",
   "content-type",
   "x-accel-buffering",
 ] as const;
@@ -23,34 +29,6 @@ function jsonError(detail: string, status: number): Response {
       headers: { "Cache-Control": "no-store" },
     },
   );
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
-}
-
-function isStateChangingMethod(method: string): boolean {
-  return method === "POST" || method === "PATCH" || method === "DELETE";
-}
-
-function hasAllowedBrowserOrigin(request: Request): boolean {
-  if (!isStateChangingMethod(request.method)) return true;
-
-  const origin = request.headers.get("origin");
-  if (origin === null) return true;
-
-  try {
-    const browserOrigin = new URL(origin);
-    const aevonOrigin = new URL(request.url);
-    return (
-      isLoopbackHostname(browserOrigin.hostname) &&
-      isLoopbackHostname(aevonOrigin.hostname) &&
-      browserOrigin.origin === aevonOrigin.origin
-    );
-  } catch {
-    return false;
-  }
 }
 
 function localApiTokenFile(): string | null {
@@ -122,10 +100,14 @@ function requestHeaders(request: Request, token: string): Headers {
 }
 
 function responseHeaders(upstream: Response): Headers {
-  const headers = new Headers();
+  const headers = new Headers({ "Cache-Control": "no-store" });
   for (const name of FORWARDED_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
     if (value !== null) headers.set(name, value);
+  }
+  if (headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
+    headers.set("Cache-Control", "no-store, no-transform");
+    headers.set("X-Accel-Buffering", "no");
   }
   return headers;
 }
@@ -135,22 +117,29 @@ async function proxyRequest(request: Request, context: RouteContext): Promise<Re
     return jsonError("Cross-origin request denied", 403);
   }
 
+  const { path } = await context.params;
+  const route = resolveProxyRoute(request.method, path);
+  if (!route) return jsonError("Request not allowed", 404);
+  const url = new URL(request.url);
+  // Params are decoded by Next. Require the original URL to use that same
+  // canonical path, not encoded aliases or extra separators normalized by routing.
+  if (url.pathname !== route.pathname) return jsonError("Request not allowed", 404);
+  const query = resolveProxyQuery(route, url.searchParams);
+  if (query === null) return jsonError("Invalid request", 400);
+  const validated = await validateProxyBody(request, route.body);
+  if ("status" in validated) return jsonError(validated.detail, validated.status);
+
   const configuration = backendConfiguration();
   if (!configuration) return jsonError("Local API proxy is not configured", 503);
 
-  const { path } = await context.params;
-  if (!path.length) return jsonError("Not found", 404);
-  const encodedPath = path.map((segment) => encodeURIComponent(segment)).join("/");
-  const incomingUrl = new URL(request.url);
-  const upstreamUrl = `${configuration.origin}/api/${encodedPath}${incomingUrl.search}`;
-  const hasBody = request.method !== "GET" && request.method !== "HEAD" && request.body !== null;
-  const init: RequestInit & { duplex?: "half" } = {
+  const upstreamUrl = `${configuration.origin}${route.pathname}${query}`;
+  const init: RequestInit = {
     method: request.method,
     headers: requestHeaders(request, configuration.token),
     cache: "no-store",
     redirect: "manual",
     signal: request.signal,
-    ...(hasBody ? { body: request.body, duplex: "half" } : {}),
+    body: validated.body,
   };
 
   let upstream: Response;
@@ -184,5 +173,14 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
 }
 
 export function DELETE(request: Request, context: RouteContext): Promise<Response> {
+  return proxyRequest(request, context);
+}
+
+// Explicit handlers prevent Next from automatically accepting OPTIONS/HEAD.
+export function PUT(request: Request, context: RouteContext): Promise<Response> {
+  return proxyRequest(request, context);
+}
+
+export function OPTIONS(request: Request, context: RouteContext): Promise<Response> {
   return proxyRequest(request, context);
 }

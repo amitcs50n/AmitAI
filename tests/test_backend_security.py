@@ -77,6 +77,19 @@ def test_local_auth_uses_constant_time_comparison(
     assert comparisons == [("wrong-but-compared", LOCAL_TOKEN)]
 
 
+def test_post_memory_search_remains_authenticated(tmp_path: Path) -> None:
+    with TestClient(_secured_app(tmp_path)) as client:
+        for headers in [{}, {"Authorization": "Bearer wrong-token-with-padding"}]:
+            assert client.post(
+                "/api/memory/search", json={"query": "theme"}, headers=headers
+            ).status_code == 401
+        response = client.post(
+            "/api/memory/search", json={"query": "theme"}, headers=AUTHORIZATION
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+
+
 def test_missing_server_token_fails_closed(tmp_path: Path) -> None:
     application = create_app(
         _database_url(tmp_path / "locked.sqlite3"),

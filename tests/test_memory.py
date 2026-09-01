@@ -14,8 +14,14 @@ from backend.chat_service import (
     GenerationMessage,
 )
 from backend.database import Database
-from backend.memory import MemoryConflictError, MemoryService
+from backend.memory import (
+    MAX_MEMORY_CONTEXT_CHARS,
+    MAX_RETRIEVED_MEMORIES,
+    MemoryConflictError,
+    MemoryService,
+)
 from backend.models import MemoryRevision, MemorySlot, Message, MessageMetadata
+from backend.schemas import MemoryRead
 from evaluation.hf_backend import GenerationOutput
 from runtime.config import load_runtime_config
 from runtime.generator import TransformersChatGenerator
@@ -140,6 +146,80 @@ def test_memory_api_revision_tombstone_redaction_and_reactivation(
             None,
             "subtle RGB",
         ]
+
+
+@pytest.mark.parametrize("value", ["blue", "x" * 900])
+def test_memory_search_post_preserves_relevance_shape_limits_and_storage(
+    tmp_path: Path, value: str
+) -> None:
+    application = create_app(_database_url(tmp_path / "memory-search.sqlite3"))
+    with TestClient(application) as client:
+        for index in range(12):
+            _create_memory(client, category="project", key=f"searchtarget.item{index}", value=value)
+        unrelated = _create_memory(
+            client, category="profile", key="unrelated.subject", value="PRIVATE_CANARY_8899"
+        )
+        deleted = _create_memory(
+            client, category="project", key="searchtarget.deleted", value="FORGOTTEN_CANARY_7788"
+        )
+        client.delete(f"/api/memory/{deleted['id']}")
+        before = client.get("/api/memory").json()
+        tombstones = client.get("/api/memory", params={"status": "deleted"}).json()
+        with application.state.database.session_factory() as session:
+            revisions_before = session.scalar(select(func.count()).select_from(MemoryRevision))
+            expected = MemoryService(session).retrieve("searchtarget")
+
+        response = client.post("/api/memory/search", json={"query": " \tsearchtarget\n "})
+        assert response.status_code == 200
+        assert response.json() == [
+            MemoryRead.model_validate(item).model_dump(mode="json") for item in expected
+        ]
+        assert MAX_RETRIEVED_MEMORIES == 8
+        if value == "blue":
+            assert len(response.json()) == 8
+        else:
+            assert 0 < len(response.json()) < 8
+        assert sum(
+            len(json.dumps(item, ensure_ascii=False, separators=(",", ":"), sort_keys=True))
+            for item in response.json()
+        ) <= MAX_MEMORY_CONTEXT_CHARS == 4_000
+        assert unrelated["id"] not in {item["id"] for item in response.json()}
+        assert "PRIVATE_CANARY" not in response.text
+        assert "FORGOTTEN_CANARY" not in response.text
+        assert set(response.json()[0]) == {
+            "id", "operation", "category", "key", "value", "status", "source", "updated_at"
+        }
+        assert response.json()[0]["operation"] == "retrieved"
+        assert client.post("/api/memory/search", json={"query": "zzzznomatch"}).json() == []
+        assert client.get("/api/memory").json() == before
+        assert client.get("/api/memory", params={"status": "deleted"}).json() == tombstones
+        with application.state.database.session_factory() as session:
+            assert session.scalar(select(func.count()).select_from(MemoryRevision)) == revisions_before
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"query": ""}, {"query": " \n\t "}, {"query": "x" * 2001}, {"query": 42},
+    {"query": True}, {"query": None}, {"query": []}, {"query": {}}, [],
+    {"query": "theme", "category": "profile"}, {"query": "theme", "owner_id": "other"},
+])
+def test_memory_search_rejects_invalid_body(tmp_path: Path, payload: object) -> None:
+    application = create_app(_database_url(tmp_path / "memory-search-invalid.sqlite3"))
+    with TestClient(application) as client:
+        assert client.post("/api/memory/search", json=payload).status_code == 422
+        assert client.post("/api/memory/search").status_code == 422
+        assert client.post(
+            "/api/memory/search", content="{bad", headers={"Content-Type": "application/json"}
+        ).status_code == 422
+        assert client.get("/api/memory").json() == []
+
+
+def test_memory_search_query_url_is_rejected_not_silently_supported(tmp_path: Path) -> None:
+    application = create_app(_database_url(tmp_path / "memory-search-url.sqlite3"))
+    with TestClient(application) as client:
+        result = client.get("/api/memory", params={"query": "SEARCH_URL_CANARY_5678"})
+        assert result.status_code == 422
+        assert "SEARCH_URL_CANARY" not in result.text
+        assert client.post("/api/memory/search", json={"query": "x" * 2000}).status_code == 200
 
 
 @pytest.mark.parametrize(

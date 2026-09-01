@@ -105,14 +105,16 @@ export function deleteConversation(id: string): Promise<void> {
 
 export function listMemories(options: MemoryListOptions = {}): Promise<MemoryRecord[]> {
   const query = options.query?.trim();
-  const parameters = new URLSearchParams();
   if (query) {
-    parameters.set("query", query);
-  } else {
-    if (options.category) parameters.set("category", options.category);
-    if (options.status && options.status !== "active") {
-      parameters.set("status", options.status);
-    }
+    return apiFetch<MemoryRecord[]>("/api/memory/search", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    });
+  }
+  const parameters = new URLSearchParams();
+  if (options.category) parameters.set("category", options.category);
+  if (options.status && options.status !== "active") {
+    parameters.set("status", options.status);
   }
   const suffix = parameters.size ? `?${parameters.toString()}` : "";
   return apiFetch<MemoryRecord[]>(`/api/memory${suffix}`);
