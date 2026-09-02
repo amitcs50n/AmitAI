@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
 import re
 import secrets
@@ -64,6 +65,15 @@ def default_asset_directory(namespace: str) -> Path:
             Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))) / "amitai"
         )
     return base / "assets" / namespace
+
+
+def database_asset_namespace(database_name: str | Path | None) -> str:
+    """Shared database identity for normal startup and relocated restores."""
+    identity = (
+        str(Path(database_name).resolve())
+        if database_name and str(database_name) != ":memory:" else "in-memory"
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
 def _windows_permissions():
@@ -266,6 +276,11 @@ class AssetStorage:
     @_safe_storage
     def read(self, asset_id: str) -> bytes:
         return decrypt_asset(asset_id, self._read_bounded(self._path(asset_id)), self._key_bytes())
+
+    @_safe_storage
+    def read_ciphertext(self, asset_id: str) -> bytes:
+        """Bounded ciphertext access for a verified local backup, never a plaintext export."""
+        return self._read_bounded(self._path(asset_id))
 
     @_safe_storage
     def delete(self, asset_id: str) -> None:

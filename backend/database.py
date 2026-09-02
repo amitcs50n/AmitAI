@@ -251,7 +251,9 @@ def _artifact_fingerprint(path: Path) -> tuple[tuple[str, int, str], ...]:
 
 
 def _fsync_file(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDWR)
+    # Windows CRT text-mode read/write opens strip a trailing CTRL+Z (0x1A).
+    # Ciphertext may end with any byte, so even a flush-only open must be binary.
+    descriptor = os.open(path, os.O_RDWR | getattr(os, "O_BINARY", 0))
     try:
         os.fsync(descriptor)
     finally:
@@ -473,6 +475,74 @@ def database_key_opens(path: Path, key: DatabaseKeyInput) -> bool:
     finally:
         if connection is not None:
             connection.close()
+
+
+def export_encrypted_snapshot(
+    path: Path,
+    key: DatabaseKeyInput,
+    candidate: Path,
+    *,
+    phase_hook: Callable[[str], None] | None = None,
+) -> None:
+    """Export a committed SQLCipher snapshot to a caller-owned private empty file.
+
+    Main is never copied/replaced or rekeyed. BEGIN IMMEDIATE prevents writers
+    during selection/export, including in WAL mode. Only the attached snapshot
+    is written. Temporary SQL data stays in RAM. No SQLAlchemy key/row logging.
+    """
+    if (
+        path.resolve() == candidate.resolve()
+        or not path.is_file()
+        or not candidate.is_file()
+        or candidate.stat().st_size != 0
+        or _looks_like_plaintext_sqlite(path)
+    ):
+        raise EncryptedStorageError("Encrypted snapshot could not be created")
+    driver = _load_sqlcipher_driver()
+    _verify_sqlcipher_driver(driver)
+    connection = None
+    try:
+        connection = driver.connect(str(path), timeout=0, isolation_level=None)
+        cursor = connection.cursor()
+        try:
+            with _temporary_database_key(key) as temporary:
+                cursor.execute(_key_pragma(temporary))
+                escaped = str(candidate).replace("'", "''")
+                cursor.execute(f"ATTACH DATABASE '{escaped}' AS snapshot KEY \"x'{temporary}'\"")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA snapshot.journal_mode=DELETE")
+            cursor.execute("BEGIN IMMEDIATE")
+            if not _integrity_is_ok(cursor) or not _cipher_integrity_is_ok(cursor):
+                raise EncryptedStorageError("Encrypted snapshot verification failed")
+            tables = _user_tables(cursor, "main")
+            schema = _schema_records(cursor, "main")
+            counts = _table_counts(cursor, "main", tables)
+            rows = _representative_rows(cursor, "main", tables)
+            user_version = int(cursor.execute("PRAGMA main.user_version").fetchone()[0])
+            if not REQUIRED_APPLICATION_TABLES.issubset(tables):
+                raise EncryptedStorageError("Encrypted snapshot schema is unsupported")
+            cursor.execute("SELECT sqlcipher_export('snapshot')").fetchone()
+            cursor.execute(f"PRAGMA snapshot.user_version={user_version}")
+            if phase_hook:
+                phase_hook("snapshot_exported")
+            cursor.execute("COMMIT")
+            cursor.execute("DETACH DATABASE snapshot")
+        finally:
+            cursor.close()
+            connection.close()
+            connection = None
+        _verify_encrypted_candidate(
+            candidate, key, driver, expected_tables=tables, expected_schema=schema,
+            expected_counts=counts, expected_rows=rows, expected_user_version=user_version,
+        )
+        if _looks_like_plaintext_sqlite(candidate):
+            raise EncryptedStorageError("Encrypted snapshot verification failed")
+        _fsync_file(candidate)
+    except Exception:  # noqa: BLE001 - raw DBAPI errors may include key-bearing SQL
+        raise EncryptedStorageError("Encrypted snapshot could not be created") from None
+    finally:
+        if connection is not None:
+            connection.close()  # rolls back on failure, including interrupted export
 
 
 def rotate_encrypted_database(

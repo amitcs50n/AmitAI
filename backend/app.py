@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import threading
@@ -24,7 +23,12 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from .asset_keys import load_asset_key
 from .asset_migration import migrate_assets
 from .asset_routes import router as asset_router
-from .asset_storage import AssetStorage, AssetStorageError, default_asset_directory
+from .asset_storage import (
+    AssetStorage,
+    AssetStorageError,
+    database_asset_namespace,
+    default_asset_directory,
+)
 from .assets import AssetError, AssetService
 from .chat_service import (
     ChatGenerationError,
@@ -104,8 +108,7 @@ def create_app(
     stream_gate: asyncio.Semaphore | None = None
     # Dedicated per-database namespace; never use a client filename or path.
     database_name = database.engine.url.database
-    database_identity = str(Path(database_name).resolve()) if database_name and database_name != ":memory:" else "in-memory"
-    namespace = hashlib.sha256(database_identity.encode()).hexdigest()[:24]
+    namespace = database_asset_namespace(database_name)
     asset_storage = AssetStorage(
         asset_directory or default_asset_directory(namespace)
     )

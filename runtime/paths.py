@@ -86,6 +86,10 @@ def rotation_journal_path(key_file: Path) -> Path:
     return key_file.with_name(f"{key_file.name}.rotation")
 
 
+def restore_journal_path(key_file: Path) -> Path:
+    return key_file.with_name(f"{key_file.name}.restore")
+
+
 def rotation_candidate_path(database_path: Path) -> Path:
     return database_path.with_name(f".{database_path.name}.amitai-rotating")
 

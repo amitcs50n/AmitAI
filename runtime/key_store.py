@@ -30,6 +30,7 @@ from .paths import (
     atomic_write_private,
     read_private,
     remove_private,
+    restore_journal_path,
     rotation_candidate_path,
     rotation_journal_path,
     validate_key_file_path,
@@ -358,6 +359,14 @@ class KeyStore:
         self.rotation_file = rotation_journal_path(self.key_file)
         self.policy = policy
 
+    def require_no_restore(self) -> None:
+        marker = restore_journal_path(self.key_file)
+        if marker.exists() or marker.is_symlink():
+            raise KeyStoreError(
+                "Restore recovery required; rerun runtime.backup restore --resume "
+                "with the same input and destinations"
+            )
+
     @property
     def rotation_recovery_required(self) -> bool:
         return self.rotation_file.exists()
@@ -436,6 +445,7 @@ class KeyStore:
         database_path: Path | None = None,
         database_key: bytes | None = None,
     ) -> None:
+        self.require_no_restore()
         _validate_passphrase(passphrase)
         if self.key_file.exists() or self.rotation_file.exists():
             raise KeyStoreError("Key store is already initialized")
@@ -456,6 +466,7 @@ class KeyStore:
         database_key_hex: str,
         passphrase: str,
     ) -> None:
+        self.require_no_restore()
         _validate_passphrase(passphrase)
         if self.key_file.exists() or self.rotation_file.exists():
             raise KeyStoreError("Key store is already initialized")
@@ -475,6 +486,7 @@ class KeyStore:
         *,
         database_path: Path | None = None,
     ) -> DatabaseKeyHandle:
+        self.require_no_restore()
         try:
             if self.rotation_file.exists():
                 if database_path is None:
@@ -489,6 +501,7 @@ class KeyStore:
             raise UnlockError("Unlock failed") from None
 
     def change_passphrase(self, old_passphrase: str, new_passphrase: str) -> None:
+        self.require_no_restore()
         if self.rotation_recovery_required:
             raise KeyRotationError(ROTATION_RECOVERY_REQUIRED_MESSAGE)
         _validate_passphrase(new_passphrase)
@@ -598,6 +611,7 @@ class KeyStore:
         phase_hook: Callable[[str], None] | None = None,
         new_database_key: bytes | None = None,
     ) -> None:
+        self.require_no_restore()
         hook = phase_hook or (lambda _phase: None)
         if self.rotation_file.exists():
             self.recover_rotation(database_path, passphrase)
@@ -669,6 +683,7 @@ class KeyStore:
             _zero(wrapping_key)
 
     def recover_rotation(self, database_path: Path, passphrase: str) -> None:
+        self.require_no_restore()
         try:
             _, old_key, new_key, wrapping_key, kdf = self._read_rotation(passphrase)
         except (KeyStoreError, PrivatePathError):

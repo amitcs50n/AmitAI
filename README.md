@@ -485,12 +485,12 @@ Complete generated orphans are also authenticated/migrated (canonical-container 
 metadata survives), then follow normal expiry cleanup. Abandoned generated upload/migration
 temps are removed during offline startup; unrelated names/directories are never traversed.
 
-**Backup/recovery foundation:** a complete future restore requires the encrypted database
-(including its AEK), encrypted asset directory, and the existing passphrase/key-envelope recovery
-material. Database-only backups preserve metadata/history but **not image bytes**. Assets without
-the matching DB lack their key/metadata. Moving a DB requires separately moving its asset
-namespace; the AAD does not bind the old filesystem location. No separate AEK backup, automated
-backup packaging, restore UI or asset-key rotation is implemented in V1.
+**Backup/recovery:** the [encrypted local backup CLI](#encrypted-local-backup-and-recovery)
+packages the encrypted database (including its AEK), its referenced encrypted assets, and the
+existing wrapped database key. Database-only copies do **not** preserve image bytes. Restore
+derives the asset namespace from the new DB path; asset authentication does not bind the old
+filesystem location. There is no separate AEK backup, automatic backup, restore UI or asset-key
+rotation.
 
 `DELETE /api/assets/{id}` hard-deletes metadata, detaches it from history, and removes ciphertext
 without decrypting it;
@@ -1002,6 +1002,83 @@ Do not intentionally place the AmitAI data directory in OneDrive, Google Drive, 
 or another automatic sync folder unless you understand that encrypted database blobs and file
 metadata will be uploaded. Encryption makes copied blobs unreadable without the key; it does not
 prevent cloud copies from existing.
+
+### Encrypted local backup and recovery
+
+With the encrypted-storage and secure-runtime dependencies above installed, stop Aevon and any
+key-management operations, then explicitly choose an absolute output filename:
+
+```powershell
+python -m runtime.backup create --output "D:\Backups\aevon.amitai-backup"
+```
+
+On the replacement machine, install the same dependencies and restore **before** running
+`keyctl init` or starting Aevon:
+
+```powershell
+python -m runtime.backup restore --input "D:\Backups\aevon.amitai-backup"
+```
+
+Both commands default to `./amitai.db` and the normal platform KeyStore path. Both accept
+`--database-file` and `--key-file`, for example:
+
+```powershell
+python -m runtime.backup restore --input "D:\Backups\aevon.amitai-backup" --database-file "C:\AevonData\restored.db" --key-file "C:\AevonSecrets\database-key.json"
+```
+
+Start Aevon with those same destination overrides. The new database path determines the new
+canonical asset namespace; no original machine path is needed. Programmatic custom
+`asset_directory` overrides are not supported by this CLI. Existing asset expiry/deletion rules
+still apply after restore, including expiry of temporary uploads.
+
+The hidden prompt asks for the **existing Aevon unlock passphrase**; there is no passphrase CLI
+argument/environment option, second password or recovery key. A backup keeps the envelope from
+creation time: later passphrase changes or DB-key rotation do not update older backups. Use the
+passphrase that applied when that backup was created. No local API or inference tokens are backed
+up; normal secure startup creates a fresh local runtime token.
+
+V1 is a stored/uncompressed ZIP with only `manifest.json`, `database.bin`,
+`database-key-envelope.json`, and `assets/<uuid>.asset`. The manifest contains a format/version,
+random backup ID, ciphertext sizes/SHA-256 hashes, and asset IDs/count. Source paths, uploaded
+filenames, ACLs and source timestamps are not ZIP/manifest metadata. Sizes and asset IDs are
+visible; SHA-256 is an integrity check, not a signed manifest or rollback-prevention mechanism.
+Limits are 10,000 assets, 1 GiB database, 32 KiB envelope, 4 MiB manifest, existing per-asset size
+limits, and an archive strictly smaller than 2 GiB. ZIP64/compression and unexpected members are
+rejected. There is no plaintext export: the archive contains the SQLCipher snapshot, encrypted
+images and passphrase-wrapped DB key, **not** a raw DB key, plaintext image, chat or memory export.
+
+Create uses a SQLCipher transactional export under the same DB key, never a live-file copy. It
+checks schema/data, `user_version`, SQLite integrity and cipher integrity. A writer lock captures
+committed state, including WAL commits; later writes are not part of the snapshot. Every asset
+row in that snapshot must have matching authenticated ciphertext and normalized-image metadata;
+decryption for verification stays in memory. Unreferenced orphan files are ignored. Concurrent
+deletion, busy storage, key changes, pending key rotation or missing/corrupt assets fail closed;
+stopping Aevon is the recommended way to avoid such failures.
+
+Create privately stages, fsyncs and reopens/verifies the archive before atomic, no-overwrite
+publication. Choose a new output filename for each backup. Restore rejects existing DB/key or
+nonempty asset destinations; **there is no `--force`**. It validates the entire bounded archive,
+then the staged key, SQLCipher DB and every referenced asset, before installing assets, DB, and
+wrapped key **last**. Final files are owner-only. Atomic publication requires hard-link-capable
+storage (for example NTFS); FAT/exFAT and filesystems lacking the required private permissions
+are not supported. Temporary candidates are on each destination filesystem and require spare
+space for staging, including a second restored ciphertext copy.
+
+An interrupted install leaves a tiny private `<key-file>.restore` marker with only backup ID and
+phase. Normal unlock/key mutations refuse while it exists. Keep Aevon stopped and re-run the
+**same restore command and destinations with `--resume`**. Resume fully revalidates the backup
+and accepts existing files only when their ciphertext exactly matches; it never overwrites
+changed targets. Do not manually remove the marker to bypass verification. If recovery artifacts
+were changed, restore to fresh DB/key destinations instead. Ordinary failures clean generated
+staging directories; process/OS crashes may leave private `.amitai-backup-*` ciphertext staging
+directories, which are not trusted or reused by resume. Power-loss durability remains dependent
+on the filesystem/OS; directory fsync is best-effort where unsupported.
+
+Keep a backup physically separate from the laptop and test recovery. Losing both the backup and
+the current installation loses the data; forgetting the backup's unlock passphrase makes its
+ciphertext unrecoverable through this mechanism. This is explicit local backup, not cloud sync,
+scheduled/automatic backup or a retention service. Same-user/OS compromise while Aevon is
+unlocked remains outside this backup-at-rest guarantee.
 
 The default provider is still `mock`. Local GPU inference remains available and preserves lazy
 one-model-per-process initialization plus serialized generation:

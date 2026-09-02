@@ -16,7 +16,9 @@ class AssetKeyError(RuntimeError):
     """An unavailable/inconsistent key must never cause silent replacement."""
 
 
-def load_asset_key(engine: Engine, storage: AssetStorage) -> SecretHandle:
+def load_asset_key(
+    engine: Engine, storage: AssetStorage, *, create_if_missing: bool = True,
+) -> SecretHandle:
     """Commit the singleton before file migration; retain only a locked handle.
 
     This private SQLite/SQLCipher DBAPI path deliberately avoids SQLAlchemy's
@@ -37,6 +39,8 @@ def load_asset_key(engine: Engine, storage: AssetStorage) -> SecretHandle:
                 cursor.execute("SELECT id, format_version, key_material FROM asset_encryption_state")
                 rows = cursor.fetchmany(2)
                 if not rows:
+                    if not create_if_missing:
+                        raise ValueError
                     # Includes encrypted orphans and interrupted-write files, not just DB rows.
                     storage.assert_key_creation_safe()
                     material = secrets.token_bytes(32)
