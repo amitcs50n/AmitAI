@@ -21,6 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .asset_keys import load_asset_key
+from .asset_migration import migrate_assets
 from .asset_routes import router as asset_router
 from .asset_storage import AssetStorage, AssetStorageError, default_asset_directory
 from .assets import AssetError, AssetService
@@ -123,32 +125,41 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         nonlocal stream_executor, stream_gate
-        database.create_schema()
-        await asyncio.to_thread(cleanup_assets)
-        cleanup_task = asyncio.create_task(periodic_asset_cleanup())
-        stream_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="amitai-chat-stream",
-        )
-        stream_gate = asyncio.Semaphore(1)
+        cleanup_task = None
         try:
+            database.create_schema()
+            asset_storage.bind_key(load_asset_key(database.engine, asset_storage))
+            # Key is durably committed. Migration errors must abort startup, not be
+            # swallowed by the best-effort periodic cleanup failure handler below.
+            await asyncio.to_thread(migrate_assets, database.session_factory, asset_storage)
+            await asyncio.to_thread(cleanup_assets)
+            cleanup_task = asyncio.create_task(periodic_asset_cleanup())
+            stream_executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="amitai-chat-stream",
+            )
+            stream_gate = asyncio.Semaphore(1)
             yield
         finally:
-            cleanup_task.cancel()
-            try:
-                await cleanup_task
-            except asyncio.CancelledError:
-                pass
+            if cleanup_task is not None:
+                cleanup_task.cancel()
+                try:
+                    await cleanup_task
+                except asyncio.CancelledError:
+                    pass
             executor = stream_executor
             stream_executor = None
             stream_gate = None
-            if executor is not None:
-                await asyncio.to_thread(
-                    executor.shutdown,
-                    wait=True,
-                    cancel_futures=True,
-                )
-            database.engine.dispose()
+            try:
+                if executor is not None:
+                    await asyncio.to_thread(
+                        executor.shutdown,
+                        wait=True,
+                        cancel_futures=True,
+                    )
+            finally:
+                asset_storage.close()
+                database.engine.dispose()
 
     application = FastAPI(
         title="AmitAI Backend",

@@ -88,7 +88,7 @@ def test_valid_upload_metadata_canonical_preview_and_delete(client, app, format,
     assert preview.headers["cache-control"] == "no-store"
     assert preview.headers["x-content-type-options"] == "nosniff"
     assert len(preview.content) == asset["byte_size"]
-    assert [path.name for path in app.state.asset_storage.root.iterdir()] == [f"{asset['id']}.png"]
+    assert [path.name for path in app.state.asset_storage.root.iterdir()] == [f"{asset['id']}.asset"]
     with Image.open(BytesIO(preview.content)) as decoded:
         assert decoded.format == "PNG"
         assert not decoded.info
@@ -121,7 +121,7 @@ def test_filename_is_only_sanitized_leaf_display_metadata(client, app, name):
         fragment not in json.dumps(asset)
         for fragment in ["C:\\Users", "Desktop", "../", "<script>"]
     )
-    assert next(app.state.asset_storage.root.iterdir()).name == f"{asset['id']}.png"
+    assert next(app.state.asset_storage.root.iterdir()).name == f"{asset['id']}.asset"
 
 
 def test_strip_exif_orientation_and_png_text_metadata(client, caplog):
@@ -337,7 +337,7 @@ def test_temporary_cleanup_orphans_restart_and_remote_fail_closed(client, app):
     assert counts(app) == (0, 0, 0)
     orphan = str(uuid4())
     app.state.asset_storage.write(orphan, image_bytes())
-    path = app.state.asset_storage.root / f"{orphan}.png"
+    path = app.state.asset_storage.root / f"{orphan}.asset"
     os.utime(path, (0, 0))
     with app.state.database.session_factory() as session:
         assert AssetService(session, app.state.asset_storage).cleanup() == 1

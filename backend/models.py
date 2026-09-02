@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -123,6 +124,22 @@ class MessageMetadata(Base):
     memory_refs_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
     message: Mapped[Message] = relationship(back_populates="metadata_record")
+
+
+class AssetEncryptionState(Base):
+    """Private singleton key material; deliberately absent from API schemas."""
+
+    __tablename__ = "asset_encryption_state"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_asset_key_singleton"),
+        CheckConstraint("format_version = 1", name="ck_asset_key_version"),
+        CheckConstraint("length(key_material) = 32", name="ck_asset_key_length"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    key_material: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
 
 
 class UploadedAsset(Base):

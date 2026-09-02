@@ -236,17 +236,65 @@ Explicit API clients may upload with `persistence_mode=conversation` plus an exi
 conversation ID. Assets cannot be silently reassigned between conversations. Missing, expired,
 deleted, duplicate or excessive references fail cleanly and do not persist a turn.
 
-**Local storage and deletion:** metadata/linkage live in the existing database. Canonical image
-bytes live separately at `%LOCALAPPDATA%/AmitAI/assets/<database-namespace>/<uuid>.png` on Windows,
+**Encrypted local image storage:** metadata/linkage live in the existing SQLCipher database.
+Normalized images are AES-256-GCM authenticated ciphertext, stored separately as
+`%LOCALAPPDATA%/AmitAI/assets/<database-namespace>/<uuid>.asset` on Windows,
 `~/Library/Application Support/AmitAI/assets/...` on macOS, or
 `${XDG_DATA_HOME:-~/.local/share}/amitai/assets/...` on Linux. The namespace is a hash of the
 configured database's absolute location. This app-controlled directory and files are owner-only
 (Windows requires the existing `secure-runtime` extra). Links/reparse points are rejected.
-**These separate PNG files are plaintext, not SQLCipher-encrypted.** Protect the volume/backups
-accordingly. Moving a database requires separately moving its asset namespace; do not treat a
-database-only backup as a complete image backup.
 
-`DELETE /api/assets/{id}` hard-deletes metadata, detaches it from history, and removes its PNG;
+A dedicated, independent random 32-byte asset encryption key (AEK) is stored only in the private
+`asset_encryption_state` singleton inside SQLCipher. It is not derived from the passphrase,
+database key, or API tokens, and has no API/schema/export representation. Passphrase changes
+rewrap the database key; SQLCipher key rotation preserves the AEK record. Neither operation
+re-encrypts image files. One locked, mutable key handle is loaded at startup and zeroized at
+shutdown or startup failure, using the same secure-memory implementation as the database key.
+DBAPI, Python and cryptographic libraries can still create transient immutable copies.
+Explicit plaintext SQLite test mode stores the same key row **unencrypted**; that mode does not
+provide strong asset-at-rest protection and is not the canonical secure runtime.
+
+V1 framing is eight-byte magic `AMITASST`, version byte `1`, a fresh random 12-byte nonce, and
+ciphertext with its full 16-byte GCM tag. AAD is the byte concatenation
+`b"amitai:image-asset\x00" + b"AMITASST\x01" + UUID(asset_id).bytes`; it contains no path or
+database namespace. Asset swapping, wrong keys, altered/truncated bytes, unknown versions and
+oversized files fail closed with generic errors. Maximum plaintext remains 20 MiB; maximum
+ciphertext is 20 MiB + 37 bytes (20,971,557 bytes). The existing SHA-256 still describes the
+normalized plaintext and is checked after authenticated decryption.
+
+Encryption happens in memory before any write. Only ciphertext enters same-directory,
+owner-only temporary files; they are flushed/fsynced then atomically replaced. Directory fsync
+is used on supported POSIX filesystems; Windows uses file `FlushFileBuffers` but has no directory
+fsync equivalent here. No plaintext image temp, preview cache or migration backup is created.
+Authenticated previews decrypt only in backend memory and continue returning normalized
+`image/png` with no-store, nosniff and same-origin headers. Browser storage and conversation JSON
+exports still contain no image bytes, AEK or ciphertext paths. Remote image processing remains
+disabled; vision/OCR/edit/generation is still not implemented.
+
+**Legacy migration:** stop every other backend process and use one worker. After DB unlock and
+schema creation, the AEK is durably committed **before** migration. Startup verifies each legacy
+PNG's canonical container, dimensions, stored plaintext size and SHA-256. It writes/fsyncs a
+ciphertext temp, replaces the original `.png` pathname with ciphertext, then renames it to
+`.asset`. Startup does not serve requests until migration succeeds. A crash before replacement
+leaves the original PNG and possibly a ciphertext temp; restart uses the same committed key and
+retries. A crash after replacement leaves encrypted bytes under `.png`; restart authenticates
+and renames them without re-encryption. Existing `.asset` files are authenticated and unchanged.
+Unknown/mismatching files, conflicting representations, bad permissions and missing/corrupt key
+state fail startup without silently deleting images or generating a replacement key. Missing
+files retain their metadata and remain unavailable; migration never recreates image content.
+Complete generated orphans are also authenticated/migrated (canonical-container checks when no
+metadata survives), then follow normal expiry cleanup. Abandoned generated upload/migration
+temps are removed during offline startup; unrelated names/directories are never traversed.
+
+**Backup/recovery foundation:** a complete future restore requires the encrypted database
+(including its AEK), encrypted asset directory, and the existing passphrase/key-envelope recovery
+material. Database-only backups preserve metadata/history but **not image bytes**. Assets without
+the matching DB lack their key/metadata. Moving a DB requires separately moving its asset
+namespace; the AAD does not bind the old filesystem location. No separate AEK backup, automated
+backup packaging, restore UI or asset-key rotation is implemented in V1.
+
+`DELETE /api/assets/{id}` hard-deletes metadata, detaches it from history, and removes ciphertext
+without decrypting it;
 ordinary message text is untouched. Conversation deletion also removes its assets. Temporary
 uploads expire after 24 hours and become unreadable even before cleanup. Startup and hourly
 cleanup remove expired records/files and unreferenced generated files older than 24 hours,
@@ -255,6 +303,9 @@ disk-removal failure makes the image inaccessible immediately and cleanup retrie
 Orphan grace prevents cleanup racing a fresh upload; stop extra backend processes before
 maintenance. Use one backend worker as already recommended. Cleanup runs only while the backend
 is running and cannot guarantee physical erasure from SSDs, snapshots or backups.
+Encryption at rest does not protect an unlocked process from same-user malware or compromised
+application code, and does not make any future remote inference provider blind to supplied
+plaintext. OS/full-disk encryption remains complementary protection.
 
 `runtime/media.py` defines lightweight analysis/edit/generation request DTOs referencing IDs.
 `AssetService.processing_bytes()` is the normalized-image preparation seam; remote access fails
