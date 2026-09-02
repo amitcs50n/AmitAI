@@ -1,15 +1,17 @@
-"""Load and validate the tested AmitAI model-runtime configuration."""
+"""Validated model settings with separate production and frozen evaluation prompts."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from string import Template
 from typing import Any
 
 import yaml
 
 DEFAULT_RUNTIME_CONFIG_PATH = Path("configs/baseline_eval_v2_constrained.yaml")
+DEFAULT_PRODUCTION_PROFILE_PATH = Path(__file__).resolve().parents[1] / "configs/production_runtime.yaml"
 EXPECTED_MODEL_NAME = "OBLITERATUS/Qwen3.8-27B-OBLITERATED"
 EXPECTED_MODEL_REVISION = "a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8"
 
@@ -42,6 +44,7 @@ def _integer(value: Any, field: str, *, minimum: int = 0) -> int:
 
 
 def load_runtime_config(path: str | Path = DEFAULT_RUNTIME_CONFIG_PATH) -> RuntimeConfig:
+    """Load the literal config, including its original prompt, without overrides."""
     source_path = Path(path)
     try:
         document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
@@ -109,4 +112,34 @@ def load_runtime_config(path: str | Path = DEFAULT_RUNTIME_CONFIG_PATH) -> Runti
         model=model,
         generation=generation,
         mechanical_constraints_enabled=True,
+    )
+
+
+def load_production_runtime_config(
+    path: str | Path = DEFAULT_RUNTIME_CONFIG_PATH,
+    *,
+    profile_path: str | Path = DEFAULT_PRODUCTION_PROFILE_PATH,
+) -> RuntimeConfig:
+    """Compose prompt-only production identity with the unchanged validated settings.
+
+    source_path still identifies the model/generation settings file. The profile
+    cannot override model, sampling or validator settings, and template values
+    come only from the validated config, never from the process environment.
+    """
+    config = load_runtime_config(path)
+    try:
+        document = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError("Unable to read production runtime profile") from exc
+    profile = _mapping(document, "production profile")
+    if set(profile) != {"schema_version", "runtime_system_prompt"}:
+        raise ValueError("Production runtime profile must contain only version and prompt")
+    if type(profile["schema_version"]) is not int or profile["schema_version"] != 1:
+        raise ValueError("Unsupported production runtime profile version")
+    template = Template(_nonempty_string(profile["runtime_system_prompt"], "production prompt"))
+    if not template.is_valid() or template.get_identifiers() != ["model_name"]:
+        raise ValueError("Production runtime prompt must reference only the configured model_name")
+    return replace(
+        config,
+        runtime_system_prompt=template.substitute(model_name=config.model["name"]),
     )

@@ -1080,6 +1080,29 @@ ciphertext unrecoverable through this mechanism. This is explicit local backup, 
 scheduled/automatic backup or a retention service. Same-user/OS compromise while Aevon is
 unlocked remains outside this backup-at-rest guarantee.
 
+#### Production assistant identity
+
+Aevon is the assistant; AmitAI is its software project/platform; Qwen is the underlying model,
+not the assistant's name. The prompt-only `configs/production_runtime.yaml` supplies the
+production identity and concise behavioral guidance. Its model identifier is populated from
+the validated model configuration, currently `OBLITERATUS/Qwen3.8-27B-OBLITERATED`. The prompt
+instructs Aevon to give its name when asked, accurately identify its configured model when asked,
+and avoid irrelevant identity announcements.
+
+Normal local and remote chat startup automatically uses `load_production_runtime_config()`;
+streaming, mechanical retries and vision sessions inherit that same prompt. System/tool
+instructions, trusted memory, recent history and the current user retain their existing order
+and privacy limits. Mock mode remains unchanged and does not invoke a model.
+
+`AMITAI_RUNTIME_CONFIG` still selects the **model/generation settings** file, defaulting to
+`configs/baseline_eval_v2_constrained.yaml`; it does not replace the production prompt. This
+keeps checkpoint, revision, BF16, generation and validator settings in one validated source.
+The frozen YAML is unmodified. `load_runtime_config()` retains its literal prompt, and
+`python -m evaluation.run_baseline --config configs/baseline_eval_v2_constrained.yaml` still
+evaluates the original "You are AmitAI" baseline. The stateless inference server forwards
+caller-supplied messages rather than injecting a second identity prompt. These are prompt
+instructions, not a guarantee of model compliance; no sampling or model tuning is included.
+
 The default provider is still `mock`. Local GPU inference remains available and preserves lazy
 one-model-per-process initialization plus serialized generation:
 

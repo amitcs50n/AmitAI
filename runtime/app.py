@@ -13,7 +13,7 @@ from backend.app import create_app as create_backend_app
 from backend.chat_service import ResponseGenerator
 from backend.database import DEFAULT_DATABASE_URL, DatabaseKeyInput
 
-from .config import DEFAULT_RUNTIME_CONFIG_PATH, RuntimeConfig, load_runtime_config
+from .config import DEFAULT_RUNTIME_CONFIG_PATH, RuntimeConfig, load_production_runtime_config
 from .generator import ProviderChatGenerator, TransformersChatGenerator
 from .providers import InferenceProvider, RemoteInferenceProvider
 
@@ -47,7 +47,7 @@ def select_response_generator(
         "AMITAI_RUNTIME_CONFIG",
         str(DEFAULT_RUNTIME_CONFIG_PATH),
     )
-    config = load_runtime_config(selected_config)
+    config = load_production_runtime_config(selected_config)
     if selected_mode == "transformers":
         return generator_factory(config)
 
