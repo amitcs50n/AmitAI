@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -28,6 +28,7 @@ def select_response_generator(
     generator_factory: RuntimeGeneratorFactory = TransformersChatGenerator,
     remote_endpoint: str | None = None,
     remote_token: str | None = None,
+    remote_allowed_origins: str | Sequence[str] | None = None,
     remote_provider_factory: RemoteProviderFactory = RemoteInferenceProvider,
 ) -> ResponseGenerator | None:
     selected_mode = (
@@ -50,8 +51,8 @@ def select_response_generator(
     if selected_mode == "transformers":
         return generator_factory(config)
 
-    endpoint = remote_endpoint or os.getenv("AMITAI_REMOTE_INFERENCE_URL")
-    token = remote_token or os.getenv("AMITAI_REMOTE_INFERENCE_TOKEN")
+    endpoint = remote_endpoint if remote_endpoint is not None else os.getenv("AMITAI_REMOTE_INFERENCE_URL")
+    token = remote_token if remote_token is not None else os.getenv("AMITAI_REMOTE_INFERENCE_TOKEN")
     if not endpoint or not token:
         raise ValueError(
             "Remote inference requires AMITAI_REMOTE_INFERENCE_URL and "
@@ -61,6 +62,10 @@ def select_response_generator(
         endpoint=endpoint,
         token=token,
         model_name=str(config.model["name"]),
+        allowed_origins=(
+            remote_allowed_origins if remote_allowed_origins is not None
+            else os.getenv("AMITAI_REMOTE_INFERENCE_ALLOWED_ORIGINS")
+        ),
     )
     return ProviderChatGenerator(config, provider=provider)
 
@@ -76,6 +81,7 @@ def create_runtime_app(
     generator_factory: RuntimeGeneratorFactory = TransformersChatGenerator,
     remote_endpoint: str | None = None,
     remote_token: str | None = None,
+    remote_allowed_origins: str | Sequence[str] | None = None,
     remote_provider_factory: RemoteProviderFactory = RemoteInferenceProvider,
     local_api_token: str | None = None,
     enforce_local_auth: bool = True,
@@ -87,6 +93,7 @@ def create_runtime_app(
         generator_factory=generator_factory,
         remote_endpoint=remote_endpoint,
         remote_token=remote_token,
+        remote_allowed_origins=remote_allowed_origins,
         remote_provider_factory=remote_provider_factory,
     )
     return create_backend_app(

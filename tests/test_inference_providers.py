@@ -20,6 +20,12 @@ from runtime.privacy import InferenceExecutionScope
 from runtime.providers import InferenceProviderError, RemoteInferenceProvider
 from tests.app_factory import create_test_runtime_app as create_runtime_app
 
+TEST_TOKEN = "inference_test_token_material_0123456789"
+
+
+def public_dns(_hostname, _port):
+    return ["8.8.8.8", "2606:4700:4700::1111"]
+
 
 class RecordingProvider:
     execution_scope = InferenceExecutionScope.REMOTE
@@ -56,7 +62,8 @@ def _remote_app(tmp_path: Path, provider: RecordingProvider):
         mode="remote",
         config_path=DEFAULT_RUNTIME_CONFIG_PATH,
         remote_endpoint="https://inference.invalid",
-        remote_token="development-token",
+        remote_token=TEST_TOKEN,
+        remote_allowed_origins=["https://inference.invalid"],
         remote_provider_factory=lambda **_kwargs: provider,
     )
 
@@ -68,7 +75,7 @@ def test_remote_provider_sends_only_stateless_generation_contract() -> None:
         payload = json.loads(request.content)
         captured.update(payload)
         assert request.url.path == "/v1/generate"
-        assert request.headers["Authorization"] == "Bearer service-token"
+        assert request.headers["Authorization"] == f"Bearer {TEST_TOKEN}"
         return httpx.Response(
             200,
             json={
@@ -82,8 +89,9 @@ def test_remote_provider_sends_only_stateless_generation_contract() -> None:
 
     provider = RemoteInferenceProvider(
         "https://gpu.example",
-        "service-token",
+        TEST_TOKEN,
         EXPECTED_MODEL_NAME,
+        allowed_origins=["https://gpu.example"], resolver=public_dns,
         transport=httpx.MockTransport(handler),
     )
 
@@ -112,7 +120,8 @@ def test_remote_provider_sends_only_stateless_generation_contract() -> None:
     ],
 )
 def test_remote_provider_accepts_https_and_loopback_http(endpoint: str) -> None:
-    provider = RemoteInferenceProvider(endpoint, "development-token", EXPECTED_MODEL_NAME)
+    provider = RemoteInferenceProvider(endpoint, TEST_TOKEN, EXPECTED_MODEL_NAME,
+                                       allowed_origins=[endpoint], resolver=public_dns)
     provider.close()
 
 
@@ -126,7 +135,7 @@ def test_remote_provider_accepts_https_and_loopback_http(endpoint: str) -> None:
 )
 def test_remote_provider_rejects_non_loopback_plaintext_http(endpoint: str) -> None:
     with pytest.raises(ValueError, match="requires HTTPS"):
-        RemoteInferenceProvider(endpoint, "development-token", EXPECTED_MODEL_NAME)
+        RemoteInferenceProvider(endpoint, TEST_TOKEN, EXPECTED_MODEL_NAME)
 
 
 def test_remote_provider_streams_deltas_and_terminal_metadata() -> None:
@@ -153,8 +162,9 @@ def test_remote_provider_streams_deltas_and_terminal_metadata() -> None:
 
     provider = RemoteInferenceProvider(
         "https://gpu.example",
-        "service-token",
+        TEST_TOKEN,
         EXPECTED_MODEL_NAME,
+        allowed_origins=["https://gpu.example"], resolver=public_dns,
         transport=httpx.MockTransport(handler),
     )
 
@@ -178,7 +188,7 @@ def test_remote_normal_and_streaming_bodies_share_compiled_context_without_secre
 ) -> None:
     database_key = "ab" * 32
     local_token = "LOCAL_TOKEN_CANARY_554433"
-    remote_token = "REMOTE_TOKEN_CANARY_665544"
+    remote_token = "REMOTE_TOKEN_CANARY_665544_77665544"
     monkeypatch.setenv("AMITAI_DB_KEY", database_key)
     monkeypatch.setenv("AMITAI_LOCAL_API_TOKEN", local_token)
     monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_TOKEN", remote_token)
@@ -228,6 +238,7 @@ def test_remote_normal_and_streaming_bodies_share_compiled_context_without_secre
         "https://gpu.example",
         remote_token,
         EXPECTED_MODEL_NAME,
+        allowed_origins=["https://gpu.example"], resolver=public_dns,
         transport=httpx.MockTransport(handler),
     )
     generator = ProviderChatGenerator(load_runtime_config(), provider=provider)
@@ -282,8 +293,9 @@ def test_successful_remote_inference_logs_only_operational_metadata(
 
     provider = RemoteInferenceProvider(
         "https://gpu.example",
-        "REMOTE_API_SECRET_19281",
+        "REMOTE_API_SECRET_19281_9281736455",
         EXPECTED_MODEL_NAME,
+        allowed_origins=["https://gpu.example"], resolver=public_dns,
         transport=httpx.MockTransport(handler),
     )
 
@@ -305,7 +317,7 @@ def test_inference_service_is_authenticated_and_has_no_application_database() ->
     provider = RecordingProvider()
     application = create_inference_app(
         provider=provider,
-        auth_token="server-token",
+        auth_token=TEST_TOKEN,
         config_path=DEFAULT_RUNTIME_CONFIG_PATH,
     )
 
@@ -326,12 +338,12 @@ def test_inference_service_is_authenticated_and_has_no_application_database() ->
         response = client.post(
             "/v1/generate",
             json=payload,
-            headers={"Authorization": "Bearer server-token"},
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
         )
         stream_response = client.post(
             "/v1/generate/stream",
             json=payload,
-            headers={"Authorization": "Bearer server-token"},
+            headers={"Authorization": f"Bearer {TEST_TOKEN}"},
         )
 
     assert health.status_code == 200
@@ -524,7 +536,7 @@ def test_remote_failures_do_not_log_prompts_tokens_or_response_bodies(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     prompt = "PRIVATE_PROMPT_92831"
-    token = "REMOTE_API_SECRET_19281"
+    token = "REMOTE_API_SECRET_19281_9281736455"
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text=f"echoed {prompt} with {token}")
@@ -533,6 +545,7 @@ def test_remote_failures_do_not_log_prompts_tokens_or_response_bodies(
         "https://gpu.example",
         token,
         EXPECTED_MODEL_NAME,
+        allowed_origins=["https://gpu.example"], resolver=public_dns,
         transport=httpx.MockTransport(handler),
     )
 
@@ -556,7 +569,7 @@ def test_inference_service_logs_only_sanitized_failure_details(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     prompt = "PRIVATE_PROMPT_92831"
-    token = "REMOTE_API_SECRET_19281"
+    token = "REMOTE_API_SECRET_19281_9281736455"
     provider = RecordingProvider(failure=RuntimeError(f"failure included {prompt} {token}"))
     application = create_inference_app(
         provider=provider,

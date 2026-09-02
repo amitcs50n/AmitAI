@@ -688,6 +688,18 @@ content when the local control plane selected it. RunPod or its infrastructure m
 prompts and outputs. This architecture keeps durable/private application state local and makes the
 compute provider replaceable; it does not make remote inference confidential.
 
+Generate a fresh credential for each inference/pod session:
+
+```bash
+python -m runtime.inference_token
+```
+
+This prints one `secrets.token_urlsafe(32)` token (256 bits of random input); it does not save it.
+Transfer that credential securely to the two process environments below. The placeholders are
+not valid credentials. Both sides require at least **32 printable ASCII characters**, with no
+whitespace or control characters; neither side silently strips or normalizes the token. This is
+a deterministic minimum, not an entropy estimate. Prefer generated tokens over typed passwords.
+
 On the GPU host, run only the authenticated inference service. It exposes `/v1/generate` and
 `/v1/generate/stream`; it has no conversation, memory, preference, or user-facing chat routes and
 does not initialize a database:
@@ -697,7 +709,7 @@ pip install -e '.[runtime]'
 export HF_HOME=/workspace/hf
 export HF_HUB_CACHE=/workspace/hf/hub
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
-export AMITAI_INFERENCE_AUTH_TOKEN='replace-with-a-long-random-development-token'
+export AMITAI_INFERENCE_AUTH_TOKEN='<fresh-session-token>'
 
 uvicorn runtime.inference_app:app \
   --host 0.0.0.0 \
@@ -706,25 +718,72 @@ uvicorn runtime.inference_app:app \
 ```
 
 Do **not** use `--reload` or multiple Uvicorn workers on the GPU host: either can load another
-roughly 55 GB model copy. Configure the local control plane explicitly with the remote base URL
-and the matching service credential; never commit either value:
+roughly 55 GB model copy. Configure the local control plane explicitly with the exact remote
+origin and matching session credential; never commit credentials:
 
 ```bash
 export AMITAI_INFERENCE_PROVIDER=remote
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
-export AMITAI_REMOTE_INFERENCE_URL='https://your-development-endpoint.example'
-export AMITAI_REMOTE_INFERENCE_TOKEN='replace-with-the-same-development-token'
+export AMITAI_REMOTE_INFERENCE_URL='https://<POD-ID>-8000.proxy.runpod.net'
+export AMITAI_REMOTE_INFERENCE_ALLOWED_ORIGINS='https://<POD-ID>-8000.proxy.runpod.net'
+export AMITAI_REMOTE_INFERENCE_TOKEN='<fresh-session-token>'
 
 python -m runtime.serve
 ```
 
-The endpoint is disabled unless `remote` is explicitly selected and both variables are present.
-Remote inference requires HTTPS before any prompt or credential is sent. Plain HTTP is accepted
-only for explicit loopback development endpoints using `localhost`, `127.0.0.1`, or `::1`; it is
-rejected for LAN addresses and non-loopback hosts without silently upgrading the URL. The
-ephemeral local control-plane token is independent of the inference-service credential. The
-remote client uses `AMITAI_REMOTE_INFERENCE_TOKEN`, while the inference service receives the
-matching credential as `AMITAI_INFERENCE_AUTH_TOKEN`.
+The provider is disabled unless `remote` is explicitly selected. Public endpoints require all
+three `AMITAI_REMOTE_INFERENCE_*` settings above. The allowlist is comma-separated **exact
+origins**: scheme, hostname, and effective port. There is no implicit public allowlist, substring
+matching, or wildcard trust. When a RunPod hostname changes, update both URL and allowed origins.
+Hostname case, a single trailing DNS dot, the default port, and a single trailing slash normalize
+consistently. V1 accepts standard ASCII DNS names (including ASCII IDNA/punycode spellings);
+raw Unicode/ambiguous host forms are rejected. Public IP literals, endpoint paths, userinfo,
+queries, and fragments are rejected. Only `/v1/generate` and `/v1/generate/stream` are appended.
+
+Plain HTTP is accepted only for loopback development origins, such as `http://localhost:9000`,
+`http://127.0.0.1:9000`, or `http://[::1]:9000`; these need no public allowlist. Every resolved
+address must still be loopback. Hostnames merely containing `localhost` get no exception.
+LAN/private-IP endpoints and public HTTP fail closed, without upgrades, downgrades, or fallbacks.
+
+The local control-plane token is independent of the inference-service credential. The client
+uses `AMITAI_REMOTE_INFERENCE_TOKEN`; the inference service receives the **same session value**
+as `AMITAI_INFERENCE_AUTH_TOKEN`. Authentication travels only in the Authorization header, never
+the URL or generation body. Generate a fresh token for every pod/inference session and rotate
+both sides immediately after suspected exposure. Stopping the service removes its active token
+acceptor, but there is **no automatic expiry or coordinated rotation**: restarting with the old
+value would accept it again. Do not reuse one permanent credential across pods. Short-lived
+signed credentials are a possible future gateway feature, not implemented here.
+
+#### Remote transport identity policy
+
+The origin is fixed at provider construction and must be approved before any DNS query. Every
+HTTP invocation—including streaming, mechanical retries, and tool follow-ups—rechecks A/AAAA
+answers using a dedicated resolver. Public answers must all be globally routable; private,
+loopback, link-local, multicast, unspecified, reserved, malformed, empty, and mixed public/private
+results fail before HTTP transmission. DNS failure never falls back to sending anyway.
+
+HTTPX explicitly disables redirects (`follow_redirects=False`) and environment trust
+(`trust_env=False`). All 3xx responses fail: prompt bodies and Authorization are not resent to
+Location targets. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `SSL_CERT_FILE`, and `SSL_CERT_DIR`
+cannot silently reroute the connection or replace its trust roots. An explicit SSLContext uses
+HTTPX's normal CA bundle, mandatory certificate-chain and hostname verification, and TLS 1.2 or
+newer. No insecure verification override or proxy fallback is provided.
+
+**Residual DNS race:** the resolver check is a preflight, not connection-address pinning. HTTPX
+may resolve again when connecting, leaving a preflight/connect TOCTOU interval. Exact origins,
+address-class checks, redirect refusal, and TLS identity verification reduce common rebinding
+and endpoint-confusion risks but do not guarantee that the connected IP is the inspected IP.
+
+Certificate/SPKI pinning is **not enabled because AmitAI does not control a stable
+certificate/public-key identity for these provider-owned proxy endpoints**. No live certificate
+is scraped, learned, or trusted on first use. Normal CA/hostname verification remains mandatory.
+
+These controls address accidental endpoint misconfiguration, malicious redirects, common DNS
+rebinding toward private services, inherited proxy interception, plaintext remote HTTP,
+unverified TLS identities, and weak convenience-token practices. They do **not** solve trusted-CA
+compromise, compromise of the approved host/provider, same-user malware, malicious browser
+extensions, the DNS race above, or provider visibility into allowed plaintext. They do not add
+confidential compute, attestation, or zero-knowledge inference.
 
 The provider sends only a request ID, model messages, and generation settings. Tool execution,
 mechanical repair, memory mutation, and conversation persistence remain local, so a failed or

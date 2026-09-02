@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 import threading
@@ -10,14 +9,21 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from threading import Event
 from typing import Protocol
-from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
 
 from evaluation.hf_backend import GenerationOutput, TransformersGenerator
 
+from .inference_auth import validate_inference_token
 from .privacy import InferenceExecutionScope, guarded_request_body
+from .remote_transport import (
+    DNSPolicyError,
+    RemoteTransportPolicy,
+    Resolver,
+    create_remote_ssl_context,
+    resolve_addresses,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -143,38 +149,6 @@ class LocalTransformersInferenceProvider:
                     close()
 
 
-def _validate_remote_url(endpoint: str) -> str:
-    normalized = endpoint.strip().rstrip("/")
-    parsed = urlparse(normalized)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("Remote inference endpoint must be an HTTP(S) base URL")
-    hostname = parsed.hostname
-    if parsed.scheme == "http" and not _is_loopback_hostname(hostname):
-        raise ValueError(
-            "Remote inference requires HTTPS; plaintext HTTP is allowed only for loopback development"
-        )
-    return normalized
-
-
-def _is_loopback_hostname(hostname: str | None) -> bool:
-    if hostname is None:
-        return False
-    normalized = hostname.lower()
-    if normalized == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(normalized).is_loopback
-    except ValueError:
-        return False
-
-
 def _generation_output(
     payload: object,
     *,
@@ -216,23 +190,39 @@ class RemoteInferenceProvider:
         *,
         timeout_seconds: float = 600.0,
         transport: httpx.BaseTransport | None = None,
+        allowed_origins: str | Sequence[str] | None = None,
+        resolver: Resolver = resolve_addresses,
+        client_factory: Callable[..., httpx.Client] = httpx.Client,
     ) -> None:
-        normalized_token = token.strip()
-        if not normalized_token:
-            raise ValueError("Remote inference token must be configured")
+        self._transport_policy = RemoteTransportPolicy.from_config(endpoint, allowed_origins)
+        validated_token = validate_inference_token(token)
         if timeout_seconds <= 0:
             raise ValueError("Remote inference timeout must be positive")
-        self.endpoint = _validate_remote_url(endpoint)
+        self._resolver = resolver
         self.model_name = model_name
-        self._transport_token = normalized_token
+        self._transport_token = validated_token
         self._headers = {
-            "Authorization": f"Bearer {normalized_token}",
+            "Authorization": f"Bearer {validated_token}",
             "Content-Type": "application/json",
         }
-        self._client = httpx.Client(
+        self._client = client_factory(
+            verify=create_remote_ssl_context(),
             timeout=httpx.Timeout(timeout_seconds),
+            follow_redirects=False,
+            trust_env=False,
             transport=transport,
         )
+
+    @property
+    def endpoint(self) -> str:
+        return self._transport_policy.origin.url
+
+    def _check_dns(self, request_id: str) -> None:
+        try:
+            self._transport_policy.validate_dns(self._resolver)
+        except DNSPolicyError:
+            self._log_failure(request_id, "dns_policy")
+            raise InferenceProviderError("Remote inference failed") from None
 
     @staticmethod
     def _request_payload(
@@ -286,13 +276,18 @@ class RemoteInferenceProvider:
                 self._request_payload(request_id, messages, generation_config),
                 transport_token=self._transport_token,
             )
+            self._check_dns(request_id)
             response = self._client.post(
                 f"{self.endpoint}/v1/generate",
                 headers=self._headers,
                 content=body,
             )
             if response.status_code != 200:
-                self._log_failure(request_id, f"http_{response.status_code}")
+                failure = (
+                    "redirect" if 300 <= response.status_code < 400
+                    else f"http_{response.status_code}"
+                )
+                self._log_failure(request_id, failure)
                 raise InferenceProviderError("Remote inference failed")
             output = _generation_output(
                 response.json(),
@@ -343,6 +338,9 @@ class RemoteInferenceProvider:
                 self._request_payload(request_id, messages, generation_config),
                 transport_token=self._transport_token,
             )
+            self._check_dns(request_id)
+            if cancel_event.is_set():
+                return
             with self._client.stream(
                 "POST",
                 f"{self.endpoint}/v1/generate/stream",
@@ -350,7 +348,11 @@ class RemoteInferenceProvider:
                 content=body,
             ) as response:
                 if response.status_code != 200:
-                    self._log_failure(request_id, f"http_{response.status_code}")
+                    failure = (
+                        "redirect" if 300 <= response.status_code < 400
+                        else f"http_{response.status_code}"
+                    )
+                    self._log_failure(request_id, failure)
                     raise InferenceProviderError("Remote inference failed")
                 for line in response.iter_lines():
                     if cancel_event.is_set():

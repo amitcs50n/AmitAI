@@ -865,15 +865,17 @@ def test_provider_can_be_swapped_to_remote_using_environment_configuration(
     monkeypatch.setenv("AMITAI_INFERENCE_PROVIDER", "remote")
     monkeypatch.setenv("AMITAI_GENERATOR", "mock")
     monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_URL", "https://gpu.example")
-    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_TOKEN", "configured-token")
+    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_TOKEN", "configured_token_material_0123456789")
+    monkeypatch.setenv("AMITAI_REMOTE_INFERENCE_ALLOWED_ORIGINS", "https://gpu.example")
 
     selected = select_response_generator(remote_provider_factory=provider_factory)
 
     assert isinstance(selected, ProviderChatGenerator)
     assert captured == {
         "endpoint": "https://gpu.example",
-        "token": "configured-token",
+        "token": "configured_token_material_0123456789",
         "model_name": EXPECTED_MODEL_NAME,
+        "allowed_origins": "https://gpu.example",
     }
     result = selected.generate_response(
         [GenerationMessage(role="user", content="Use selected provider")]

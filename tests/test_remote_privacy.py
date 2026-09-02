@@ -45,13 +45,15 @@ CONFIG = load_runtime_config(DEFAULT_RUNTIME_CONFIG_PATH)
 
 
 class RemoteHarness:
-    def __init__(self, outputs=("A safe answer",), *, config=CONFIG):
+    def __init__(self, outputs=("A safe answer",), *, config=CONFIG,
+                 resolver=lambda _hostname, _port: ["8.8.8.8"]):
         self.outputs = deque(outputs)
         self.calls: list[dict] = []
         self.paths: list[str] = []
         self.bodies: list[bytes] = []
         self.provider = RemoteInferenceProvider(
             "https://inference.invalid", REMOTE_TOKEN, EXPECTED_MODEL_NAME,
+            allowed_origins=["https://inference.invalid"], resolver=resolver,
             transport=httpx.MockTransport(self.handle),
         )
         self.generator = ProviderChatGenerator(config, provider=self.provider)
@@ -533,7 +535,8 @@ def test_credential_memory_command_is_not_applied_in_either_scope(remote, stream
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("token", ['quote"and\\slash', "unicode秘密é", "Ｆｕｌｌｗｉｄｔｈ"])
+@pytest.mark.parametrize("token", ['TRANSPORT_TEST_CANARY_quote"and\\slash',
+                                   'TRANSPORT_TEST_CANARY_escaped\\backslash'])
 def test_escaped_transport_token_cannot_reach_http(token, streaming, caplog):
     caplog.set_level(logging.INFO)
     calls = []
@@ -543,6 +546,8 @@ def test_escaped_transport_token_cannot_reach_http(token, streaming, caplog):
         raise AssertionError("Guard must run before transport")
 
     provider = RemoteInferenceProvider("https://inference.invalid", token, EXPECTED_MODEL_NAME,
+                                       allowed_origins=["https://inference.invalid"],
+                                       resolver=lambda _host, _port: ["8.8.8.8"],
                                        transport=httpx.MockTransport(unexpected_http))
     messages = [{"role": "user", "content": json.dumps({"note": token}, ensure_ascii=True)}]
     with pytest.raises(RemoteDisclosureBlockedError, match=f"^{ERROR}$"):

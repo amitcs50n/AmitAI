@@ -22,6 +22,7 @@ from backend.security import environment_flag
 from evaluation.hf_backend import GenerationOutput
 
 from .config import DEFAULT_RUNTIME_CONFIG_PATH, load_runtime_config
+from .inference_auth import validate_inference_token
 from .providers import InferenceProvider, LocalTransformersInferenceProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -90,6 +91,8 @@ def create_inference_app(
     selected_token = auth_token if auth_token is not None else os.getenv(
         "AMITAI_INFERENCE_AUTH_TOKEN"
     )
+    if selected_token is not None:
+        selected_token = validate_inference_token(selected_token)
     application = FastAPI(
         title="AmitAI Stateless Inference",
         docs_url="/docs" if enable_dev_docs else None,
@@ -108,7 +111,9 @@ def create_inference_app(
         if (
             authorization is None
             or not authorization.startswith(prefix)
-            or not secrets.compare_digest(authorization[len(prefix) :], selected_token)
+            or not secrets.compare_digest(
+                authorization[len(prefix) :].encode("utf-8"), selected_token.encode("ascii"),
+            )
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
