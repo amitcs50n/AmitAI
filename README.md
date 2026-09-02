@@ -1275,6 +1275,75 @@ an explicit selection to allow remote use. Policy-only edits send only sensitivi
 body. Value-only edits preserve the policy, edits refetch the current search/filter, and no memory
 values or sensitivity settings are saved in browser storage.
 
+## Production Aevon text-quality benchmark V1
+
+`eval/aevon_text_quality_v1.jsonl` contains 54 synthetic cases across identity, normal
+conversation, judgment, technical help, reasoning, continuity, memory-visible behavior,
+tone, format following, calculator judgment, uncertainty/evidence, and long context.
+It measures the **production Aevon path**, separately from the untouched historical
+baseline below. No prompt, sampling, memory, tool, or model behavior is tuned by this suite.
+
+From the repository root, first exercise the offline harness (no model/network/database):
+
+```bash
+python -m evaluation.aevon_text_quality --mode fake --output-dir outputs/aevon-text-v1-fake
+```
+
+Later, on a suitably provisioned machine, explicitly run the exact production checkpoint,
+pinned revision, BF16 and generation settings, composed with the production Aevon profile:
+
+```bash
+python -m evaluation.aevon_text_quality --mode transformers --output-dir outputs/aevon-text-v1-real
+```
+
+Alternatively, `--mode remote` uses the existing production remote provider, requiring
+`AMITAI_REMOTE_INFERENCE_URL`, `AMITAI_REMOTE_INFERENCE_TOKEN`, and
+`AMITAI_REMOTE_INFERENCE_ALLOWED_ORIGINS` as documented above. Nothing starts RunPod or an
+inference server automatically. The operator must deploy the matching pinned model/settings;
+the client cannot attest remote weights. Never put tokens in benchmark cases or artifacts.
+`--stream` exercises production streaming; use a different output directory for each run.
+`--ids identity_name tools_recovery` selects cases; `--cases PATH` selects a validated JSONL
+suite. Existing output directories are refused, so review work is not silently overwritten.
+
+The runner uses the existing provider selection, context compiler, trusted
+`MEMORY_CONTEXT_V1` formatter, bounded calculator loop and mechanical validator. It never
+opens the conversation database or mutates persistent memory. Synthetic memory tests inspect
+model use/ignoring of supplied context, not retrieval quality. Long-history fixtures inspect
+actual provider-visible input, including window limits, old/recent canaries, orphan handling,
+current-user retention and memory ordering. `tools_recovery` is explicitly labeled controlled
+fault injection: one synthetic malformed provider output is substituted, then the unchanged
+runtime asks the selected provider to recover. It does not measure spontaneous malformed-call
+frequency. `fake_responses` are independent scripted harness fixtures, never sent to a real
+provider or used as golden answers for conversational grading.
+
+Each run writes:
+
+- `run.json`: mode, source revision, case/prompt fingerprints and exact configured model and
+  generation settings. Fake runs are clearly labeled and have synthetic zero latency/tokens.
+- `results.jsonl`: expanded input messages, final response, runtime latency/token counts,
+  validator/tool metadata, deterministic checks, and a pending `human_review` with a rubric,
+  flags, nullable `overall_pass`, and notes. It excludes raw intermediate model candidates.
+- `summary.json`: overall/category deterministic pass rates, mechanical/tool/identity and
+  memory/context check failures, generation failures, failed tool attempts (including recovered
+  injected faults), and IDs requiring human review.
+
+Checks include case-insensitive contains/forbidden text, narrow assistant-name probes, exact
+configured-model identifier inclusion, successful calculator use/no attempts, memory canaries,
+protocol leakage, production context invariants, and existing mechanical constraints. These
+checks **do not measure all conversational quality**: negation, factuality, natural tone,
+conciseness and appropriateness require human review. Even code-only acceptance is not a code
+correctness guarantee; unverified unfenced code is flagged for review. All 54 cases require
+review; a passing fake run proves harness wiring only, not real-model quality.
+
+Generation failures are retained as failed cases without inventing final text or hidden
+validator diagnostics. Cases without a successful final response fail applicable checks; summary failure
+counts are check outcomes, not inferred root causes. The CLI exits successfully when artifact
+collection completes (even with failed cases); inspect the summary. Setup/artifact errors exit
+nonzero; interrupted runs remain marked running and are not resumable in V1. Artifacts are
+local plaintext and contain prompts/responses: use synthetic inputs, protect custom sensitive
+runs, and do not commit outputs. Remote inference sees supplied text in plaintext during
+execution. No judge LLM or hidden external API is used.
+
 ## Run the base-model evaluation
 
 Use an 80 GB A100/H100-class CUDA environment, or equivalent multi-GPU capacity, with PyTorch
