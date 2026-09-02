@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .assets import MAX_ATTACHMENTS, validate_asset_ids
 from .memory import (
     MAX_MEMORY_KEY_CHARS,
     MAX_MEMORY_VALUE_CHARS,
@@ -58,6 +59,23 @@ class MessageMetadataRead(BaseModel):
     memory: list[Any] | None = Field(default=None, validation_alias="memory_refs_json")
 
 
+class AssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    original_filename: str
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
+    sha256: str
+    created_at: datetime
+    conversation_id: str | None
+    persistence_mode: str
+    processing_scope: str
+
+
 class MessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +84,7 @@ class MessageRead(BaseModel):
     role: str
     content: str
     created_at: datetime
+    assets: list[AssetRead] = Field(default_factory=list)
     metadata: MessageMetadataRead | None = Field(
         default=None,
         validation_alias="metadata_record",
@@ -91,6 +110,13 @@ class ChatRequest(BaseModel):
 
     conversation_id: str | None = None
     message: str = Field(max_length=100_000)
+    asset_ids: list[str] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
+
+    @field_validator("asset_ids")
+    @classmethod
+    def validate_attachments(cls, value: list[str]) -> list[str]:
+        validate_asset_ids(value)
+        return value
 
     @field_validator("conversation_id")
     @classmethod

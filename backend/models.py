@@ -10,11 +10,13 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
@@ -98,6 +100,11 @@ class Message(Base):
         single_parent=True,
         uselist=False,
     )
+    assets: Mapped[list[UploadedAsset]] = relationship(
+        secondary=lambda: message_assets,
+        passive_deletes=True,
+        order_by=lambda: (UploadedAsset.created_at, UploadedAsset.id),
+    )
 
 
 class MessageMetadata(Base):
@@ -116,6 +123,41 @@ class MessageMetadata(Base):
     memory_refs_json: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
 
     message: Mapped[Message] = relationship(back_populates="metadata_record")
+
+
+class UploadedAsset(Base):
+    __tablename__ = "uploaded_assets"
+    __table_args__ = (
+        CheckConstraint("kind = 'image'", name="ck_asset_kind"),
+        CheckConstraint("processing_scope = 'local_only'", name="ck_asset_scope_v1"),
+        CheckConstraint(
+            "(persistence_mode = 'temporary' AND conversation_id IS NULL) OR "
+            "(persistence_mode = 'conversation' AND conversation_id IS NOT NULL)",
+            name="ck_asset_lifecycle",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    kind: Mapped[str] = mapped_column(String(16), default="image", nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(120), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True,
+    )
+    persistence_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    processing_scope: Mapped[str] = mapped_column(String(16), default="local_only", nullable=False)
+
+
+message_assets = Table(
+    "message_assets", Base.metadata,
+    Column("message_id", ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True),
+    Column("asset_id", ForeignKey("uploaded_assets.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class MemorySlot(Base):

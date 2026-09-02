@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 
 import { DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT } from "./route.ts";
-import { MAX_REQUEST_BODY_BYTES, resolveProxyRoute } from "../../../lib/proxyPolicy.ts";
+import { MAX_REQUEST_BODY_BYTES, MAX_UPLOAD_BODY_BYTES, resolveProxyRoute } from "../../../lib/proxyPolicy.ts";
 
 const LOCAL_TOKEN = "ab".repeat(32);
 const ID = "a2466cb5-3b48-4efa-8fca-ae039e76886a";
@@ -23,6 +23,49 @@ let tokenFile = "";
 function context(...path: string[]) {
   return { params: Promise.resolve({ path }) };
 }
+
+test("only exact asset upload route accepts bounded multipart with one supported image", async () => {
+  const calls: Array<{ path: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input, init) => {
+    calls.push({ path: String(input), init });
+    return Response.json({ id: ID }, { status: 201 });
+  }) as typeof fetch;
+  const form = new FormData();
+  form.set("file", new Blob(["image-bytes"], { type: "image/png" }), "photo.png");
+  form.set("persistence_mode", "temporary");
+  const request = () => new Request(`${BROWSER}/api/assets`, { method: "POST", headers: { Origin: BROWSER }, body: form });
+  assert.equal((await POST(request(), context("assets"))).status, 201);
+  assert.equal(calls[0].path, "http://127.0.0.1:8000/api/assets");
+  assert.ok(calls[0].init?.body instanceof ArrayBuffer);
+  const forwarded = new Headers(calls[0].init?.headers);
+  assert.equal(forwarded.get("authorization"), `Bearer ${LOCAL_TOKEN}`);
+  assert.match(forwarded.get("content-type") ?? "", /^multipart\/form-data;/);
+  const body = await new Response(calls[0].init?.body, { headers: forwarded }).formData();
+  assert.equal(await (body.get("file") as File).text(), "image-bytes");
+
+  assert.equal((await POST(new Request(`${BROWSER}/api/chat`, { method: "POST", headers: { Origin: BROWSER }, body: form }), context("chat"))).status, 415);
+  form.set("path", "C:/private.png");
+  assert.equal((await POST(request(), context("assets"))).status, 400);
+  form.delete("path");
+  form.append("file", new Blob(["second"], { type: "image/png" }), "second.png");
+  assert.equal((await POST(request(), context("assets"))).status, 400);
+  assert.equal(calls.length, 1);
+  assert.equal(resolveProxyRoute("POST", ["assets", "import-path"]), null);
+  assert.equal(resolveProxyRoute("GET", ["assets"]), null);
+  assert.equal(resolveProxyRoute("GET", ["assets", ID, "content"])?.body, "none");
+});
+
+test("upload rejection preserves origin, query, byte caps and token isolation", async () => {
+  let called = false;
+  globalThis.fetch = (async () => { called = true; return Response.json({}); }) as typeof fetch;
+  const headers = { Origin: BROWSER, "Content-Type": "multipart/form-data; boundary=x" };
+  const tooLarge = new Request(`${BROWSER}/api/assets`, { method: "POST", headers, body: new Uint8Array(MAX_UPLOAD_BODY_BYTES + 1) });
+  assert.equal((await POST(tooLarge, context("assets"))).status, 413);
+  assert.equal((await POST(new Request(`${BROWSER}/api/assets`, { method: "POST", headers: { ...headers, Origin: "https://evil.example" }, body: "private" }), context("assets"))).status, 403);
+  assert.equal((await POST(new Request(`${BROWSER}/api/assets?path=private`, { method: "POST", headers, body: "private" }), context("assets"))).status, 400);
+  assert.equal((await POST(new Request(`${BROWSER}/api/assets`, { method: "POST", headers, body: "invalid multipart" }), context("assets"))).status, 400);
+  assert.equal(called, false);
+});
 
 beforeEach(() => {
   privateDirectory = mkdtempSync(join(tmpdir(), "amitai-token-"));

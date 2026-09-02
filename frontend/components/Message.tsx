@@ -3,6 +3,7 @@ import { formatMessageTime } from "@/lib/dates";
 import { AevonMonogram } from "@/components/AevonMonogram";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { ToolEventCard } from "@/components/ToolEventCard";
+import { AssetPreview } from "@/components/AssetPreview";
 
 interface MessageProps {
   message: ChatMessage;
@@ -16,6 +17,9 @@ export function Message({ message, showTimestamp, wrapCode }: MessageProps) {
       <article className="ml-auto max-w-[78%] sm:max-w-[70%]">
         <div className="rounded-2xl rounded-tr-sm border border-[#6f5138]/45 bg-[#2a211a]/85 px-4 py-3 font-serif text-[1.02rem] leading-7 text-[#eee8e1] shadow-sm">
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          {message.assets?.length ? <div className="mt-2 flex flex-wrap gap-2">
+            {message.assets.map((asset) => <AssetPreview asset={asset} key={asset.id} />)}
+          </div> : null}
         </div>
         {showTimestamp ? (
           <time className="mt-1.5 block text-right text-[0.68rem] text-[#746d67]" dateTime={message.created_at}>

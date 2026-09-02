@@ -1,7 +1,8 @@
 // Pure browser-boundary policy. Never reads configuration, tokens, or local state.
 export const MAX_REQUEST_BODY_BYTES = 256 * 1024;
+export const MAX_UPLOAD_BODY_BYTES = 20 * 1024 * 1024 + 16 * 1024;
 
-type BodyPolicy = "none" | "json" | "optional-json";
+type BodyPolicy = "none" | "json" | "optional-json" | "image-upload";
 export interface ProxyRoute {
   pathname: string;
   body: BodyPolicy;
@@ -22,6 +23,9 @@ const ROUTES: ReadonlyArray<{
   { path: ["memory"], methods: { GET: "none", POST: "json" } },
   { path: ["memory", "search"], methods: { POST: "json" } },
   { path: ["memory", ":uuid"], methods: { PATCH: "json", DELETE: "none" } },
+  { path: ["assets"], methods: { POST: "image-upload" } },
+  { path: ["assets", ":uuid"], methods: { GET: "none", DELETE: "none" } },
+  { path: ["assets", ":uuid", "content"], methods: { GET: "none" } },
 ];
 
 export function isLoopbackHostname(hostname: string): boolean {
@@ -74,15 +78,20 @@ export function resolveProxyQuery(route: ProxyRoute, parameters: URLSearchParams
   return allowed.size ? `?${allowed.toString()}` : "";
 }
 
-type BodyResult = { body?: string } | { status: number; detail: string };
+type BodyResult = { body?: string | ArrayBuffer } | { status: number; detail: string };
 
 export async function validateProxyBody(request: Request, policy: BodyPolicy): Promise<BodyResult> {
   const contentType = request.headers.get("content-type");
+  const upload = policy === "image-upload";
+  const multipart = /^multipart\/form-data;\s*boundary=(?:[A-Za-z0-9'()+_,./:=?-]{1,70}|"[A-Za-z0-9'()+_,./:=?-]{1,70}")$/i.test(contentType ?? "");
+  if (upload && (!multipart || request.headers.has("content-encoding"))) {
+    return { status: 415, detail: "Unsupported content type" };
+  }
   const jsonType = /^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?\s*$/i.test(contentType ?? "");
   if (policy === "none" && (
     Number(request.headers.get("content-length") ?? "0") !== 0 || request.headers.has("transfer-encoding")
   )) return { status: 400, detail: "Invalid request" };
-  if (policy !== "none" && !jsonType && (policy === "json" || contentType !== null)) {
+  if (!upload && policy !== "none" && !jsonType && (policy === "json" || contentType !== null)) {
     return { status: 415, detail: "Unsupported content type" };
   }
   if (!request.body) {
@@ -102,7 +111,7 @@ export async function validateProxyBody(request: Request, policy: BodyPolicy): P
         void reader.cancel().catch(() => undefined);
         return { status: 400, detail: "Invalid request" };
       }
-      if (size > MAX_REQUEST_BODY_BYTES) {
+      if (size > (upload ? MAX_UPLOAD_BODY_BYTES : MAX_REQUEST_BODY_BYTES)) {
         // Don't wait for a producer to acknowledge cancellation before rejecting.
         void reader.cancel().catch(() => undefined);
         return { status: 413, detail: "Request body too large" };
@@ -113,12 +122,33 @@ export async function validateProxyBody(request: Request, policy: BodyPolicy): P
     if (size === 0 && (policy === "none" || (policy === "optional-json" && contentType === null))) {
       return {};
     }
-    if (!jsonType) return { status: 415, detail: "Unsupported content type" };
+    if (!upload && !jsonType) return { status: 415, detail: "Unsupported content type" };
     const bytes = new Uint8Array(size);
     let offset = 0;
     for (const chunk of chunks) {
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
+    }
+    if (upload) {
+      // Validate only this explicit route; never create generic multipart passthrough.
+      const form = await new Response(bytes, { headers: { "Content-Type": contentType! } }).formData();
+      const seen = new Set<string>();
+      for (const [key, value] of form) {
+        if (seen.has(key) || !["file", "persistence_mode", "conversation_id"].includes(key)) {
+          return { status: 400, detail: "Invalid upload" };
+        }
+        seen.add(key);
+        if (key === "file") {
+          if (typeof value === "string" || !["image/png", "image/jpeg", "image/webp"].includes(value.type)) {
+            return { status: 415, detail: "Unsupported image type" };
+          }
+          if (value.size === 0 || value.size > 20 * 1024 * 1024) return { status: 413, detail: "Invalid image size" };
+        } else if (typeof value !== "string" || (
+          key === "persistence_mode" ? !["temporary", "conversation"].includes(value) : !UUID.test(value)
+        )) return { status: 400, detail: "Invalid upload" };
+      }
+      if (!seen.has("file")) return { status: 400, detail: "Invalid upload" };
+      return { body: bytes.buffer };
     }
     const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     const parsed: unknown = JSON.parse(body);

@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .asset_routes import router as asset_router
+from .asset_storage import AssetStorage, AssetStorageError, default_asset_directory
+from .assets import AssetError, AssetService
 from .chat_service import (
     ChatGenerationError,
     ChatPrivacyError,
@@ -36,6 +42,7 @@ from .memory import (
     MemoryService,
     MemoryValidationError,
 )
+from .models import UploadedAsset
 from .repositories import ConversationRepository
 from .schemas import (
     ChatRequest,
@@ -83,6 +90,7 @@ def create_app(
     local_api_token: str | None = None,
     enforce_local_auth: bool = True,
     enable_dev_docs: bool = False,
+    asset_directory: Path | None = None,
 ) -> FastAPI:
     database = Database.from_url(
         database_url,
@@ -92,11 +100,32 @@ def create_app(
     )
     stream_executor: ThreadPoolExecutor | None = None
     stream_gate: asyncio.Semaphore | None = None
+    # Dedicated per-database namespace; never use a client filename or path.
+    database_name = database.engine.url.database
+    database_identity = str(Path(database_name).resolve()) if database_name and database_name != ":memory:" else "in-memory"
+    namespace = hashlib.sha256(database_identity.encode()).hexdigest()[:24]
+    asset_storage = AssetStorage(
+        asset_directory or default_asset_directory(namespace)
+    )
+
+    def cleanup_assets() -> None:
+        try:
+            with database.session_factory() as session:
+                AssetService(session, asset_storage).cleanup()
+        except Exception:  # noqa: BLE001 - retry on next sweep, never log file paths
+            LOGGER.error("Asset cleanup failed; will retry")
+
+    async def periodic_asset_cleanup() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            await asyncio.to_thread(cleanup_assets)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         nonlocal stream_executor, stream_gate
         database.create_schema()
+        await asyncio.to_thread(cleanup_assets)
+        cleanup_task = asyncio.create_task(periodic_asset_cleanup())
         stream_executor = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="amitai-chat-stream",
@@ -105,6 +134,11 @@ def create_app(
         try:
             yield
         finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
             executor = stream_executor
             stream_executor = None
             stream_gate = None
@@ -126,6 +160,8 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def safe_memory_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if request.url.path.startswith(("/api/assets", "/api/chat")):
+            return JSONResponse(status_code=422, content={"detail": "Request is invalid"})
         if request.url.path == "/api/memory" or request.url.path.startswith("/api/memory/"):
             # Pydantic's default errors include rejected input, which can be a secret.
             return JSONResponse(status_code=422, content={"detail": "Memory request is invalid"})
@@ -134,6 +170,17 @@ def create_app(
     if enforce_local_auth:
         application.add_middleware(LocalApiAuthMiddleware, token=local_api_token)
     application.state.database = database
+    application.state.asset_storage = asset_storage
+    application.include_router(asset_router)
+
+    @application.exception_handler(AssetError)
+    async def asset_error(_request: Request, exc: AssetError) -> Response:
+        return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)},
+                            headers={"Cache-Control": "no-store"})
+
+    @application.exception_handler(AssetStorageError)
+    async def asset_storage_error(_request: Request, _exc: AssetStorageError) -> Response:
+        return JSONResponse(status_code=503, content={"detail": "Local asset storage is unavailable"})
     application.state.generator = generator
     application.state.memory_owner_id = memory_owner_id
     for key, value in security_state(
@@ -209,7 +256,12 @@ def create_app(
             conversation = repository.get(conversation_id)
             if conversation is None:
                 raise HTTPException(status_code=404, detail="Conversation not found")
+            asset_ids = list(session.scalars(select(UploadedAsset.id).where(
+                UploadedAsset.conversation_id == conversation_id,
+            )))
             repository.delete(conversation)
+        for asset_id in asset_ids:
+            asset_storage.delete(asset_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.post("/api/chat", response_model=ChatResponse)
@@ -222,11 +274,13 @@ def create_app(
             session,
             generator=request.app.state.generator,
             memory_owner_id=request.app.state.memory_owner_id,
+            asset_storage=asset_storage,
         )
         try:
             result = service.chat(
                 conversation_id=payload.conversation_id,
                 message=payload.message,
+                asset_ids=tuple(payload.asset_ids),
             )
         except ConversationNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Conversation not found") from exc
@@ -280,16 +334,20 @@ def create_app(
                             stream_session,
                             generator=selected_generator,
                             memory_owner_id=request.app.state.memory_owner_id,
+                            asset_storage=asset_storage,
                         )
                         service_stream = service.stream_chat(
                             conversation_id=payload.conversation_id,
                             message=payload.message,
                             cancel_event=cancel_event,
+                            asset_ids=tuple(payload.asset_ids),
                         )
                         for event in service_stream:
                             if cancel_event.is_set():
                                 break
                             publish(event)
+                except AssetError as exc:
+                    publish(ChatStreamEvent(event="error", data={"detail": str(exc)}), force=True)
                 except ConversationNotFoundError:
                     publish(
                         ChatStreamEvent(

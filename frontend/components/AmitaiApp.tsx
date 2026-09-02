@@ -20,6 +20,7 @@ import type {
   Message,
   MessageMetadata,
   UiPreferences,
+  UploadedAsset,
 } from "@/lib/types";
 import { DEFAULT_PREFERENCES } from "@/lib/types";
 import { ChatView } from "@/components/ChatView";
@@ -52,7 +53,7 @@ interface ActionAlert {
   retry?: () => void;
 }
 
-function temporaryUserMessage(content: string, conversationId: string | null): Message {
+function temporaryUserMessage(content: string, conversationId: string | null, assets: UploadedAsset[]): Message {
   return {
     id: `pending-${crypto.randomUUID()}`,
     conversation_id: conversationId ?? "pending",
@@ -60,6 +61,7 @@ function temporaryUserMessage(content: string, conversationId: string | null): M
     content,
     created_at: new Date().toISOString(),
     metadata: null,
+    assets,
   };
 }
 
@@ -249,9 +251,9 @@ export function AmitaiApp() {
     if (window.innerWidth < 1024) setSidebarOpen(false);
   }
 
-  async function submitMessage(message: string, retry = false) {
+  async function submitMessage(message: string, retry = false, assets: UploadedAsset[] = []) {
     const targetId = selectedId;
-    const userMessage = retry && pendingMessage ? pendingMessage : temporaryUserMessage(message, targetId);
+    const userMessage = retry && pendingMessage ? pendingMessage : temporaryUserMessage(message, targetId, assets);
     const streamMessageId = `streaming-${crypto.randomUUID()}`;
     const streamCreatedAt = new Date().toISOString();
     const abortController = new AbortController();
@@ -267,7 +269,7 @@ export function AmitaiApp() {
 
     try {
       const result = await sendChatStream(
-        { conversation_id: targetId, message },
+        { conversation_id: targetId, message, asset_ids: (userMessage.assets ?? []).map((asset) => asset.id) },
         {
           onStart: markConnected,
           onText: (delta) => {
@@ -461,12 +463,13 @@ export function AmitaiApp() {
 
         {view === "chat" ? (
           <ChatView
+            key={selectedId ?? "new-chat"}
             loadError={loadError}
             loading={loadingConversation}
             messages={conversation?.messages ?? []}
             onRetryLoad={() => (selectedId ? void loadConversation(selectedId) : void initialize())}
             onRetrySend={retrySend}
-            onSend={(message) => submitMessage(message)}
+            onSend={(message, assets) => submitMessage(message, false, assets)}
             pendingMessage={pendingMessage}
             preferences={preferences}
             sendError={sendError}

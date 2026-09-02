@@ -51,7 +51,8 @@ class ConversationRepository:
             select(Conversation)
             .where(Conversation.id == conversation_id)
             .options(
-                selectinload(Conversation.messages).selectinload(Message.metadata_record)
+                selectinload(Conversation.messages).selectinload(Message.metadata_record),
+                selectinload(Conversation.messages).selectinload(Message.assets),
             )
         )
         return self.session.scalar(statement)

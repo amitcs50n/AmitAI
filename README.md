@@ -182,6 +182,86 @@ cancellation. An in-flight CUDA operation may not stop immediately, so the model
 remains held until the worker actually exits; the server does not pretend cancellation completed
 or allow another GPU generation to overlap it.
 
+#### Explicit image uploads (foundation only)
+
+Aevon cannot browse your files, repositories or folders. The composer paperclip accepts only an
+explicitly selected image. There is no path-import, shell, directory-listing or neighbor-file API.
+Uploading does **not** authorize remote disclosure. All assets currently have `local_only` scope;
+neither their bytes, filenames nor IDs are added to text-provider prompts.
+
+- Input: single-frame PNG, JPEG or WebP; no SVG, GIF, PDF or arbitrary files.
+- Limits: 20 MiB per input and normalized image, 8,192 pixels per side, 24,000,000 pixels total,
+  and four distinct asset IDs per chat message. The multipart envelope is capped at 20 MiB + 16 KiB.
+- Validation: MIME must match decoded bytes; zero-byte, corrupt/truncated, animated, oversized,
+  invalid multipart and unsupported inputs fail with sanitized errors. Extensions are not authority.
+- Canonical copy: orientation-corrected RGBA PNG reconstructed from pixels. EXIF/GPS/device data,
+  ICC/XMP and embedded text are stripped. The original upload is discarded, not archived or spooled
+  into a raw temporary file. Metadata stripping does not hide information visible in the pixels.
+- Filenames: bounded, sanitized ASCII leaf names for display only. Client directory paths and
+  original path-bearing names are never retained. Files use server-generated UUIDs exclusively.
+
+The upload API is authenticated like chat:
+
+```bash
+curl http://127.0.0.1:3000/api/assets \
+  -H 'Origin: http://127.0.0.1:3000' \
+  -F 'file=@photo.png;type=image/png' \
+  -F 'persistence_mode=temporary'
+```
+
+It returns `{id, kind, original_filename, content_type, byte_size, width, height, sha256,
+created_at, conversation_id, persistence_mode, processing_scope}`. Sizes/digest describe the
+normalized PNG. Metadata is also available at `GET /api/assets/{id}`. The ID-only
+`GET /api/assets/{id}/content` serves that PNG with no-store/nosniff headers; it never serves a
+client-chosen path. No generic download or asset-listing endpoint is exposed.
+
+`temporary` is the upload default. The composer stages temporary images with local previews,
+supports removal, and sends `asset_ids` alongside a nonempty text `message` to `/api/chat` or
+`/api/chat/stream`. Successful sends atomically promote them to `conversation` mode and add a
+message/asset relationship. A failed or cancelled send creates no conversation turn and leaves
+the upload temporary. The conversation API returns safe metadata under each message's `assets`,
+not inline bytes; the existing UI renders those previews on reload. Only IDs/preferences, never
+image bytes or asset objects, are saved in browser web storage. Attachment count is per message;
+there is no total-disk quota yet.
+
+An attachment turn currently returns a local acknowledgment stating that vision, OCR, image
+editing and image generation are **not enabled**. It does not invoke a model, pretend to analyze
+an image, or execute memory commands from that turn. Normal text-only chat, tools, streaming,
+memory and mechanical retries are unchanged. This capability acknowledgment is not a generated
+or mechanically validated answer. Failed attachment requests can be retried while their uploads
+remain available; expired attachments must be uploaded again.
+
+Explicit API clients may upload with `persistence_mode=conversation` plus an existing
+`conversation_id`; this retains the asset immediately. Temporary uploads cannot supply a
+conversation ID. Assets cannot be silently reassigned between conversations. Missing, expired,
+deleted, duplicate or excessive references fail cleanly and do not persist a turn.
+
+**Local storage and deletion:** metadata/linkage live in the existing database. Canonical image
+bytes live separately at `%LOCALAPPDATA%/AmitAI/assets/<database-namespace>/<uuid>.png` on Windows,
+`~/Library/Application Support/AmitAI/assets/...` on macOS, or
+`${XDG_DATA_HOME:-~/.local/share}/amitai/assets/...` on Linux. The namespace is a hash of the
+configured database's absolute location. This app-controlled directory and files are owner-only
+(Windows requires the existing `secure-runtime` extra). Links/reparse points are rejected.
+**These separate PNG files are plaintext, not SQLCipher-encrypted.** Protect the volume/backups
+accordingly. Moving a database requires separately moving its asset namespace; do not treat a
+database-only backup as a complete image backup.
+
+`DELETE /api/assets/{id}` hard-deletes metadata, detaches it from history, and removes its PNG;
+ordinary message text is untouched. Conversation deletion also removes its assets. Temporary
+uploads expire after 24 hours and become unreadable even before cleanup. Startup and hourly
+cleanup remove expired records/files and unreferenced generated files older than 24 hours,
+including interrupted-write leftovers. Metadata is committed before physical deletion, so a
+disk-removal failure makes the image inaccessible immediately and cleanup retries later.
+Orphan grace prevents cleanup racing a fresh upload; stop extra backend processes before
+maintenance. Use one backend worker as already recommended. Cleanup runs only while the backend
+is running and cannot guarantee physical erasure from SSDs, snapshots or backups.
+
+`runtime/media.py` defines lightweight analysis/edit/generation request DTOs referencing IDs.
+`AssetService.processing_bytes()` is the normalized-image preparation seam; remote access fails
+closed today, even if a future schema adds `remote_allowed`. A future media provider must receive
+only explicitly referenced uploads after a separate disclosure policy and consent check. No OCR,
+vision, image editing/generation provider, remote media transport or GPU work is implemented here.
+
 #### Structured memory V1
 
 Memory V1 stores explicit, structured memories for the server-owned local principal
@@ -388,6 +468,9 @@ The browser-facing proxy is deny-by-default. These are its complete method/path 
 | `/api/memory` | GET, POST |
 | `/api/memory/search` | POST |
 | `/api/memory/{uuid}` | PATCH, DELETE |
+| `/api/assets` | POST (bounded image multipart only) |
+| `/api/assets/{uuid}` | GET, DELETE |
+| `/api/assets/{uuid}/content` | GET |
 
 Unknown paths/methods (including HEAD/OPTIONS), malformed/non-UUID IDs, encoded separators,
 dot segments, controls, and extra segments are rejected without forwarding. Adding a backend
@@ -407,7 +490,7 @@ the curl examples through Next explicitly supply the same Origin as the target U
 Validation order is browser origin/host/fetch metadata, route/method, query/body, runtime token
 read, backend configuration, then fetch. JSON routes require `application/json` (UTF-8 charset
 permitted) and a top-level object. POST conversation creation alone may omit its body. Actual
-request bytes are capped at 256 KiB regardless of `Content-Length`; over-limit requests get 413,
+JSON request bytes are capped at 256 KiB regardless of `Content-Length`; over-limit requests get 413,
 unsupported media types 415, invalid JSON/query/body 400, disallowed routes 404, and denied
 browser origins 403. GET/DELETE bodies are rejected; HEAD is unsupported. Domain validation
 remains in FastAPI. Proxy errors contain no raw content, token, path, or exception details.
@@ -417,7 +500,10 @@ Authorization, Cookie, Proxy-Authorization, Host, Forwarded, and X-Forwarded-* a
 Only Content-Type/X-Accel-Buffering may return from upstream; upstream cookies, auth/debug/version
 headers and cache policy are discarded. All API successes/errors use `Cache-Control: no-store`.
 SSE uses `no-store, no-transform` and `X-Accel-Buffering: no`. Only bounded request JSON is buffered;
-response streams remain incremental and client abort signals propagate upstream.
+response streams remain incremental and client abort signals propagate upstream. The sole multipart
+exception is `POST /api/assets`, capped at 20 MiB + 16 KiB of envelope overhead. Both proxy and backend
+accept one image and only `persistence_mode`/`conversation_id` metadata fields, rejecting unknown or
+duplicate fields. Image decoding and canonicalization remain backend responsibilities.
 
 Next sets global browser headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`,
@@ -442,7 +528,7 @@ These controls do not stop same-user malware or malicious browser extensions fro
 visible content. Localhost HTTP is for local-only operation; supported LAN/TLS is future work,
 not enabled by this proxy. None of these browser controls make remote inference provider-blind.
 
-Private `/api/chat*`, `/api/conversations*`, and `/api/memory*` routes reject missing or incorrect
+Private `/api/chat*`, `/api/conversations*`, `/api/memory*`, and `/api/assets*` routes reject missing or incorrect
 bearer authentication. `/api/health` remains a minimal unauthenticated readiness route. FastAPI
 docs, ReDoc, and OpenAPI are disabled by default; set `AMITAI_ENABLE_DEV_DOCS=1` only during
 intentional local development. FastAPI has no wildcard CORS policy because the normal browser

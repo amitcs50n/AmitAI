@@ -7,6 +7,10 @@ import {
   deleteMemory,
   listMemories,
   updateMemory,
+  uploadImage,
+  deleteAsset,
+  assetContentUrl,
+  sendChat,
 } from "./api.ts";
 import type { MemoryRecord } from "./types.ts";
 
@@ -21,6 +25,30 @@ const memory: MemoryRecord = {
   source: { conversation_id: null, message_id: null },
   updated_at: "2026-08-30T10:00:00Z",
 };
+
+test("image client uploads multipart, encodes ID routes and sends only attachment IDs in chat", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ input: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({ input: String(input), init });
+    return init?.method === "DELETE" ? new Response(null, { status: 204 }) : jsonResponse({ id: "asset-id" });
+  }) as typeof fetch;
+  try {
+    const file = new File(["explicit-bytes"], "photo.png", { type: "image/png" });
+    await uploadImage(file);
+    const form = requests[0].init?.body;
+    assert.ok(form instanceof FormData);
+    assert.equal(form.get("persistence_mode"), "temporary");
+    assert.equal(await (form.get("file") as File).text(), "explicit-bytes");
+    assert.equal(new Headers(requests[0].init?.headers).get("content-type"), null);
+    await deleteAsset("a/b");
+    assert.equal(requests[1].input, "/api/assets/a%2Fb");
+    assert.equal(assetContentUrl("a/b"), "/api/assets/a%2Fb/content");
+    await sendChat({ conversation_id: null, message: "Look", asset_ids: ["asset-id"] });
+    assert.deepEqual(JSON.parse(String(requests[2].init?.body)), { conversation_id: null, message: "Look", asset_ids: ["asset-id"] });
+    assert.doesNotMatch(String(requests[2].init?.body), /explicit-bytes|photo\.png/);
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

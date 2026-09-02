@@ -85,6 +85,22 @@ export interface Message {
   content: string;
   created_at: string;
   metadata: MessageMetadata | null;
+  assets?: UploadedAsset[];
+}
+
+export interface UploadedAsset {
+  id: string;
+  kind: "image";
+  original_filename: string;
+  content_type: "image/png";
+  byte_size: number;
+  width: number;
+  height: number;
+  sha256: string;
+  created_at: string;
+  conversation_id: string | null;
+  persistence_mode: "temporary" | "conversation";
+  processing_scope: "local_only";
 }
 
 export interface ConversationDetail extends Conversation {
@@ -94,6 +110,7 @@ export interface ConversationDetail extends Conversation {
 export interface ChatRequest {
   conversation_id: string | null;
   message: string;
+  asset_ids?: string[];
 }
 
 export interface ChatValidatorMetadata {

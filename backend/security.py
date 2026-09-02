@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 MIN_LOCAL_API_TOKEN_CHARS = 32
 _LOCKED_TOKEN = "0" * 64
-_PROTECTED_ROOTS = ("/api/chat", "/api/conversations", "/api/memory")
+_PROTECTED_ROOTS = ("/api/chat", "/api/conversations", "/api/memory", "/api/assets")
 
 
 def environment_flag(

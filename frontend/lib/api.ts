@@ -10,6 +10,7 @@ import type {
   MemoryListOptions,
   MemoryRecord,
   MemoryUpdateInput,
+  UploadedAsset,
 } from "@/lib/types";
 import { parseSseStream } from "./sse.ts";
 
@@ -47,7 +48,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         Accept: "application/json",
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
         ...init?.headers,
       },
     });
@@ -145,6 +146,21 @@ export function sendChat(payload: ChatRequest): Promise<ChatResponse> {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function uploadImage(file: File): Promise<UploadedAsset> {
+  const body = new FormData();
+  body.set("file", file);
+  body.set("persistence_mode", "temporary");
+  return apiFetch<UploadedAsset>("/api/assets", { method: "POST", body });
+}
+
+export function deleteAsset(id: string): Promise<void> {
+  return apiFetch<void>(`/api/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function assetContentUrl(id: string): string {
+  return `/api/assets/${encodeURIComponent(id)}/content`;
 }
 
 export interface ChatStreamHandlers {

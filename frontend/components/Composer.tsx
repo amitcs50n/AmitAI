@@ -2,16 +2,81 @@
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUp, Paperclip } from "lucide-react";
+import { ApiError, deleteAsset, uploadImage } from "@/lib/api";
+import type { UploadedAsset } from "@/lib/types";
+import { AssetPreview } from "@/components/AssetPreview";
 
 interface ComposerProps {
   disabled?: boolean;
   enterToSend: boolean;
-  onSend: (message: string) => Promise<void> | void;
+  onSend: (message: string, assets?: UploadedAsset[]) => Promise<void> | void;
 }
 
 export function Composer({ disabled = false, enterToSend, onSend }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [assets, setAssets] = useState<UploadedAsset[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const busy = useRef(false);
+  const staged = useRef<UploadedAsset[]>([]);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // Best effort only; the server TTL also covers refresh/offline/abandoned tabs.
+      for (const asset of staged.current) void deleteAsset(asset.id).catch(() => undefined);
+      staged.current = [];
+    };
+  }, []);
+
+  function setStaged(next: UploadedAsset[]) {
+    staged.current = next;
+    setAssets(next);
+  }
+
+  async function selectImage(file: File | undefined) {
+    if (!file || busy.current || disabled || staged.current.length >= 4) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || !file.size || file.size > 20 * 1024 * 1024) {
+      setUploadError("Choose a PNG, JPEG or WebP image up to 20 MiB.");
+      return;
+    }
+    busy.current = true;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const asset = await uploadImage(file);
+      if (!mounted.current) {
+        await deleteAsset(asset.id);
+        return;
+      }
+      setStaged([...staged.current, asset]);
+    } catch (error) {
+      if (mounted.current) setUploadError(error instanceof ApiError ? error.message : "Image upload failed.");
+    } finally {
+      busy.current = false;
+      if (mounted.current) setUploading(false);
+    }
+  }
+
+  async function removeImage(id: string) {
+    if (busy.current || disabled) return;
+    busy.current = true;
+    setUploading(true);
+    try {
+      await deleteAsset(id);
+      setStaged(staged.current.filter((asset) => asset.id !== id));
+      setUploadError(null);
+    } catch {
+      setUploadError("Could not remove the image. Try again.");
+    } finally {
+      busy.current = false;
+      setUploading(false);
+    }
+  }
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -23,9 +88,11 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
   async function submit(event?: FormEvent) {
     event?.preventDefault();
     const message = value.trim();
-    if (!message || disabled) return;
+    if (!message || disabled || busy.current) return;
+    const attachments = staged.current;
+    setStaged([]); // Ownership passes to the pending chat, including retry state.
     setValue("");
-    await onSend(message);
+    await onSend(message, attachments);
     textareaRef.current?.focus();
   }
 
@@ -40,12 +107,27 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
 
   return (
     <form className="w-full" onSubmit={submit}>
+      <input accept="image/png,image/jpeg,image/webp" aria-label="Select image" className="sr-only" disabled={disabled || uploading || assets.length >= 4} onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        void selectImage(file);
+      }} ref={fileRef} type="file" />
+      {assets.length ? <div className="mb-3 flex flex-wrap gap-2">
+        {assets.map((asset) => <div key={asset.id}>
+          <AssetPreview asset={asset} />
+          <button aria-label={`Remove ${asset.original_filename}`} className="mt-1 text-xs text-[#dca778] disabled:opacity-50" disabled={disabled || uploading} onClick={() => void removeImage(asset.id)} type="button">Remove</button>
+        </div>)}
+        <p className="w-full text-xs text-[#948d86]">Saved with this chat when sent. Image analysis is not enabled; images stay local.</p>
+      </div> : null}
+      {uploading ? <p className="mb-2 text-xs text-[#948d86]" role="status">Updating image attachment…</p> : null}
+      {uploadError ? <p className="mb-2 text-sm text-[#e0b49b]" role="alert">{uploadError}</p> : null}
       <div className="flex min-h-[4.5rem] items-end gap-2 rounded-2xl border border-[#805a3d]/65 bg-[#111212] p-2.5 pl-3 shadow-[0_18px_55px_rgba(0,0,0,0.24)] transition focus-within:border-[#b4784b]/80 focus-within:ring-1 focus-within:ring-[#b4784b]/25">
         <button
-          aria-label="Attach a file (coming soon)"
-          className="mb-0.5 flex h-10 w-10 shrink-0 cursor-not-allowed items-center justify-center rounded-full text-[#8f8983] opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
-          disabled
-          title="Attachments are coming later"
+          aria-label="Attach image"
+          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#bcb1a7] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
+          disabled={disabled || uploading || assets.length >= 4}
+          title="Upload PNG, JPEG or WebP. Images stay local; analysis is not enabled."
+          onClick={() => fileRef.current?.click()}
           type="button"
         >
           <Paperclip aria-hidden="true" className="h-5 w-5" />
@@ -68,7 +150,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
         <button
           aria-label={disabled ? "Waiting for Aevon" : "Send message"}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#a87349] text-[#0c0b0a] transition hover:bg-[#bd8558] disabled:cursor-not-allowed disabled:bg-[#4c3b2d] disabled:text-[#867568] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e4b487] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111212]"
-          disabled={disabled || !value.trim()}
+          disabled={disabled || uploading || !value.trim()}
           type="submit"
         >
           <ArrowUp aria-hidden="true" className="h-5 w-5" strokeWidth={2} />

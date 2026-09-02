@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { LoaderCircle, RotateCcw } from "lucide-react";
 
-import type { Message as ChatMessage, UiPreferences } from "@/lib/types";
+import type { Message as ChatMessage, UiPreferences, UploadedAsset } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Composer } from "@/components/Composer";
 import { Message } from "@/components/Message";
@@ -17,7 +17,7 @@ interface ChatViewProps {
   loadError: string | null;
   sendError: string | null;
   preferences: UiPreferences;
-  onSend: (message: string) => Promise<void>;
+  onSend: (message: string, assets?: UploadedAsset[]) => Promise<void>;
   onRetryLoad: () => void;
   onRetrySend: () => void;
 }

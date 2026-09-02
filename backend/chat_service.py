@@ -10,6 +10,8 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
+from .asset_storage import AssetStorage
+from .assets import VISION_NOT_ENABLED, AssetError, AssetService, validate_asset_ids
 from .memory import (
     LOCAL_MEMORY_OWNER_ID,
     MemoryCommandDecision,
@@ -121,6 +123,7 @@ class _PreparedChat:
     generation_messages: tuple[GenerationMessage, ...]
     retrieved_memory: tuple[dict[str, Any], ...]
     staged_memory: StagedMemoryMutation | None
+    asset_ids: tuple[str, ...] = ()
 
 
 def _deterministic_title(message: str) -> str:
@@ -177,12 +180,14 @@ class ChatService:
         ) = None,
         *,
         memory_owner_id: str = LOCAL_MEMORY_OWNER_ID,
+        asset_storage: AssetStorage | None = None,
     ) -> None:
         self.session = session
         self.generator = generator
         self.conversations = ConversationRepository(session)
         self.messages = MessageRepository(session)
         self.memory = MemoryService(session, owner_id=memory_owner_id)
+        self.assets = AssetService(session, asset_storage) if asset_storage is not None else None
 
     def _validate_generation(self, result: object) -> ChatGenerationResult:
         """Validate the generator boundary before any response can be persisted."""
@@ -278,8 +283,11 @@ class ChatService:
             raise ValueError("Generator stream deltas do not reconstruct the final response")
         yield result
 
-    def _prepare_chat(self, *, conversation_id: str | None, message: str) -> _PreparedChat:
+    def _prepare_chat(
+        self, *, conversation_id: str | None, message: str, asset_ids: tuple[str, ...] = (),
+    ) -> _PreparedChat:
         request_timestamp = utc_now()
+        validate_asset_ids(asset_ids)
         with self.session.begin():
             if conversation_id is None:
                 title = _deterministic_title(message)
@@ -295,6 +303,17 @@ class ChatService:
                 )
                 history_messages = _history_context(history)
                 title = ""
+
+            if asset_ids:
+                if self.assets is None:
+                    raise AssetError("Image attachments are unavailable", 503)
+                self.assets.validate_links(asset_ids, conversation_id)
+                # No image content/filename/ID, user prompt, retrieved memory or
+                # automatic memory mutation enters inference for this stub turn.
+                return _PreparedChat(
+                    conversation_id, message, title, request_timestamp,
+                    _timestamp_after(previous_timestamp), (), (), None, asset_ids,
+                )
 
             decision = parse_memory_command(message)
             staged_memory = self.memory.stage_chat_command(decision)
@@ -378,6 +397,10 @@ class ChatService:
                 content=prepared.message,
                 created_at=prepared.user_created_at,
             )
+            if prepared.asset_ids:
+                if self.assets is None:
+                    raise AssetError("Image attachments are unavailable", 503)
+                self.assets.attach(prepared.asset_ids, user_message)
             memory_metadata = [
                 *generation.memory,
                 *(
@@ -441,14 +464,20 @@ class ChatService:
             },
         }
 
-    def chat(self, *, conversation_id: str | None, message: str) -> ChatResult:
+    def chat(
+        self, *, conversation_id: str | None, message: str, asset_ids: tuple[str, ...] = (),
+    ) -> ChatResult:
         try:
             prepared = self._prepare_chat(
                 conversation_id=conversation_id,
                 message=message,
+                asset_ids=asset_ids,
             )
             try:
-                generation = self._generate(prepared.generation_messages)
+                generation = (
+                    ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled")
+                    if prepared.asset_ids else self._generate(prepared.generation_messages)
+                )
             except ChatPrivacyError:
                 raise
             except Exception as exc:
@@ -464,6 +493,7 @@ class ChatService:
         conversation_id: str | None,
         message: str,
         cancel_event: Event | None = None,
+        asset_ids: tuple[str, ...] = (),
     ) -> Iterator[ChatStreamEvent]:
         signal = cancel_event or Event()
         persisted = False
@@ -472,6 +502,7 @@ class ChatService:
             prepared = self._prepare_chat(
                 conversation_id=conversation_id,
                 message=message,
+                asset_ids=asset_ids,
             )
             yield ChatStreamEvent(
                 event="start",
@@ -481,7 +512,10 @@ class ChatService:
                 return
 
             generation: ChatGenerationResult | None = None
-            generation_stream = self._stream_generation(
+            generation_stream = iter((
+                ChatGenerationDelta(VISION_NOT_ENABLED),
+                ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled"),
+            )) if prepared.asset_ids else self._stream_generation(
                 prepared.generation_messages,
                 cancel_event=signal,
             )
