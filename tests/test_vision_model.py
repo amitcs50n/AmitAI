@@ -3,13 +3,14 @@
 import queue
 import sys
 from contextlib import nullcontext
-from threading import Event
+from threading import Event, Thread, current_thread
 from types import SimpleNamespace
 
 import pytest
 from jinja2 import Environment
 from PIL import Image
 
+from evaluation.hf_backend import GenerationOutput
 from runtime.config import EXPECTED_MODEL_NAME, EXPECTED_MODEL_REVISION, load_runtime_config
 from runtime.media import MAX_VISION_PIXELS, MIN_VISION_PIXELS, VisionGenerationRequest
 from runtime.model import NativeQwenGenerator, _execution_device, vision_chat_template
@@ -52,10 +53,15 @@ class Tensor:
     def tolist(self):
         return self.data
 
+    def cpu(self):
+        return self.to("cpu")
+
     def __eq__(self, other):
         return SimpleNamespace(sum=lambda: SimpleNamespace(item=lambda: 1024))
 
     def __getitem__(self, key):
+        if isinstance(key, int):
+            return Tensor(self.shape[1:], data=self.data[key] if self.data else None)
         return Tensor((1, self.shape[1] - key[1].start))
 
 
@@ -77,6 +83,10 @@ class Tokenizer:
         assert output.shape == (1, 3)
         return ["Red square shown."]
 
+    def decode(self, ids, **kwargs):
+        assert kwargs == {"skip_special_tokens": True, "clean_up_tokenization_spaces": False}
+        return "".join({100: "Red ", 101: "square ", 102: "shown."}[i] for i in ids)
+
     def convert_ids_to_tokens(self, token_id):
         return {248053: "<|vision_start|>", 248054: "<|vision_end|>"}[token_id]
 
@@ -92,7 +102,7 @@ class Qwen3VLProcessor:
         self.calls = []
         self.grid = [[1, 64, 64]]
 
-    def apply_chat_template(self, messages, **kwargs):
+    def apply_chat_template(self, messages, *, processor_kwargs=None, **kwargs):
         self.calls.append((messages, kwargs))
         assert kwargs["tokenize"] and kwargs["return_dict"] and kwargs["return_tensors"] == "pt"
         prompt = (
@@ -100,13 +110,17 @@ class Qwen3VLProcessor:
         )
         assert prompt.count("<|vision_start|><|image_pad|><|vision_end|>") == 1
         assert "PIL" not in prompt
-        assert kwargs["min_pixels"] == MIN_VISION_PIXELS
-        assert kwargs["max_pixels"] == MAX_VISION_PIXELS
-        assert kwargs["return_token_type_ids"] is False
-        assert kwargs["return_mm_token_type_ids"] is False
+        assert not set(processor_kwargs).intersection(kwargs)
+        assert processor_kwargs == {
+            "min_pixels": MIN_VISION_PIXELS,
+            "max_pixels": MAX_VISION_PIXELS,
+            "return_token_type_ids": False,
+            "return_mm_token_type_ids": False,
+        }
         return {
-            "input_ids": Tensor(),
-            "attention_mask": Tensor(),
+            # 1024 expanded image tokens plus five text/special tokens, batch 1.
+            "input_ids": Tensor((1, 1029)),
+            "attention_mask": Tensor((1, 1029)),
             "pixel_values": Tensor((4096, 1536)),
             "image_grid_thw": Tensor((1, 3), data=self.grid),
         }
@@ -127,6 +141,10 @@ class Model:
         self.calls = []
         self.release = Event()
         self.terminal = Event()
+        self.failure = None
+        self.fail_after_delta = False
+        self.worker = None
+        self.cancellation_seen = False
 
     @property
     def device(self):
@@ -141,20 +159,55 @@ class Model:
     def generate(self, **kwargs):
         self.calls.append(kwargs)
         assert kwargs["input_ids"].device == "cuda:0"
+        assert kwargs["attention_mask"].shape == kwargs["input_ids"].shape
+        assert kwargs["attention_mask"].device == "cuda:0"
+        assert kwargs["use_cache"] is True
+        assert "cache_position" not in kwargs  # Qwen's generation code owns cache positions.
         if "pixel_values" in kwargs:
             assert kwargs["pixel_values"].device == "cuda:1"
+            assert kwargs["pixel_values"].shape == (4096, 1536)
+            assert kwargs["image_grid_thw"].tolist() == [[1, 64, 64]]
+            assert kwargs["image_grid_thw"].device == "cuda:0"
         streamer = kwargs.get("streamer")
         if streamer:
-            streamer.on_finalized_text("Red ")
+            self.worker = current_thread()
+            if self.failure is not None and not self.fail_after_delta:
+                raise self.failure
+            criteria, = kwargs["stopping_criteria"]
+            stopped = criteria(kwargs["input_ids"], None)
+            assert stopped.shape == (1,) and stopped.device == "cuda:0"
+            assert stopped.tolist() == [False]
+            streamer.put(kwargs["input_ids"].cpu())  # skip the multimodal prompt
+            streamer.put(Tensor((1,), data=[100]))
             assert self.release.wait(5), "consumer never received the first chunk"
-            streamer.on_finalized_text("square shown.", stream_end=True)
+            if self.failure is not None:
+                raise self.failure
+            self.cancellation_seen = criteria(kwargs["input_ids"], None).tolist() == [True]
+            if not self.cancellation_seen:
+                streamer.put(Tensor((1, 2), data=[[101, 102]]))
+            streamer.end()
             self.terminal.set()
-        return Tensor((1, 8))
+        return Tensor((1, kwargs["input_ids"].shape[1] + 3))
 
 
 class Streamer:
     def __init__(self, tokenizer, **kwargs):
         self.queue = queue.Queue()
+        assert kwargs.pop("skip_prompt") is True
+        self.tokenizer, self.decode_kwargs = tokenizer, kwargs
+        self.first = True
+
+    def put(self, value):
+        assert value.shape[0] == 1
+        if self.first:
+            self.first = False
+            return
+        if len(value.shape) > 1:
+            value = value[0]
+        self.on_finalized_text(self.tokenizer.decode(value.tolist(), **self.decode_kwargs))
+
+    def end(self):
+        self.on_finalized_text("", stream_end=True)
 
     def on_finalized_text(self, text, stream_end=False):
         if text:
@@ -205,6 +258,7 @@ def loader(monkeypatch):
             __version__="fake",
             bfloat16="BF16",
             bool=bool,
+            full=lambda shape, value, *, dtype, device: Tensor(shape, data=[value], device=device),
             manual_seed=lambda _: None,
             cuda=SimpleNamespace(is_available=lambda: False),
             inference_mode=nullcontext,
@@ -270,7 +324,102 @@ def test_native_worker_streams_pixels_before_terminal_output(loader):
         remainder = list(stream)
         assert remainder[0] == "square shown."
         assert remainder[-1].text == "Red square shown."
-        assert remainder[-1].input_tokens == 5 and remainder[-1].output_tokens == 3
+        assert remainder[-1].input_tokens == 1029 and remainder[-1].output_tokens == 3
+        assert sum(isinstance(item, GenerationOutput) for item in remainder) == 1
+        assert not loader.model.worker.is_alive()
+
+
+@pytest.mark.parametrize("after_delta", [False, True])
+def test_native_worker_relays_original_valueerror_and_joins(loader, after_delta):
+    engine = make_engine()
+    failure = ValueError("VISION_STREAM_CANARY")
+    loader.model.failure, loader.model.fail_after_delta = failure, after_delta
+    loader.model.release.set()
+    items, errors = [], []
+
+    def consume(messages):
+        try:
+            items.extend(engine.generate_detailed_stream(messages, {}, cancel_event=Event()))
+        except ValueError as exc:
+            errors.append(exc)
+
+    with synthetic_image() as image:
+        request = VisionGenerationRequest([{"role": "user", "content": "Describe"}], image)
+        consumer = Thread(target=consume, args=(request.model_messages(),), daemon=True)
+        consumer.start()
+        consumer.join(timeout=7)
+        assert not consumer.is_alive(), "worker exception deadlocked the stream consumer"
+    assert errors == [failure] and errors[0] is failure
+    assert items == (["Red "] if after_delta else [])
+    assert not loader.model.worker.is_alive()
+
+
+@pytest.mark.parametrize("mode", ["before", "after_prepare", "during", "close"])
+def test_native_stream_cancellation_has_no_terminal_and_joins(loader, monkeypatch, mode):
+    engine = make_engine()
+    signal = Event()
+    if mode == "before":
+        signal.set()
+    elif mode == "after_prepare":
+        prepare = engine._prepare_generation
+
+        def cancel_after_prepare(*args):
+            output = prepare(*args)
+            signal.set()
+            return output
+
+        monkeypatch.setattr(engine, "_prepare_generation", cancel_after_prepare)
+    with synthetic_image() as image:
+        request = VisionGenerationRequest([{"role": "user", "content": "Describe"}], image)
+        stream = engine.generate_detailed_stream(request.model_messages(), {}, cancel_event=signal)
+        if mode in {"before", "after_prepare"}:
+            assert list(stream) == [] and not loader.model.calls
+            assert bool(loader.processor.calls) is (mode == "after_prepare")
+        else:
+            assert next(stream) == "Red "
+            if mode == "during":
+                signal.set()
+            # The worker may finish before close(), but closing still joins it
+            # without publishing the completion it may already have queued.
+            loader.model.release.set()
+            if mode == "close":
+                stream.close()
+            assert list(stream) == [] and signal.is_set()
+            assert not loader.model.worker.is_alive()
+            if mode == "during":
+                assert loader.model.cancellation_seen
+
+
+def test_same_native_instance_handles_all_four_modes(loader):
+    engine = make_engine()
+    loader.model.release.set()
+    messages = [{"role": "user", "content": "Describe"}]
+    with synthetic_image() as image:
+        for inputs in (messages, VisionGenerationRequest(messages, image).model_messages()):
+            expected = engine.generate_detailed(inputs, {})
+            events = list(engine.generate_detailed_stream(inputs, {}, cancel_event=Event()))
+            assert events[-1] == expected
+            assert "".join(events[:-1]) == expected.text
+    assert len(loader.model.calls) == 4
+    assert [kind for kind, *_ in loader.calls] == ["config", "processor", "model"]
+
+
+def test_legacy_processor_api_keeps_exact_same_limits_and_options(loader, monkeypatch):
+    modern = loader.processor.apply_chat_template
+
+    def legacy(messages, **kwargs):
+        assert "processor_kwargs" not in kwargs
+        options = {key: kwargs.pop(key) for key in (
+            "min_pixels", "max_pixels", "return_token_type_ids", "return_mm_token_type_ids"
+        )}
+        return modern(messages, processor_kwargs=options, **kwargs)
+
+    monkeypatch.setattr(loader.processor, "apply_chat_template", legacy)
+    engine = make_engine()
+    with synthetic_image() as image:
+        request = VisionGenerationRequest([{"role": "user", "content": "Describe"}], image)
+        assert engine.generate_detailed(request.model_messages(), {}).input_tokens == 1029
+    assert len(loader.processor.calls) == 1
 
 
 @pytest.mark.parametrize(

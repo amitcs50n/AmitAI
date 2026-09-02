@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from inspect import signature
 from typing import Any
 
 from evaluation.hf_backend import TransformersGenerator
@@ -196,6 +197,20 @@ class NativeQwenGenerator(TransformersGenerator):
             template_kwargs["enable_thinking"] = bool(generation_config["enable_thinking"])
         vision = any(isinstance(message["content"], list) for message in messages)
         if vision:
+            processor_options = {
+                "min_pixels": MIN_VISION_PIXELS,
+                "max_pixels": MAX_VISION_PIXELS,
+                "return_token_type_ids": False,
+                "return_mm_token_type_ids": False,
+            }
+            # 5.16 separates processor inputs from Jinja variables. Older supported
+            # versions accept the same options flat; select by the explicit API,
+            # never by retrying processing or silently dropping a pixel bound.
+            processor_kwargs = (
+                {"processor_kwargs": processor_options}
+                if "processor_kwargs" in signature(self.processor.apply_chat_template).parameters
+                else processor_options
+            )
             inputs = self.processor.apply_chat_template(
                 messages,
                 chat_template=self.vision_template,
@@ -204,12 +219,7 @@ class NativeQwenGenerator(TransformersGenerator):
                 return_tensors="pt",
                 **template_kwargs,
                 **self.vision_tokens,
-                min_pixels=MIN_VISION_PIXELS,
-                max_pixels=MAX_VISION_PIXELS,
-                # Qwen3VLProcessor's defaults in Transformers 5.2; neither is a
-                # Qwen3_5 forward input. No blind removal of arbitrary model fields.
-                return_token_type_ids=False,
-                return_mm_token_type_ids=False,
+                **processor_kwargs,
             )
             grid = inputs["image_grid_thw"].tolist()
             if (

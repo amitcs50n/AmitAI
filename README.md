@@ -299,9 +299,14 @@ python -m scripts.vision_smoke
 
 This uses the production pinned BF16 loader and an in-memory white image containing
 `AEVON VISION 42`, a red square, and a blue circle. It accepts no image path, calls no application
-API, and prints the answer, load/generation timing, and allocated/reserved/peak CUDA VRAM.
+API, and prints synthetic answers/deltas, load/generation timing, and allocated/reserved/peak
+CUDA VRAM. One model load exercises non-streaming vision, streaming vision (including exact
+chunk reconstruction and one terminal result), and a text-only followup. This explicit
+developer-only script prints full generation tracebacks; it accepts no private inputs.
 It deliberately loads real weights **only when explicitly run**; normal tests use fakes.
-No real GPU accuracy/latency result is claimed yet. Keep one Uvicorn worker and no `--reload`
+The reported A100 non-streaming control succeeded; streaming still requires the synthetic
+traceback/revalidation below. CPU/mock tests do not establish real-weight streaming success.
+Keep one Uvicorn worker and no `--reload`
 for any deployed model server. Running the synthetic test on RunPod is not a claim of
 provider-blind inference.
 
@@ -338,6 +343,11 @@ and applies the existing native processor's 1,048,576-pixel limit. All media sta
 no UploadFile spool, temp image, image cache, asset directory or application database is opened.
 The same lazy local inference provider, model instance and serialized generation lock handle text
 and vision on the GPU server.
+`POST /v1/vision` calls genuine `generate_vision()` and returns JSON; it never reconstructs a
+stream. `/v1/vision/stream` calls `stream_vision()` and returns SSE. Neither falls back to the
+other on failure. A disconnected synchronous request discards its result, but an in-flight
+model call may continue; its image stays alive until that call returns. Streaming cancellation
+is cooperative between model steps and produces no successful terminal result after cancellation.
 
 Only the canonical image, minimized/projected text and generation/protocol metadata cross. Asset
 UUIDs, original filenames, paths, ciphertext, AEK, hashes, local timestamps, conversation IDs,
@@ -371,23 +381,54 @@ compute, not provider-blind, zero-knowledge or end-to-end confidential inference
 Minimal synthetic A100 smoke (not run by Codex): use the existing `/workspace/AmitAI` checkout,
 the existing `/workspace/hf` cache, matching installed CUDA PyTorch/TorchVision/runtime dependencies,
 and an already-set valid `AMITAI_INFERENCE_AUTH_TOKEN`. No network volume or weights redownload is
-needed. Offline mode deliberately fails if the pinned checkpoint is missing. Three GPU commands:
+needed. Offline mode deliberately fails if the pinned checkpoint is missing. First, on the GPU:
 
 ```bash
-cd /workspace/AmitAI && git pull --ff-only
+cd /workspace/AmitAI
+git pull --ff-only
 HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 python -m scripts.vision_smoke
-HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 uvicorn runtime.inference_app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-The first smoke prints model-load time, processed image dimensions, first vision latency/output
-tokens, allocated/reserved/max-allocated/**max-reserved** VRAM, and a text followup on that same
-model. After it exits, the server starts its one lazy model (never run multiple workers or reload).
-On the **local machine**, with the existing remote URL, allowed-origin and token environment
-variables configured, run `python -m scripts.remote_vision_smoke` to exercise normal vision,
-streaming vision and text-only followup through the real controlled HTTP client. It generates only
-the synthetic text/shapes image in RAM and accepts no image path. Do not test private screenshots.
-Record outputs and stop/report any OOM or compatibility failure; do not change quantization,
-checkpoint, resolution policy or inference architecture to hide it. Real GPU results remain unverified.
+The smoke reports each native stage, runtime versions, tensor shapes, processed dimensions,
+both vision latencies/output tokens, reconstruction, and allocated/reserved/max-allocated/
+**max-reserved** VRAM. On failure, stop and collect the synthetic traceback; do not repeatedly
+reload the 27B checkpoint or change resolution/quantization to mask the failure. The production
+server continues to log exception class only and returns `Inference failed`. The earlier
+class-only `ValueError` does **not** establish its original failing line or a streaming-only cause.
+Processor options now use `processor_kwargs` where that API is available (including 5.16.1),
+with identical pixel limits and option values; this addresses the non-fatal warning, not proof
+of the original error's cause. The validated text template and non-streaming generation algorithm
+are unchanged.
+
+If the native smoke passes, start the server (one worker, no `--reload`):
+
+```bash
+HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 python -m uvicorn runtime.inference_app:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+**Lazy-load/524 warning:** the standalone native smoke runs in a different process; it does NOT
+warm the later Uvicorn server. To make the server's own model resident before going through
+Cloudflare/RunPod, run this authenticated synthetic request from another GPU-side terminal:
+
+```bash
+AMITAI_REMOTE_INFERENCE_URL=http://127.0.0.1:8000 \
+AMITAI_REMOTE_INFERENCE_ALLOWED_ORIGINS=http://127.0.0.1:8000 \
+AMITAI_REMOTE_INFERENCE_TOKEN="$AMITAI_INFERENCE_AUTH_TOKEN" \
+python -m scripts.remote_vision_smoke
+```
+
+This uses the existing authenticated endpoints over loopback, loads no second model, bypasses
+the edge timeout, and adds no unauthenticated warmup route or timeout change. Once it passes,
+on the **local machine** with the existing remote environment configured, run:
+
+```bash
+python -m scripts.remote_vision_smoke
+```
+
+It reports `REMOTE VISION NONSTREAM: PASS/FAIL`, `REMOTE VISION STREAM: PASS/FAIL`, and
+`REMOTE TEXT: PASS/FAIL`, stopping at the first failure. It prints no token, URL, request/response
+body or private exception details. Both smoke scripts use only the generated text/shapes image
+in RAM and accept no image path. Do not test private screenshots.
 
 Explicit API clients may upload with `persistence_mode=conversation` plus an existing
 `conversation_id`; this retains the asset immediately. Temporary uploads cannot supply a

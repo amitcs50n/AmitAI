@@ -9,6 +9,7 @@ import logging
 import os
 import ssl
 import tempfile
+from contextlib import contextmanager
 from datetime import timedelta
 from threading import Event
 from uuid import uuid4
@@ -23,6 +24,7 @@ from backend.chat_service import ChatPrivacyError, ChatService, GenerationMessag
 from backend.models import Message, utc_now
 from backend.security import LocalApiAuthMiddleware
 from backend.vision_grant import RemoteVisionGrant
+from evaluation.hf_backend import GenerationOutput
 from runtime.config import EXPECTED_MODEL_NAME, load_runtime_config
 from runtime.generator import ProviderChatGenerator
 from runtime.inference_app import create_inference_app
@@ -386,6 +388,123 @@ def wire(png=None):
         ).encode(),
         image_bytes() if png is None else png,
     )
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_server_dispatches_only_the_selected_vision_method(monkeypatch, streaming):
+    harness = Harness()
+    provider = harness.server.state.inference_provider
+    calls = []
+    closed = Event()
+
+    def generate(request, config):
+        assert not streaming, "JSON/stream dispatch was crossed"
+        assert request.image.getpixel((0, 0)) is not None
+        calls.append(config)
+        return GenerationOutput("Red square shown.", 1029, 3)
+
+    def stream(request, config, *, cancel_event):
+        assert streaming, "non-streaming endpoint called stream_vision"
+        assert not cancel_event.is_set()
+        assert request.image.getpixel((0, 0)) is not None
+        calls.append(config)
+        try:
+            yield "Red "
+            yield "square shown."
+            yield GenerationOutput("Red square shown.", 1029, 3)
+        finally:
+            closed.set()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Endpoint called the other generation method")
+
+    monkeypatch.setattr(provider, "generate_vision", forbidden if streaming else generate)
+    monkeypatch.setattr(provider, "stream_vision", stream if streaming else forbidden)
+    body, content_type = wire()
+    metadata, _ = decode_vision_body(body, content_type)
+    response = harness.client.post(
+        "/v1/vision/stream" if streaming else "/v1/vision",
+        content=body,
+        headers={"content-type": content_type, "authorization": f"Bearer {TOKEN}"},
+    )
+    assert response.status_code == 200
+    assert "no-store" in response.headers["cache-control"]
+    if streaming:
+        events = list(_parse_sse(response.text.splitlines()))
+        assert [e["event"] for e in events] == ["delta", "delta", "final"]
+        result = events[-1]["data"]
+        assert "".join(e["data"]["delta"] for e in events[:-1]) == result["text"]
+        assert closed.wait(2)
+    else:
+        result = response.json()
+    assert result == {
+        "request_id": str(metadata.request_id), "model": provider.model_name,
+        "text": "Red square shown.", "input_tokens": 1029, "output_tokens": 3,
+    }
+    assert calls == [metadata.generation_config.model_dump(exclude_none=True)]
+    assert not harness.loads
+
+
+@pytest.mark.parametrize("mode", ["nonstream", "before_delta", "after_delta"])
+def test_worker_failure_safe_through_http_client_and_local_persistence(
+    tmp_path, monkeypatch, caplog, mode
+):
+    harness = Harness()
+    provider = harness.server.state.inference_provider
+    attempts = []
+    failure = ValueError("VISION_STREAM_CANARY " + TOKEN)
+
+    def generate(*args, **kwargs):
+        assert mode == "nonstream", "unexpected fallback"
+        attempts.append("nonstream")
+        raise failure
+
+    def stream(*args, **kwargs):
+        assert mode != "nonstream", "unexpected fallback"
+        attempts.append("stream")
+        if mode == "after_delta":
+            yield "Partial"
+        raise failure
+
+    monkeypatch.setattr(provider, "generate_vision", generate)
+    monkeypatch.setattr(provider, "stream_vision", stream)
+    # Inspect the raw server boundary as well as its client-facing translation.
+    body, content_type = wire()
+    path = "/v1/vision" if mode == "nonstream" else "/v1/vision/stream"
+    with caplog.at_level(logging.DEBUG):
+        response = harness.client.post(
+            path, content=body,
+            headers={"content-type": content_type, "authorization": f"Bearer {TOKEN}"},
+        )
+        if mode == "nonstream":
+            assert response.status_code == 502
+            assert response.json() == {"detail": "Inference failed"}
+        else:
+            events = list(_parse_sse(response.text.splitlines()))
+            assert [e["event"] for e in events] == (
+                ["delta", "error"] if mode == "after_delta" else ["error"]
+            )
+            assert events[-1]["data"] == {"detail": "Inference failed"}
+        app = make_app(tmp_path, harness.generator)
+        with TestClient(app) as client:
+            asset = upload(client).json()
+            chat = client.post(
+                "/api/chat" if mode == "nonstream" else "/api/chat/stream",
+                json={"message": "Describe", "asset_ids": [asset["id"]],
+                      "allow_remote_vision": True},
+            )
+            if mode == "nonstream":
+                assert chat.status_code == 500
+            else:
+                assert [e["event"] for e in _parse_sse(chat.text.splitlines())] == (
+                    ["start", "text", "error"] if mode == "after_delta" else ["start", "error"]
+                )
+            assert counts(app) == (0, 0, 1)
+        assert [r.url.path for r in harness.requests] == [path]
+    assert attempts == (["nonstream"] if mode == "nonstream" else ["stream"]) * 2
+    assert not any(s in caplog.text + response.text + chat.text for s in (
+        "VISION_STREAM_CANARY", TOKEN, "Traceback (most recent call last)"
+    ))
 
 
 @pytest.mark.parametrize("path", ["/v1/vision", "/v1/vision/stream"])
@@ -772,6 +891,68 @@ def test_remote_server_disconnect_signals_model_before_terminal_and_closes_image
         )
         assert await asyncio.to_thread(stopped.wait, 5)
         assert not any(b"event: final" in m.get("body", b"") for m in sent)
+
+    asyncio.run(scenario())
+
+
+def test_nonstream_server_disconnect_discards_result_but_keeps_image_until_return(monkeypatch):
+    import runtime.vision_api as api
+
+    harness = Harness()
+    started, release, returned, image_closed = Event(), Event(), Event(), Event()
+    decode = api.decoded_vision_image
+
+    @contextmanager
+    def tracked_decode(png):
+        with decode(png) as image:
+            yield image
+        if started.is_set():
+            image_closed.set()
+
+    def generate(request, config):
+        started.set()
+        assert release.wait(5), "disconnected request did not return promptly"
+        # A disconnect must not close the borrowed PIL input underneath the call.
+        assert request.image.getpixel((0, 0)) is not None
+        returned.set()
+        return GenerationOutput("DISCARDED_RESULT_CANARY", 10, 2)
+
+    monkeypatch.setattr(api, "decoded_vision_image", tracked_decode)
+    monkeypatch.setattr(harness.server.state.inference_provider, "generate_vision", generate)
+    body, content_type = wire()
+
+    async def scenario():
+        sent = []
+        first = True
+
+        async def receive():
+            nonlocal first
+            if first:
+                first = False
+                return {"type": "http.request", "body": body, "more_body": False}
+            assert started.is_set()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent.append(message)
+
+        try:
+            await asyncio.wait_for(harness.server(
+                {
+                    "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                    "method": "POST", "scheme": "http", "path": "/v1/vision",
+                    "query_string": b"", "http_version": "1.1",
+                    "headers": [(b"content-type", content_type.encode()),
+                                (b"authorization", f"Bearer {TOKEN}".encode())],
+                    "server": ("testserver", 80), "client": ("127.0.0.1", 1234),
+                }, receive, send,
+            ), timeout=3)
+            assert started.is_set() and not returned.is_set() and not image_closed.is_set()
+            assert not any(b"DISCARDED_RESULT_CANARY" in m.get("body", b"") for m in sent)
+        finally:
+            release.set()
+        assert await asyncio.to_thread(image_closed.wait, 2)
+        assert returned.is_set()
 
     asyncio.run(scenario())
 

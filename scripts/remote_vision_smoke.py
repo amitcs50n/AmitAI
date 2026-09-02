@@ -1,6 +1,7 @@
 """Explicit synthetic remote smoke. Never accepts a user's image or filesystem path."""
 
 import os
+import time
 from io import BytesIO
 from threading import Event
 from uuid import uuid4
@@ -15,6 +16,7 @@ from scripts.vision_smoke import synthetic_image
 
 def main() -> int:
     provider = None
+    stage = "REMOTE VISION NONSTREAM"
     grant = RemoteVisionGrant(str(uuid4()), explicit_consent=True)
     try:
         config = load_runtime_config()
@@ -29,30 +31,36 @@ def main() -> int:
             image.save(buffer, format="PNG")
             png = buffer.getvalue()
         messages = [GenerationMessage("user", "What text and shapes do you see?")]
-        print(generator.generate_vision_response(messages, png, remote_grant=grant).response)
+        start = time.perf_counter()
+        generator.generate_vision_response(messages, png, remote_grant=grant)
+        print(f"{stage}: PASS ({time.perf_counter() - start:.2f}s)")
         grant.revoke()
         grant = RemoteVisionGrant(str(uuid4()), explicit_consent=True)
-        for item in generator.stream_vision_response(
+        stage = "REMOTE VISION STREAM"
+        start = time.perf_counter()
+        for _ in generator.stream_vision_response(
             messages, png, remote_grant=grant, cancel_event=Event()
         ):
-            if hasattr(item, "delta"):
-                print(item.delta, end="", flush=True)
-        print()
-        print(
-            generator.generate_response(
-                [GenerationMessage("user", "What is the capital of France?")]
-            ).response
+            pass
+        print(f"{stage}: PASS ({time.perf_counter() - start:.2f}s)")
+        grant.revoke()
+        stage = "REMOTE TEXT"
+        start = time.perf_counter()
+        generator.generate_response(
+            [GenerationMessage("user", "What is the capital of France?")]
         )
+        print(f"{stage}: PASS ({time.perf_counter() - start:.2f}s)")
         return 0
     except Exception:  # noqa: BLE001 - no URL, credentials or private errors in console
-        print(
-            "Synthetic remote vision smoke failed. Check inference configuration and GPU capacity."
-        )
+        print(f"{stage}: FAIL")
         return 1
     finally:
         grant.revoke()
         if provider is not None:
-            provider.close()
+            try:
+                provider.close()
+            except Exception:  # noqa: BLE001 - cleanup must not expose transport details either
+                print("REMOTE CLEANUP: FAIL")
 
 
 if __name__ == "__main__":

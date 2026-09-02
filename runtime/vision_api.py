@@ -90,29 +90,36 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
                     vision = VisionGenerationRequest(
                         [m.model_dump() for m in metadata.messages], image
                     )
-                    stream = iter(
-                        provider.stream_vision(
-                            vision,
-                            metadata.generation_config.model_dump(exclude_none=True),
-                            cancel_event=cancelled,
+                    if cancelled.is_set():
+                        return
+                    config = metadata.generation_config.model_dump(exclude_none=True)
+                    if not streaming:
+                        # A JSON request must exercise genuine non-streaming inference.
+                        # An in-flight synchronous call cannot be forcibly cancelled;
+                        # publish() discards its result after a disconnect instead.
+                        output = _validated_output(provider.generate_vision(vision, config))
+                    else:
+                        stream = iter(
+                            provider.stream_vision(vision, config, cancel_event=cancelled)
                         )
-                    )
-                    chunks = []
-                    output = None
-                    for item in stream:
-                        if cancelled.is_set():
-                            return
-                        if output is not None:
-                            raise ValueError("Invalid vision stream")
-                        if isinstance(item, str):
-                            if item:
-                                chunks.append(item)
-                                if streaming:
+                        chunks = []
+                        output = None
+                        for item in stream:
+                            if cancelled.is_set():
+                                return
+                            if output is not None:
+                                raise ValueError("Invalid vision stream")
+                            if isinstance(item, str):
+                                if item:
+                                    chunks.append(item)
                                     publish(("delta", {"delta": item}))
-                        else:
-                            output = _validated_output(item)
-                    if not isinstance(output, GenerationOutput) or "".join(chunks) != output.text:
-                        raise ValueError("Invalid vision stream")
+                            else:
+                                output = _validated_output(item)
+                        if (
+                            not isinstance(output, GenerationOutput)
+                            or "".join(chunks) != output.text
+                        ):
+                            raise ValueError("Invalid vision stream")
                     publish(
                         (
                             "final",
@@ -155,7 +162,8 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
         finally:
             cancelled.set()
             # Do not forcibly kill CUDA or close an image still in use by the worker.
-            # The shared model checks cancellation at generation steps and then releases it.
+            # Streaming checks cancellation between generation steps. Synchronous
+            # inference keeps its image alive until generate_vision actually returns.
 
     @application.post("/v1/vision")
     async def vision(request: Request):

@@ -203,11 +203,15 @@ class TransformersGenerator:
             name="amitai-transformers-generate",
             daemon=True,
         )
+        if cancel_event.is_set():
+            return
         worker.start()
         chunks: list[str] = []
         completed = False
         try:
             for chunk in streamer:
+                if cancel_event.is_set():
+                    return
                 if chunk:
                     chunks.append(chunk)
                     yield chunk
@@ -215,6 +219,8 @@ class TransformersGenerator:
             worker.join()
             if generation_errors:
                 raise generation_errors[0]
+            if cancel_event.is_set():
+                return
             if len(generated_outputs) != 1:
                 raise RuntimeError("Transformers generation ended without token output")
 
