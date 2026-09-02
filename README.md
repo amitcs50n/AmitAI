@@ -228,8 +228,8 @@ there is no total-disk quota yet.
 
 An attachment turn uses native vision when the configured **local** Transformers generator is
 enabled. Mock/explicitly unsupported generators retain the non-analysis acknowledgment; a native
-load failure is an error, never a silent placeholder fallback. Remote-provider image requests fail
-with `Remote vision disclosure is not enabled` before decryption or HTTP. Failed attachment
+load failure is an error, never a silent placeholder fallback. Remote-provider image requests require
+explicit per-message consent; without it they fail before decryption or HTTP. Failed attachment
 requests can be retried while their uploads remain available; expired attachments must be uploaded
 again. Normal text-only chat, tools, memory and remote text inference keep their existing contracts.
 
@@ -253,7 +253,7 @@ and frozen generation config are unchanged. Tests verify identical text-template
 
 Attach one photo, screenshot, chart/UI image, or visible-text image using the existing paperclip.
 The native path supports visual question answering and model-based text reading, not guaranteed
-forensic OCR. It does **not** support multiple-image comparison, remote vision, image editing,
+forensic OCR. It does **not** support multiple-image comparison, image editing,
 image generation, video input, or a separate OCR engine.
 
 `AssetService.processing_bytes()` authenticates/decrypts the current asset into normalized PNG
@@ -302,8 +302,92 @@ This uses the production pinned BF16 loader and an in-memory white image contain
 API, and prints the answer, load/generation timing, and allocated/reserved/peak CUDA VRAM.
 It deliberately loads real weights **only when explicitly run**; normal tests use fakes.
 No real GPU accuracy/latency result is claimed yet. Keep one Uvicorn worker and no `--reload`
-for any deployed model server. This local-only milestone does not enable remote image transport;
-running the synthetic test on RunPod is not a claim of provider-blind inference.
+for any deployed model server. Running the synthetic test on RunPod is not a claim of
+provider-blind inference.
+
+#### Explicit remote single-image vision
+
+Upload and remote disclosure are separate actions. With a remote provider configured, the composer
+shows **Allow this image to be sent to the remote GPU for this message**, unchecked by default.
+The local authenticated `GET /api/capabilities` returns only `{vision: {enabled, scope}}`; no
+provider URL, token or host is exposed. The browser calls only the local `/api` proxy.
+Local native vision needs no remote consent. Unknown capability state blocks image submission.
+
+Both `/api/chat` and `/api/chat/stream` accept strict boolean `allow_remote_vision` (default false)
+alongside the current `asset_ids: ["..."]`. The checkbox resets on submission, attachment changes,
+and retries; a failed request requires fresh consent. Consent is not stored in preferences,
+conversation metadata, browser storage, or the asset: `processing_scope` remains `local_only`.
+A typed request-local `RemoteVisionGrant` binds exactly one asset, explicit consent and the vision
+purpose. The local service checks it before decryption and revokes it on success/failure/cancel.
+Bounded mechanical repairs and calculator followups reuse it only inside that request; each
+provider invocation sends the same one image. There is no automatic fallback or network retry.
+
+The existing remote client sends to authenticated `POST /v1/vision` or `/v1/vision/stream`:
+
+- `multipart/form-data`, exactly two parts, with **no filename parameters**;
+- `metadata` (`application/json`): version `1`, fresh transport request ID, compiled `messages`
+  and bounded `generation_config` (at most 512 output tokens);
+- `image` (`image/png`): the normalized, metadata-free canonical PNG, at most **20 MiB**.
+
+Metadata is capped at **1 MiB**, 40 messages and 200,000 characters per message; the actual complete
+body is capped at **21 MiB + 4 KiB**, regardless of Content-Length. Extra/duplicate/missing parts,
+unknown headers or fields, filename parameters, encodings and non-PNG media fail closed. The server
+authenticates before reading the body, verifies PNG CRC/container, full decode and single frame,
+enforces **8192 pixels per side / 24 million pixels / 200:1 aspect ratio**, strips metadata again,
+and applies the existing native processor's 1,048,576-pixel limit. All media stays in request RAM:
+no UploadFile spool, temp image, image cache, asset directory or application database is opened.
+The same lazy local inference provider, model instance and serialized generation lock handle text
+and vision on the GPU server.
+
+Only the canonical image, minimized/projected text and generation/protocol metadata cross. Asset
+UUIDs, original filenames, paths, ciphertext, AEK, hashes, local timestamps, conversation IDs,
+database details and local-only memory records do not. The existing semantic credential guard
+scans the owned JSON metadata **before** multipart construction; it does not regex-scan PNG bytes.
+Text history uses the same 20-message / 20,000-character policy and remote memory-command
+projection. Image turns still perform **no memory retrieval or mutation**. Historical image bytes
+are never automatically resent. Ordinary conversation text deliberately included in the compiled
+context remains visible remotely; this is not automatic PII/path redaction.
+
+The exact-origin/DNS policy, verified TLS >=1.2, hostname/CA checks, header-only bearer auth,
+`trust_env=False`, and disabled redirects are shared with text inference. Every non-200 response,
+including 300/301/302/303/307/308, fails without resending the image. DNS checks remain preflight
+checks, not connection-level DNS pinning. Proxy buffering must be disabled for genuine streaming.
+
+Remote SSE uses the existing `delta`, `final`, `error` format; local chat still emits
+`start`, `text`, `final`, `done` or terminal `error`. Constraints remain fully buffered until
+validated; invalid candidates never reach the browser or persistence. Disconnects signal the
+remote model's cooperative cancellation and close streams; periodic SSE heartbeats also let the
+local client observe cancellation during a quiet model load. Connection establishment, an in-flight
+read/CUDA operation or model loading cannot always be interrupted instantly. No partial turn is
+committed, and no SQL transaction spans inference. Images are released when the worker stops;
+Python/GPU allocators are not securely zeroized.
+
+**Disclosure warning:** a screenshot/photo can visibly contain private data or credentials.
+Pixels are not automatically scrubbed. Explicit remote consent is the security gate. Normalized
+plaintext image bytes and included text are visible to the inference provider during execution.
+The service is designed not to persist them, but ordinary RunPod is provider-controlled development
+compute, not provider-blind, zero-knowledge or end-to-end confidential inference.
+
+Minimal synthetic A100 smoke (not run by Codex): use the existing `/workspace/AmitAI` checkout,
+the existing `/workspace/hf` cache, matching installed CUDA PyTorch/TorchVision/runtime dependencies,
+and an already-set valid `AMITAI_INFERENCE_AUTH_TOKEN`. No network volume or weights redownload is
+needed. Offline mode deliberately fails if the pinned checkpoint is missing. Three GPU commands:
+
+```bash
+cd /workspace/AmitAI && git pull --ff-only
+HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 python -m scripts.vision_smoke
+HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 uvicorn runtime.inference_app:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+The first smoke prints model-load time, processed image dimensions, first vision latency/output
+tokens, allocated/reserved/max-allocated/**max-reserved** VRAM, and a text followup on that same
+model. After it exits, the server starts its one lazy model (never run multiple workers or reload).
+On the **local machine**, with the existing remote URL, allowed-origin and token environment
+variables configured, run `python -m scripts.remote_vision_smoke` to exercise normal vision,
+streaming vision and text-only followup through the real controlled HTTP client. It generates only
+the synthetic text/shapes image in RAM and accepts no image path. Do not test private screenshots.
+Record outputs and stop/report any OOM or compatibility failure; do not change quantization,
+checkpoint, resolution policy or inference architecture to hide it. Real GPU results remain unverified.
 
 Explicit API clients may upload with `persistence_mode=conversation` plus an existing
 `conversation_id`; this retains the asset immediately. Temporary uploads cannot supply a
@@ -342,8 +426,8 @@ is used on supported POSIX filesystems; Windows uses file `FlushFileBuffers` but
 fsync equivalent here. No plaintext image temp, preview cache or migration backup is created.
 Authenticated previews decrypt only in backend memory and continue returning normalized
 `image/png` with no-store, nosniff and same-origin headers. Browser storage and conversation JSON
-exports still contain no image bytes, AEK or ciphertext paths. Remote image processing remains
-disabled; only the explicitly configured local native vision path can process images.
+exports still contain no image bytes, AEK or ciphertext paths. Remote image processing requires
+the separate one-request consent/grant path above; encrypted storage scope remains local-only.
 
 **Legacy migration:** stop every other backend process and use one worker. After DB unlock and
 schema creation, the AEK is durably committed **before** migration. Startup verifies each legacy
@@ -384,9 +468,8 @@ plaintext. OS/full-disk encryption remains complementary protection.
 `runtime/media.py` defines a request-local vision DTO containing compiled text and a borrowed
 in-memory image. Future edit/generation DTOs still only reference uploaded IDs.
 `AssetService.processing_bytes()` is the normalized-image preparation seam; remote access fails
-closed today, even if a future schema adds `remote_allowed`. A future media provider must receive
-only explicitly referenced uploads after a separate disclosure policy and consent check.
-Image editing/generation and remote media transport remain unimplemented.
+closed without a matching live `RemoteVisionGrant`. Providers receive only the current explicitly
+referenced image after the separate consent check. Image editing/generation remain unimplemented.
 
 #### Structured memory V1
 

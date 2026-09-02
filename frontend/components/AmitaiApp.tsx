@@ -10,6 +10,7 @@ import {
   listConversations,
   renameConversation,
   sendChatStream,
+  getCapabilities,
 } from "@/lib/api";
 import type {
   AppView,
@@ -21,6 +22,7 @@ import type {
   MessageMetadata,
   UiPreferences,
   UploadedAsset,
+  VisionCapability,
 } from "@/lib/types";
 import { DEFAULT_PREFERENCES } from "@/lib/types";
 import { ChatView } from "@/components/ChatView";
@@ -97,6 +99,7 @@ export function AmitaiApp() {
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const [failedInput, setFailedInput] = useState<string | null>(null);
+  const [vision, setVision] = useState<VisionCapability | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionAlert, setActionAlert] = useState<ActionAlert | null>(null);
@@ -108,6 +111,10 @@ export function AmitaiApp() {
   const streamAbortRef = useRef<AbortController | null>(null);
 
   const markConnected = useCallback(() => setConnection("connected"), []);
+  const loadCapabilities = useCallback(async () => {
+    try { setVision((await getCapabilities()).vision); }
+    catch { setVision(null); }
+  }, []);
 
   const loadConversation = useCallback(async (id: string) => {
     const requestId = ++conversationRequestRef.current;
@@ -195,12 +202,13 @@ export function AmitaiApp() {
       setPreferences(loadInitialPreferences());
       if (window.innerWidth < 1024) setSidebarOpen(false);
       void initialize();
+      void loadCapabilities();
     }, 0);
     return () => {
       window.clearTimeout(initializeTimer);
       streamAbortRef.current?.abort();
     };
-  }, [initialize]);
+  }, [initialize, loadCapabilities]);
 
   function updatePreferences(patch: Partial<UiPreferences>) {
     setPreferences((current) => {
@@ -251,7 +259,7 @@ export function AmitaiApp() {
     if (window.innerWidth < 1024) setSidebarOpen(false);
   }
 
-  async function submitMessage(message: string, retry = false, assets: UploadedAsset[] = []) {
+  async function submitMessage(message: string, retry = false, assets: UploadedAsset[] = [], allowRemoteVision = false) {
     const targetId = selectedId;
     const userMessage = retry && pendingMessage ? pendingMessage : temporaryUserMessage(message, targetId, assets);
     const streamMessageId = `streaming-${crypto.randomUUID()}`;
@@ -269,7 +277,7 @@ export function AmitaiApp() {
 
     try {
       const result = await sendChatStream(
-        { conversation_id: targetId, message, asset_ids: (userMessage.assets ?? []).map((asset) => asset.id) },
+        { conversation_id: targetId, message, asset_ids: (userMessage.assets ?? []).map((asset) => asset.id), allow_remote_vision: allowRemoteVision },
         {
           onStart: markConnected,
           onText: (delta) => {
@@ -356,8 +364,8 @@ export function AmitaiApp() {
     }
   }
 
-  function retrySend() {
-    if (failedInput && !sending) void submitMessage(failedInput, true);
+  function retrySend(allowRemoteVision = false) {
+    if (failedInput && !sending) void submitMessage(failedInput, true, [], allowRemoteVision);
   }
 
   async function performDelete(id: string) {
@@ -469,7 +477,9 @@ export function AmitaiApp() {
             messages={conversation?.messages ?? []}
             onRetryLoad={() => (selectedId ? void loadConversation(selectedId) : void initialize())}
             onRetrySend={retrySend}
-            onSend={(message, assets) => submitMessage(message, false, assets)}
+            onSend={(message, assets, consent) => submitMessage(message, false, assets, consent)}
+            vision={vision}
+            onReloadCapabilities={() => void loadCapabilities()}
             pendingMessage={pendingMessage}
             preferences={preferences}
             sendError={sendError}

@@ -9,7 +9,7 @@ export function AssetPreview({ asset }: { asset: UploadedAsset }) {
       <img alt="Uploaded image" className="h-24 w-full rounded-lg object-contain" src={assetContentUrl(asset.id)} />
       <figcaption className="mt-1 break-all text-xs text-[#bcb1a7]">
         {asset.original_filename}
-        <span className="block text-[#8f8983]">{asset.width} × {asset.height} · Local only</span>
+        <span className="block text-[#8f8983]">{asset.width} × {asset.height} · Stored locally</span>
       </figcaption>
     </figure>
   );

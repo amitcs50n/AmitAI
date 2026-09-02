@@ -11,6 +11,7 @@ import {
   deleteAsset,
   assetContentUrl,
   sendChat,
+  getCapabilities,
 } from "./api.ts";
 import type { MemoryRecord } from "./types.ts";
 
@@ -48,6 +49,25 @@ test("image client uploads multipart, encodes ID routes and sends only attachmen
     assert.deepEqual(JSON.parse(String(requests[2].init?.body)), { conversation_id: null, message: "Look", asset_ids: ["asset-id"] });
     assert.doesNotMatch(String(requests[2].init?.body), /explicit-bytes|photo\.png/);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("capability client uses the exact safe route and chat carries only boolean consent", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ input: string; init?: RequestInit }> = [];
+  globalThis.fetch = (async (input, init) => {
+    requests.push({ input: String(input), init });
+    return String(input).endsWith("capabilities")
+      ? jsonResponse({ vision: { enabled: true, scope: "remote" } })
+      : jsonResponse({ conversation_id: "c", message_id: "m", response: "ok", metadata: {} });
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await getCapabilities(), { vision: { enabled: true, scope: "remote" } });
+    await sendChat({ conversation_id: null, message: "Look", asset_ids: ["asset-id"], allow_remote_vision: true });
+  } finally { globalThis.fetch = originalFetch; }
+  assert.equal(requests[0].input, "/api/capabilities");
+  assert.deepEqual(JSON.parse(String(requests[1].init?.body)), {
+    conversation_id: null, message: "Look", asset_ids: ["asset-id"], allow_remote_vision: true,
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {

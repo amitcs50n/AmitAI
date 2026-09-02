@@ -28,6 +28,16 @@ def main() -> int:
         start = time.perf_counter()
         engine = NativeQwenGenerator(config.model, int(config.generation["seed"]))
         print(f"Model load: {time.perf_counter() - start:.2f}s")
+        prepare = engine._prepare_generation
+
+        def measured_prepare(messages, generation_config):
+            inputs, kwargs, prompt_tokens = prepare(messages, generation_config)
+            if "image_grid_thw" in inputs:
+                _, height, width = inputs["image_grid_thw"][0].tolist()
+                print(f"Processed image dimensions: {width * 16} x {height * 16}")
+            return inputs, kwargs, prompt_tokens
+
+        engine._prepare_generation = measured_prepare
         with synthetic_image() as image:
             request = VisionGenerationRequest(
                 [
@@ -39,6 +49,7 @@ def main() -> int:
             start = time.perf_counter()
             result = engine.generate_detailed(request.model_messages(), config.generation)
         print(f"Generation: {time.perf_counter() - start:.2f}s")
+        print(f"Vision output tokens: {result.output_tokens}")
         print(result.text)
         if engine.torch.cuda.is_available():
             for index in range(engine.torch.cuda.device_count()):
@@ -46,8 +57,16 @@ def main() -> int:
                 print(
                     f"CUDA {index} GiB: allocated={cuda.memory_allocated(index) / 2**30:.2f} "
                     f"reserved={cuda.memory_reserved(index) / 2**30:.2f} "
-                    f"max_allocated={cuda.max_memory_allocated(index) / 2**30:.2f}"
+                    f"max_allocated={cuda.max_memory_allocated(index) / 2**30:.2f} "
+                    f"max_reserved={cuda.max_memory_reserved(index) / 2**30:.2f}"
                 )
+        start = time.perf_counter()
+        followup = engine.generate_detailed([
+            {"role": "system", "content": config.runtime_system_prompt},
+            {"role": "user", "content": "What is the capital of France?"},
+        ], config.generation)
+        print(f"Same-model text followup: {time.perf_counter() - start:.2f}s, {followup.output_tokens} tokens")
+        print(followup.text)
         return 0
     except Exception:  # noqa: BLE001 - keep cache paths and credentials out of console errors
         print(

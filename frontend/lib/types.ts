@@ -1,5 +1,12 @@
 export type ConnectionState = "connecting" | "connected" | "disconnected";
 
+export interface VisionCapability {
+  enabled: boolean;
+  scope: "local" | "remote" | null;
+}
+
+export interface Capabilities { vision: VisionCapability }
+
 export type AppView = "chat" | "memory" | "settings" | "preferences" | "security";
 
 export const MEMORY_CATEGORIES = [
@@ -108,6 +115,7 @@ export interface ConversationDetail extends Conversation {
 }
 
 export interface ChatRequest {
+  allow_remote_vision?: boolean;
   conversation_id: string | null;
   message: string;
   asset_ids?: string[];

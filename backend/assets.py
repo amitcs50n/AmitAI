@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from .asset_storage import ASSET_ID_PATTERN, MAX_ASSET_BYTES, AssetStorage
 from .models import Conversation, Message, UploadedAsset, message_assets, utc_now
+from .vision_grant import RemoteVisionGrant, require_remote_vision_grant
 
 MAX_IMAGE_DIMENSION = 8192
 MAX_IMAGE_PIXELS = 24_000_000
@@ -275,12 +276,16 @@ class AssetService:
             self.storage.delete(asset_id)
         return len(expired) + self.storage.clean_orphans(active, older_than=cutoff.timestamp())
 
-    def processing_bytes(self, asset_id: str, *, remote: bool = False) -> bytes:
+    def processing_bytes(
+        self, asset_id: str, *, remote: bool = False,
+        remote_grant: RemoteVisionGrant | None = None,
+    ) -> bytes:
+        if remote or remote_grant is not None:
+            try:
+                require_remote_vision_grant(remote_grant, asset_id)
+            except PermissionError:
+                raise AssetError("Remote image processing is not enabled", 403) from None
         asset = self.get(asset_id)
-        # V1 has no remote media disclosure implementation. Fail closed even if a
-        # future schema permits remote_allowed; scope alone will not be sufficient.
-        if remote:
-            raise AssetError("Remote image processing is not enabled", 403)
         content = self.storage.read(asset.id)
         if hashlib.sha256(content).hexdigest() != asset.sha256:
             raise AssetError("Stored image is unavailable", 503)

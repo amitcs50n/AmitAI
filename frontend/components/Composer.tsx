@@ -3,16 +3,19 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUp, Paperclip } from "lucide-react";
 import { ApiError, deleteAsset, uploadImage } from "@/lib/api";
-import type { UploadedAsset } from "@/lib/types";
+import type { UploadedAsset, VisionCapability } from "@/lib/types";
 import { AssetPreview } from "@/components/AssetPreview";
+import { RemoteVisionConsent } from "@/components/RemoteVisionConsent";
 
 interface ComposerProps {
   disabled?: boolean;
   enterToSend: boolean;
-  onSend: (message: string, assets?: UploadedAsset[]) => Promise<void> | void;
+  onSend: (message: string, assets?: UploadedAsset[], allowRemoteVision?: boolean) => Promise<void> | void;
+  vision?: VisionCapability | null;
+  onReloadCapabilities?: () => void;
 }
 
-export function Composer({ disabled = false, enterToSend, onSend }: ComposerProps) {
+export function Composer({ disabled = false, enterToSend, onSend, vision, onReloadCapabilities }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -22,6 +25,10 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
   const busy = useRef(false);
   const staged = useRef<UploadedAsset[]>([]);
   const mounted = useRef(true);
+  const [consentAssetId, setConsentAssetId] = useState<string | null>(null);
+  const remote = vision?.scope === "remote";
+  const consent = assets.length === 1 && consentAssetId === assets[0].id;
+  const imageBlocked = assets.length > 0 && (!vision || assets.length > 1 || (remote && (!vision.enabled || !consent)));
 
   useEffect(() => {
     mounted.current = true;
@@ -34,6 +41,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
   }, []);
 
   function setStaged(next: UploadedAsset[]) {
+    setConsentAssetId(null);
     staged.current = next;
     setAssets(next);
   }
@@ -88,11 +96,12 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
   async function submit(event?: FormEvent) {
     event?.preventDefault();
     const message = value.trim();
-    if (!message || disabled || busy.current) return;
+    if (!message || disabled || busy.current || imageBlocked) return;
     const attachments = staged.current;
+    const allowRemoteVision = remote && consent;
     setStaged([]); // Ownership passes to the pending chat, including retry state.
     setValue("");
-    await onSend(message, attachments);
+    await onSend(message, attachments, allowRemoteVision);
     textareaRef.current?.focus();
   }
 
@@ -117,7 +126,10 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
           <AssetPreview asset={asset} />
           <button aria-label={`Remove ${asset.original_filename}`} className="mt-1 text-xs text-[#dca778] disabled:opacity-50" disabled={disabled || uploading} onClick={() => void removeImage(asset.id)} type="button">Remove</button>
         </div>)}
-        <p className="w-full text-xs text-[#948d86]">Saved with this chat when sent. Vision requires a local model; one image per message.</p>
+        <p className="w-full text-xs text-[#948d86]">Stored locally with this chat when sent. One image per message.</p>
+        {!vision ? <p role="status">Vision capabilities unavailable. <button onClick={onReloadCapabilities} type="button">Retry capabilities</button></p> : null}
+        {vision && !vision.enabled ? <p className="text-xs text-[#948d86]">Vision is not enabled for the configured provider.</p> : null}
+        {remote && assets.length === 1 ? <RemoteVisionConsent checked={consent} disabled={disabled || uploading} onChange={(checked) => setConsentAssetId(checked ? assets[0].id : null)} /> : null}
       </div> : null}
       {uploading ? <p className="mb-2 text-xs text-[#948d86]" role="status">Updating image attachment…</p> : null}
       {uploadError ? <p className="mb-2 text-sm text-[#e0b49b]" role="alert">{uploadError}</p> : null}
@@ -126,7 +138,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
           aria-label="Attach image"
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#bcb1a7] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
           disabled={disabled || uploading || assets.length >= 4}
-          title="Upload PNG, JPEG or WebP. Images stay local; vision requires a local model."
+          title="Upload PNG, JPEG or WebP locally. Remote vision requires separate consent."
           onClick={() => fileRef.current?.click()}
           type="button"
         >
@@ -150,7 +162,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
         <button
           aria-label={disabled ? "Waiting for Aevon" : "Send message"}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#a87349] text-[#0c0b0a] transition hover:bg-[#bd8558] disabled:cursor-not-allowed disabled:bg-[#4c3b2d] disabled:text-[#867568] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e4b487] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111212]"
-          disabled={disabled || uploading || !value.trim()}
+          disabled={disabled || uploading || !value.trim() || imageBlocked}
           type="submit"
         >
           <ArrowUp aria-hidden="true" className="h-5 w-5" strokeWidth={2} />

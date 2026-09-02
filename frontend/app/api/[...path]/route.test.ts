@@ -20,6 +20,14 @@ const originalAllowLan = process.env.AMITAI_ALLOW_LAN;
 let privateDirectory = "";
 let tokenFile = "";
 
+test("capabilities is an exact authenticated bodyless GET route", () => {
+  assert.deepEqual(resolveProxyRoute("GET", ["capabilities"]), {
+    pathname: "/api/capabilities", body: "none", memoryFilters: false,
+  });
+  assert.equal(resolveProxyRoute("POST", ["capabilities"]), null);
+  assert.equal(resolveProxyRoute("GET", ["capabilities", "extra"]), null);
+});
+
 function context(...path: string[]) {
   return { params: Promise.resolve({ path }) };
 }

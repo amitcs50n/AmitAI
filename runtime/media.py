@@ -1,8 +1,7 @@
 """Request-local media contracts. No paths, storage handles, or transport credentials.
 
-Native vision is local only. A future remote implementation must authorize every
-referenced asset through AssetService.processing_bytes(remote=True) AND a media
-disclosure policy before transport. Upload consent alone is not remote consent.
+Remote vision requires a current-request RemoteVisionGrant before asset decryption
+and controlled transport. Upload consent alone is not remote consent.
 """
 
 import math

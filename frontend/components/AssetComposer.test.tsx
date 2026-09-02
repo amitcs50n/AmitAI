@@ -18,6 +18,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer.tsx");
 const { Message } = await import("./Message.tsx");
+const { ChatView } = await import("./ChatView.tsx");
+const { DEFAULT_PREFERENCES } = await import("../lib/types.ts");
 
 const ASSET: UploadedAsset = {
   id: "a2466cb5-3b48-4efa-8fca-ae039e76886a", kind: "image",
@@ -53,7 +55,7 @@ test("explicit select uploads, previews, attaches and clears without web storage
     return Response.json(ASSET, { status: 201, headers: { "Content-Type": "application/json" } });
   }) as typeof fetch;
   let sent: { text: string; ids: string[] } | null = null;
-  await act(async () => root.render(<Composer enterToSend onSend={(text, assets) => {
+  await act(async () => root.render(<Composer vision={{ enabled: true, scope: "local" }} enterToSend onSend={(text, assets) => {
     sent = { text, ids: (assets ?? []).map((asset) => asset.id) };
   }} />));
   const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -65,8 +67,8 @@ test("explicit select uploads, previews, attaches and clears without web storage
   assert.equal(calls[0].path, "/api/assets");
   assert.ok(calls[0].init?.body instanceof FormData);
   assert.equal(container.querySelector("img")?.getAttribute("src"), `/api/assets/${ASSET.id}/content`);
-  assert.match(container.textContent ?? "", /photo\.png[\s\S]*Local only/);
-  assert.match(container.textContent ?? "", /Vision requires a local model; one image per message/);
+  assert.match(container.textContent ?? "", /photo\.png[\s\S]*Stored locally/);
+  assert.match(container.textContent ?? "", /One image per message/);
   assert.doesNotMatch(container.textContent ?? "", /analysis is not enabled/);
 
   const textarea = container.querySelector("textarea")!;
@@ -109,4 +111,75 @@ test("attachment can be removed and persisted history renders backend preview", 
     assets: [{ ...ASSET, conversation_id: "c", persistence_mode: "conversation" }],
   }} showTimestamp={false} wrapCode={false} />));
   assert.equal(container.querySelector("img")?.getAttribute("src"), `/api/assets/${ASSET.id}/content`);
+});
+
+test("remote image requires one-shot unchecked consent and sends only current decision", async () => {
+  globalThis.fetch = (async () => Response.json(ASSET, { status: 201 })) as typeof fetch;
+  const decisions: boolean[] = [];
+  await act(async () => root.render(<Composer vision={{ enabled: true, scope: "remote" }} enterToSend
+    onSend={(_text, _assets, consent) => { decisions.push(consent === true); }} />));
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  const choose = async (name: string) => {
+    const file = new Blob([name], { type: "image/png" });
+    Object.defineProperty(file, "name", { value: name });
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    await settle();
+  };
+  await choose("one.png");
+  const send = container.querySelector('button[type="submit"]') as HTMLButtonElement;
+  assert.equal(send.disabled, true);
+  assert.match(container.textContent ?? "", /remote GPU for this message/);
+  const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  await act(async () => checkbox.click());
+  const textarea = container.querySelector("textarea")!;
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => {
+    setter.call(textarea, "Describe");
+    textarea.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  assert.equal(send.disabled, false);
+  await act(async () => send.click());
+  assert.deepEqual(decisions, [true]);
+  await choose("two.png");
+  const nextCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  assert.equal(nextCheckbox.checked, false);
+  await act(async () => nextCheckbox.click());
+  await act(async () => (container.querySelector("button[aria-label^='Remove']") as HTMLButtonElement).click());
+  await choose("replacement.png");
+  assert.equal((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked, false);
+  assert.equal(localStorage.length, 0);
+  assert.equal(sessionStorage.length, 0);
+});
+
+test("failed image request needs fresh consent on every retry", async () => {
+  const retryDecisions: boolean[] = [];
+  await act(async () => root.render(<ChatView messages={[]} pendingMessage={{
+    id: "pending", conversation_id: "c", role: "user", content: "Describe", metadata: null,
+    created_at: "2026-09-02T00:00:00Z", assets: [ASSET],
+  }} streamingMessage={null} loading={false} sending={false} loadError={null} sendError="Generation failed"
+    preferences={DEFAULT_PREFERENCES} vision={{ enabled: true, scope: "remote" }}
+    onSend={async () => undefined} onRetryLoad={() => undefined}
+    onRetrySend={(consent) => retryDecisions.push(consent === true)} />));
+  const retry = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Retry")!;
+  const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  assert.equal(checkbox.checked, false);
+  assert.equal(retry.disabled, true);
+  await act(async () => checkbox.click());
+  await act(async () => retry.click());
+  assert.deepEqual(retryDecisions, [true]);
+  assert.equal(checkbox.checked, false);
+  assert.equal(retry.disabled, true);
+});
+
+test("local vision sends without a remote consent control", async () => {
+  globalThis.fetch = (async () => Response.json(ASSET, { status: 201 })) as typeof fetch;
+  await act(async () => root.render(<Composer vision={{ enabled: true, scope: "local" }} enterToSend onSend={() => undefined} />));
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+  const file = new Blob(["png"], { type: "image/png" });
+  Object.defineProperty(file, "name", { value: "local.png" });
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+  await settle();
+  assert.equal(container.querySelector('input[type="checkbox"]'), null);
 });

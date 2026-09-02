@@ -16,6 +16,7 @@ const ROUTES: ReadonlyArray<{
   methods: Readonly<Partial<Record<string, BodyPolicy>>>;
 }> = [
   { path: ["health"], methods: { GET: "none" } },
+  { path: ["capabilities"], methods: { GET: "none" } },
   { path: ["conversations"], methods: { GET: "none", POST: "optional-json" } },
   { path: ["conversations", ":uuid"], methods: { GET: "none", PATCH: "json", DELETE: "none" } },
   { path: ["chat"], methods: { POST: "json" } },

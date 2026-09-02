@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import httpx
 
+from backend.vision_grant import RemoteVisionGrant, require_remote_vision_grant
 from evaluation.hf_backend import GenerationOutput
 
 from .inference_auth import validate_inference_token
@@ -26,6 +27,7 @@ from .remote_transport import (
     create_remote_ssl_context,
     resolve_addresses,
 )
+from .vision_wire import encode_vision_body
 
 LOGGER = logging.getLogger(__name__)
 
@@ -215,6 +217,31 @@ class LocalVisionSession:
         )
 
 
+class RemoteVisionSession:
+    """Borrow canonical bytes and a live grant; retain REMOTE context projection."""
+
+    execution_scope = InferenceExecutionScope.REMOTE
+    provider_name = "remote-vision"
+
+    def __init__(self, provider: RemoteInferenceProvider, image_png: bytes, grant: RemoteVisionGrant):
+        require_remote_vision_grant(grant)
+        if provider.execution_scope is not InferenceExecutionScope.REMOTE:
+            raise InferenceProviderError("Invalid vision provider scope")
+        self._provider, self._image_png, self._grant = provider, image_png, grant
+        self.model_name = provider.model_name
+
+    def generate(self, messages, generation_config):
+        return self._provider.generate_vision(
+            messages, generation_config, self._image_png, remote_grant=self._grant,
+        )
+
+    def stream(self, messages, generation_config, *, cancel_event):
+        yield from self._provider.stream_vision(
+            messages, generation_config, self._image_png,
+            remote_grant=self._grant, cancel_event=cancel_event,
+        )
+
+
 def _generation_output(
     payload: object,
     *,
@@ -247,6 +274,7 @@ class RemoteInferenceProvider:
 
     provider_name = "remote"
     execution_scope = InferenceExecutionScope.REMOTE
+    supports_vision = True
 
     def __init__(
         self,
@@ -331,21 +359,60 @@ class RemoteInferenceProvider:
         )
 
     def generate(
+        self, messages, generation_config,
+    ) -> GenerationOutput:
+        return self._generate_request(messages, generation_config)
+
+    def generate_vision(self, messages, generation_config, image_png, *, remote_grant):
+        require_remote_vision_grant(remote_grant)
+        if not isinstance(image_png, bytes) or not image_png:
+            raise InferenceProviderError("Invalid vision input")
+        return self._generate_request(
+            messages, generation_config, image_png=image_png, remote_grant=remote_grant,
+        )
+
+    def stream(self, messages, generation_config, *, cancel_event):
+        yield from self._stream_request(messages, generation_config, cancel_event=cancel_event)
+
+    def stream_vision(
+        self, messages, generation_config, image_png, *, remote_grant, cancel_event,
+    ):
+        require_remote_vision_grant(remote_grant)
+        if not isinstance(image_png, bytes) or not image_png:
+            raise InferenceProviderError("Invalid vision input")
+        yield from self._stream_request(
+            messages, generation_config, cancel_event=cancel_event,
+            image_png=image_png, remote_grant=remote_grant,
+        )
+
+    def _wire_request(self, request_id, messages, generation_config, image_png, remote_grant):
+        payload = self._request_payload(request_id, messages, generation_config)
+        if image_png is not None:
+            require_remote_vision_grant(remote_grant)
+            payload["version"] = 1
+        body = guarded_request_body(payload, transport_token=self._transport_token)
+        if image_png is None:
+            return "/v1/generate", self._headers, body
+        body, content_type = encode_vision_body(body, image_png)
+        require_remote_vision_grant(remote_grant)
+        return "/v1/vision", {**self._headers, "Content-Type": content_type}, body
+
+    def _generate_request(
         self,
         messages: Sequence[Mapping[str, str]],
         generation_config: Mapping[str, object],
+        *, image_png: bytes | None = None, remote_grant: RemoteVisionGrant | None = None,
     ) -> GenerationOutput:
         request_id = str(uuid4())
         started_at = time.perf_counter()
         try:
-            body = guarded_request_body(
-                self._request_payload(request_id, messages, generation_config),
-                transport_token=self._transport_token,
+            path, headers, body = self._wire_request(
+                request_id, messages, generation_config, image_png, remote_grant,
             )
             self._check_dns(request_id)
             response = self._client.post(
-                f"{self.endpoint}/v1/generate",
-                headers=self._headers,
+                f"{self.endpoint}{path}",
+                headers=headers,
                 content=body,
             )
             if response.status_code != 200:
@@ -368,12 +435,14 @@ class RemoteInferenceProvider:
         self._log_success(request_id=request_id, started_at=started_at, output=output)
         return output
 
-    def stream(
+    def _stream_request(
         self,
         messages: Sequence[Mapping[str, str]],
         generation_config: Mapping[str, object],
         *,
         cancel_event: Event,
+        image_png: bytes | None = None,
+        remote_grant: RemoteVisionGrant | None = None,
     ) -> Iterator[str | GenerationOutput]:
         if cancel_event.is_set():
             return
@@ -400,17 +469,16 @@ class RemoteInferenceProvider:
             return name, data
 
         try:
-            body = guarded_request_body(
-                self._request_payload(request_id, messages, generation_config),
-                transport_token=self._transport_token,
+            path, headers, body = self._wire_request(
+                request_id, messages, generation_config, image_png, remote_grant,
             )
             self._check_dns(request_id)
             if cancel_event.is_set():
                 return
             with self._client.stream(
                 "POST",
-                f"{self.endpoint}/v1/generate/stream",
-                headers=self._headers,
+                f"{self.endpoint}{path}/stream",
+                headers=headers,
                 content=body,
             ) as response:
                 if response.status_code != 200:

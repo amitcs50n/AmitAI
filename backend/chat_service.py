@@ -24,6 +24,7 @@ from .memory import (
 )
 from .models import Message, utc_now
 from .repositories import ConversationRepository, MessageRepository
+from .vision_grant import RemoteVisionGrant
 
 MOCK_RESPONSE = "This is a mocked AmitAI response."
 
@@ -244,12 +245,14 @@ class ChatService:
 
     def _generate(
         self, messages: Sequence[GenerationMessage], image_png: bytes | None = None,
+        remote_grant: RemoteVisionGrant | None = None,
     ) -> ChatGenerationResult:
         if image_png is not None:
             vision_method = getattr(self.generator, "generate_vision_response", None)
             if not callable(vision_method):
                 raise ChatGenerationError("Assistant generation failed")
-            result = vision_method(messages, image_png)
+            kwargs = {"remote_grant": remote_grant} if remote_grant is not None else {}
+            result = vision_method(messages, image_png, **kwargs)
         elif self.generator is None:
             result = generate_response(messages)
         elif callable(self.generator):
@@ -265,13 +268,14 @@ class ChatService:
         *,
         cancel_event: Event,
         image_png: bytes | None = None,
+        remote_grant: RemoteVisionGrant | None = None,
     ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]:
         stream_method = getattr(
             self.generator, "stream_vision_response" if image_png is not None else "stream_response",
             None,
         )
         if not callable(stream_method):
-            result = self._generate(messages, image_png)
+            result = self._generate(messages, image_png, remote_grant)
             if cancel_event.is_set():
                 return
             yield ChatGenerationDelta(delta=result.response)
@@ -279,7 +283,8 @@ class ChatService:
             return
 
         args = (messages,) if image_png is None else (messages, image_png)
-        stream = iter(stream_method(*args, cancel_event=cancel_event))
+        kwargs = {"remote_grant": remote_grant} if remote_grant is not None else {}
+        stream = iter(stream_method(*args, cancel_event=cancel_event, **kwargs))
         deltas: list[str] = []
         result: ChatGenerationResult | None = None
         try:
@@ -317,6 +322,7 @@ class ChatService:
 
     def _prepare_chat(
         self, *, conversation_id: str | None, message: str, asset_ids: tuple[str, ...] = (),
+        remote_grant: RemoteVisionGrant | None = None,
     ) -> _PreparedChat:
         request_timestamp = utc_now()
         validate_asset_ids(asset_ids)
@@ -325,7 +331,10 @@ class ChatService:
         if asset_ids:
             check_vision = getattr(self.generator, "check_vision_allowed", None)
             if callable(check_vision):
-                check_vision()
+                if remote_grant is None:
+                    check_vision()
+                else:
+                    check_vision(remote_grant)
         with self.session.begin():
             if conversation_id is None:
                 title = _deterministic_title(message)
@@ -349,14 +358,20 @@ class ChatService:
                 # Image turns use bounded text history, but no memory reads/writes.
                 # Explicit memory commands require a separate text-only request.
                 vision_messages = []
-                if parse_memory_command(message).intent_detected:
-                    context = format_memory_command_context(MemoryCommandDecision(
+                decision = parse_memory_command(message)
+                if decision.intent_detected:
+                    decision = MemoryCommandDecision(
                         intent_detected=True, reason="Memory commands are not applied on image turns",
-                    ))
+                    )
+                    context = format_memory_command_context(decision)
                     if context:
-                        vision_messages.append(GenerationMessage("system", context))
+                        vision_messages.append(GenerationMessage(
+                            "system", context, RemoteProjection(None),
+                        ))
                 vision_messages.extend(history_messages)
-                vision_messages.append(GenerationMessage("user", message))
+                vision_messages.append(GenerationMessage(
+                    "user", message, _command_projection(decision),
+                ))
                 return _PreparedChat(
                     conversation_id, message, title, request_timestamp,
                     _timestamp_after(previous_timestamp), tuple(vision_messages), (), None, asset_ids,
@@ -493,14 +508,33 @@ class ChatService:
             metadata=committed_generation,
         )
 
-    def _image_input(self, prepared: _PreparedChat) -> bytes | None:
+    def _image_input(
+        self, prepared: _PreparedChat, remote_grant: RemoteVisionGrant | None = None,
+    ) -> bytes | None:
         if not prepared.asset_ids or getattr(self.generator, "supports_vision", False) is not True:
             return None
         if self.assets is None:
             raise AssetError("Image attachments are unavailable", 503)
         # Close the read transaction before decoding, loading a model, or generating.
         with self.session.begin():
+            if remote_grant is not None:
+                return self.assets.processing_bytes(
+                    prepared.asset_ids[0], remote_grant=remote_grant,
+                )
             return self.assets.processing_bytes(prepared.asset_ids[0])
+
+    def _remote_grant(
+        self, asset_ids: tuple[str, ...], allow_remote_vision: bool,
+        cancel_event: Event | None = None,
+    ) -> RemoteVisionGrant | None:
+        validate_asset_ids(asset_ids)
+        if len(asset_ids) > 1:
+            raise AssetError("Vision currently supports one image per message.", 422)
+        if asset_ids and getattr(self.generator, "vision_scope", None) == "remote":
+            if allow_remote_vision is not True:
+                raise RemoteVisionDisclosureError()
+            return RemoteVisionGrant(asset_ids[0], explicit_consent=True, cancel_event=cancel_event)
+        return None
 
     @staticmethod
     def _final_event_data(result: ChatResult) -> dict[str, Any]:
@@ -522,19 +556,22 @@ class ChatService:
 
     def chat(
         self, *, conversation_id: str | None, message: str, asset_ids: tuple[str, ...] = (),
+        allow_remote_vision: bool = False,
     ) -> ChatResult:
+        grant = self._remote_grant(asset_ids, allow_remote_vision)
         try:
             prepared = self._prepare_chat(
                 conversation_id=conversation_id,
                 message=message,
                 asset_ids=asset_ids,
+                remote_grant=grant,
             )
-            image_png = self._image_input(prepared)
+            image_png = self._image_input(prepared, grant)
             try:
                 generation = (
                     ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled")
                     if prepared.asset_ids and image_png is None
-                    else self._generate(prepared.generation_messages, image_png)
+                    else self._generate(prepared.generation_messages, image_png, grant)
                 )
             except ChatPrivacyError:
                 raise
@@ -544,6 +581,9 @@ class ChatService:
         except Exception:
             self.session.rollback()
             raise
+        finally:
+            if grant is not None:
+                grant.revoke()
 
     def stream_chat(
         self,
@@ -552,15 +592,20 @@ class ChatService:
         message: str,
         cancel_event: Event | None = None,
         asset_ids: tuple[str, ...] = (),
+        allow_remote_vision: bool = False,
     ) -> Iterator[ChatStreamEvent]:
         signal = cancel_event or Event()
         persisted = False
         generation_stream: Iterator[ChatGenerationDelta | ChatGenerationResult] | None = None
+        if signal.is_set():
+            return
+        grant = self._remote_grant(asset_ids, allow_remote_vision, signal)
         try:
             prepared = self._prepare_chat(
                 conversation_id=conversation_id,
                 message=message,
                 asset_ids=asset_ids,
+                remote_grant=grant,
             )
             yield ChatStreamEvent(
                 event="start",
@@ -570,7 +615,7 @@ class ChatService:
                 return
 
             generation: ChatGenerationResult | None = None
-            image_png = self._image_input(prepared)
+            image_png = self._image_input(prepared, grant)
             generation_stream = iter((
                 ChatGenerationDelta(VISION_NOT_ENABLED),
                 ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled"),
@@ -578,6 +623,7 @@ class ChatService:
                 prepared.generation_messages,
                 cancel_event=signal,
                 image_png=image_png,
+                remote_grant=grant,
             )
             try:
                 for item in generation_stream:
@@ -605,6 +651,8 @@ class ChatService:
             self.session.rollback()
             raise
         finally:
+            if grant is not None:
+                grant.revoke()
             if not persisted:
                 signal.set()
             if generation_stream is not None:

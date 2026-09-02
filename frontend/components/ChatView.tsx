@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, RotateCcw } from "lucide-react";
 
-import type { Message as ChatMessage, UiPreferences, UploadedAsset } from "@/lib/types";
+import type { Message as ChatMessage, UiPreferences, UploadedAsset, VisionCapability } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Composer } from "@/components/Composer";
 import { Message } from "@/components/Message";
+import { RemoteVisionConsent } from "@/components/RemoteVisionConsent";
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -17,9 +18,11 @@ interface ChatViewProps {
   loadError: string | null;
   sendError: string | null;
   preferences: UiPreferences;
-  onSend: (message: string, assets?: UploadedAsset[]) => Promise<void>;
+  onSend: (message: string, assets?: UploadedAsset[], allowRemoteVision?: boolean) => Promise<void>;
+  vision?: VisionCapability | null;
+  onReloadCapabilities?: () => void;
   onRetryLoad: () => void;
-  onRetrySend: () => void;
+  onRetrySend: (allowRemoteVision?: boolean) => void;
 }
 
 function AssistantWaiting() {
@@ -44,8 +47,15 @@ export function ChatView({
   onSend,
   onRetryLoad,
   onRetrySend,
+  vision,
+  onReloadCapabilities,
 }: ChatViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [retryConsentId, setRetryConsentId] = useState<string | null>(null);
+  const retryHasImage = !!pendingMessage?.assets?.length;
+  const retryRemote = retryHasImage && vision?.scope === "remote";
+  const retryConsent = !!pendingMessage && retryConsentId === pendingMessage.id;
+  const retryBlocked = sending || (retryHasImage && (!vision || (retryRemote && (!vision.enabled || !retryConsent))));
   const visibleMessages = [
     ...messages,
     ...(pendingMessage ? [pendingMessage] : []),
@@ -93,7 +103,7 @@ export function ChatView({
               <h2 className="font-serif text-5xl tracking-[-0.03em] text-[#eee8e1] sm:text-6xl">Aevon</h2>
               <p className="mt-3 text-base text-[#948d86]">What are we working on?</p>
               <div className="mt-8 w-full max-w-[52rem] text-left">
-                <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} />
+                <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
               </div>
             </div>
           ) : (
@@ -110,9 +120,11 @@ export function ChatView({
               {sendError ? (
                 <div className="ml-16 flex flex-wrap items-center gap-3 rounded-xl border border-[#754735]/60 bg-[#261812]/70 px-4 py-3 text-sm text-[#e0cfc4]">
                   <span>{sendError}</span>
+                  {retryRemote ? <RemoteVisionConsent checked={retryConsent} disabled={sending} onChange={(checked) => setRetryConsentId(checked ? pendingMessage!.id : null)} /> : null}
                   <button
                     className="inline-flex items-center gap-1.5 text-[#dca778] hover:text-[#efbf93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
-                    onClick={onRetrySend}
+                    disabled={retryBlocked}
+                    onClick={() => { setRetryConsentId(null); onRetrySend(retryRemote && retryConsent); }}
                     type="button"
                   >
                     <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
@@ -128,7 +140,7 @@ export function ChatView({
       {!empty && !loading && !loadError ? (
         <div className="shrink-0 bg-[#0d0e0e] px-5 pb-5 pt-3 sm:px-8 sm:pb-7">
           <div className="mx-auto w-full max-w-[52rem]">
-            <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} />
+            <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
           </div>
         </div>
       ) : null}

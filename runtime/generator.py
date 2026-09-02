@@ -16,6 +16,7 @@ from backend.chat_service import (
     GenerationMessage,
     RemoteVisionDisclosureError,
 )
+from backend.vision_grant import RemoteVisionGrant, require_remote_vision_grant
 from evaluation.constraints import (
     MAX_MECHANICAL_RETRIES,
     parse_constraints,
@@ -33,6 +34,7 @@ from .providers import (
     InferenceProvider,
     LocalTransformersInferenceProvider,
     LocalVisionSession,
+    RemoteVisionSession,
 )
 from .tooling import (
     MAX_TOOL_ITERATIONS,
@@ -94,15 +96,25 @@ class ProviderChatGenerator:
 
     @property
     def supports_vision(self) -> bool:
-        return (
-            self._execution_scope is InferenceExecutionScope.LOCAL
-            and getattr(self._provider, "supports_vision", False) is True
-        )
+        return getattr(self._provider, "supports_vision", False) is True
 
-    def check_vision_allowed(self) -> None:
+    @property
+    def vision_scope(self) -> str:
+        return self._execution_scope.value
+
+    def check_vision_allowed(self, remote_grant: RemoteVisionGrant | None = None) -> None:
         """Called by the backend before asset decryption, and again on direct entry."""
         if self._execution_scope is InferenceExecutionScope.REMOTE:
-            raise RemoteVisionDisclosureError()
+            try:
+                require_remote_vision_grant(remote_grant)
+            except PermissionError:
+                raise RemoteVisionDisclosureError() from None
+
+    def _remote_vision_session(self, image_png, remote_grant) -> ProviderChatGenerator:
+        return ProviderChatGenerator(
+            self.config, provider=RemoteVisionSession(self._provider, image_png, remote_grant),
+            clock=self._clock, tool_registry=self._tool_registry,
+        )
 
     def _vision_session(self, image) -> ProviderChatGenerator:
         if not self.supports_vision:
@@ -114,27 +126,41 @@ class ProviderChatGenerator:
 
     def generate_vision_response(
         self, messages: Sequence[GenerationMessage], image_png: bytes,
+        *, remote_grant: RemoteVisionGrant | None = None,
     ) -> ChatGenerationResult:
-        self.check_vision_allowed()
+        self.check_vision_allowed(remote_grant)
         try:
+            if self._execution_scope is InferenceExecutionScope.REMOTE:
+                return self._remote_vision_session(image_png, remote_grant).generate_response(messages)
             with decoded_vision_image(image_png) as image:
                 return self._vision_session(image).generate_response(messages)
+        except ChatPrivacyError:
+            raise
         except Exception:  # noqa: BLE001 - sanitize Pillow/processor/CUDA failures at the boundary
             raise ChatGenerationError("Assistant generation failed") from None
 
     def stream_vision_response(
         self, messages: Sequence[GenerationMessage], image_png: bytes, *, cancel_event: Event,
+        remote_grant: RemoteVisionGrant | None = None,
     ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]:
-        self.check_vision_allowed()
+        self.check_vision_allowed(remote_grant)
         if cancel_event.is_set():
             return
         completed = False
         try:
+            if self._execution_scope is InferenceExecutionScope.REMOTE:
+                yield from self._remote_vision_session(image_png, remote_grant).stream_response(
+                    messages, cancel_event=cancel_event,
+                )
+                completed = True
+                return
             with decoded_vision_image(image_png) as image:
                 yield from self._vision_session(image).stream_response(
                     messages, cancel_event=cancel_event,
                 )
                 completed = True
+        except ChatPrivacyError:
+            raise
         except Exception:  # noqa: BLE001 - sanitize worker/processor failures without content logging
             raise ChatGenerationError("Assistant generation failed") from None
         finally:

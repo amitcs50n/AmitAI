@@ -209,7 +209,7 @@ def test_remote_vision_fails_before_decrypt_and_http(tmp_path, monkeypatch, stre
         transport=httpx.MockTransport(lambda req: http_calls.append(req) or httpx.Response(500)),
     )
     generator = ProviderChatGenerator(load_runtime_config(), provider=provider)
-    assert not generator.supports_vision
+    assert generator.supports_vision  # Capability does not imply disclosure consent.
     app = make_app(tmp_path, generator)
     with TestClient(app) as client:
         asset = upload(client).json()

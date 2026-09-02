@@ -67,6 +67,23 @@ const finalResponse: ChatResponse = {
   },
 };
 
+test("image SSE sends explicit consent only to the local chat proxy", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    assert.equal(input, "/api/chat/stream");
+    assert.deepEqual(JSON.parse(String(init?.body)), {
+      conversation_id: null, message: "Describe", asset_ids: ["current-image"], allow_remote_vision: true,
+    });
+    return streamResponse(sseEvent("start", { conversation_id: null }) + sseEvent("text", { delta: finalResponse.response })
+      + sseEvent("final", finalResponse) + sseEvent("done", {}));
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await sendChatStream({
+      conversation_id: null, message: "Describe", asset_ids: ["current-image"], allow_remote_vision: true,
+    }, { onText: () => undefined }), finalResponse);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("POST SSE emits multiple deltas that reconstruct the final response", async () => {
   const source = [
     ": keepalive\r\n\r\n",

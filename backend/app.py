@@ -292,6 +292,7 @@ def create_app(
                 conversation_id=payload.conversation_id,
                 message=payload.message,
                 asset_ids=tuple(payload.asset_ids),
+                allow_remote_vision=payload.allow_remote_vision,
             )
         except ConversationNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Conversation not found") from exc
@@ -303,6 +304,18 @@ def create_app(
             raise HTTPException(status_code=409, detail="Memory changed; retry") from exc
 
         return ChatResponse.model_validate(result, from_attributes=True)
+
+    @application.get("/api/capabilities")
+    def capabilities(request: Request) -> JSONResponse:
+        if request.query_params:
+            raise HTTPException(status_code=422, detail="Invalid capabilities request")
+        generator = request.app.state.generator
+        scope = getattr(generator, "vision_scope", None)
+        enabled = getattr(generator, "supports_vision", False) is True
+        return JSONResponse(
+            {"vision": {"enabled": enabled, "scope": scope if scope in {"local", "remote"} else None}},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @application.post("/api/chat/stream")
     async def chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
@@ -352,6 +365,7 @@ def create_app(
                             message=payload.message,
                             cancel_event=cancel_event,
                             asset_ids=tuple(payload.asset_ids),
+                            allow_remote_vision=payload.allow_remote_vision,
                         )
                         for event in service_stream:
                             if cancel_event.is_set():

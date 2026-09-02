@@ -1,4 +1,5 @@
 import type {
+  Capabilities,
   ChatRequest,
   ChatResponse,
   ChatStreamError,
@@ -28,6 +29,14 @@ export class ApiError extends Error {
     this.status = status;
     this.backendReached = backendReached;
   }
+}
+
+export async function getCapabilities(): Promise<Capabilities> {
+  const result = await apiFetch<Capabilities>("/api/capabilities");
+  if (typeof result?.vision?.enabled !== "boolean" || ![null, "local", "remote"].includes(result.vision.scope)) {
+    throw new ApiError("Vision capabilities are unavailable", null, true);
+  }
+  return { vision: { enabled: result.vision.enabled, scope: result.vision.scope } };
 }
 
 async function readError(response: Response): Promise<string> {

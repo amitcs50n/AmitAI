@@ -246,6 +246,9 @@ def create_inference_app(
             },
         )
 
+    from .vision_api import register_vision_routes
+
+    register_vision_routes(application, selected_provider, authorize)
     return application
 
 

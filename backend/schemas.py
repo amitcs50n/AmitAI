@@ -111,6 +111,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     message: str = Field(max_length=100_000)
     asset_ids: list[str] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
+    allow_remote_vision: bool = Field(default=False, strict=True)
 
     @field_validator("asset_ids")
     @classmethod
