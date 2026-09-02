@@ -117,7 +117,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
           <AssetPreview asset={asset} />
           <button aria-label={`Remove ${asset.original_filename}`} className="mt-1 text-xs text-[#dca778] disabled:opacity-50" disabled={disabled || uploading} onClick={() => void removeImage(asset.id)} type="button">Remove</button>
         </div>)}
-        <p className="w-full text-xs text-[#948d86]">Saved with this chat when sent. Image analysis is not enabled; images stay local.</p>
+        <p className="w-full text-xs text-[#948d86]">Saved with this chat when sent. Vision requires a local model; one image per message.</p>
       </div> : null}
       {uploading ? <p className="mb-2 text-xs text-[#948d86]" role="status">Updating image attachment…</p> : null}
       {uploadError ? <p className="mb-2 text-sm text-[#e0b49b]" role="alert">{uploadError}</p> : null}
@@ -126,7 +126,7 @@ export function Composer({ disabled = false, enterToSend, onSend }: ComposerProp
           aria-label="Attach image"
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#bcb1a7] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
           disabled={disabled || uploading || assets.length >= 4}
-          title="Upload PNG, JPEG or WebP. Images stay local; analysis is not enabled."
+          title="Upload PNG, JPEG or WebP. Images stay local; vision requires a local model."
           onClick={() => fileRef.current?.click()}
           type="button"
         >

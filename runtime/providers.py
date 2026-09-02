@@ -13,9 +13,11 @@ from uuid import uuid4
 
 import httpx
 
-from evaluation.hf_backend import GenerationOutput, TransformersGenerator
+from evaluation.hf_backend import GenerationOutput
 
 from .inference_auth import validate_inference_token
+from .media import VisionGenerationRequest
+from .model import NativeQwenGenerator
 from .privacy import InferenceExecutionScope, guarded_request_body
 from .remote_transport import (
     DNSPolicyError,
@@ -76,12 +78,13 @@ class LocalTransformersInferenceProvider:
         model_config: Mapping[str, object],
         seed: int,
         *,
-        engine_factory: EngineFactory = TransformersGenerator,
+        engine_factory: EngineFactory = NativeQwenGenerator,
     ) -> None:
         self.model_name = str(model_config["name"])
         self._model_config = dict(model_config)
         self._seed = seed
         self._engine_factory = engine_factory
+        self.supports_vision = getattr(engine_factory, "supports_vision", False) is True
         self._engine: DetailedGenerationEngine | None = None
         self._initialization_lock = threading.Lock()
         self._generation_lock = threading.Lock()
@@ -147,6 +150,69 @@ class LocalTransformersInferenceProvider:
                 close = getattr(stream, "close", None)
                 if callable(close):
                     close()
+
+    def generate_vision(
+        self, request: VisionGenerationRequest, generation_config: Mapping[str, object],
+    ) -> GenerationOutput:
+        if not self.supports_vision:
+            raise InferenceProviderError("Native vision is unavailable")
+        engine = self._get_engine()
+        with self._generation_lock:
+            return engine.generate_detailed(request.model_messages(), dict(generation_config))
+
+    def stream_vision(
+        self, request: VisionGenerationRequest, generation_config: Mapping[str, object],
+        *, cancel_event: Event,
+    ) -> Iterator[str | GenerationOutput]:
+        if cancel_event.is_set():
+            return
+        if not self.supports_vision:
+            raise InferenceProviderError("Native vision is unavailable")
+        engine = self._get_engine()
+        stream_method = getattr(engine, "generate_detailed_stream", None)
+        if not callable(stream_method):
+            raise InferenceProviderError("Native vision streaming is unavailable")
+        with self._generation_lock:
+            if cancel_event.is_set():
+                return
+            stream = iter(stream_method(
+                request.model_messages(), dict(generation_config), cancel_event=cancel_event,
+            ))
+            try:
+                yield from stream
+            finally:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+
+
+class LocalVisionSession:
+    """Request-local adapter; the existing orchestrator still owns tools and retries.
+
+    Borrows one PIL image and the SAME provider/cache/lock. No separate model,
+    persisted state, media serialization, or remote implementation is involved.
+    """
+
+    execution_scope = InferenceExecutionScope.LOCAL
+    provider_name = "local-transformers-vision"
+
+    def __init__(self, provider: LocalTransformersInferenceProvider, image) -> None:
+        if provider.execution_scope is not InferenceExecutionScope.LOCAL:
+            raise InferenceProviderError("Remote vision disclosure is not enabled")
+        self._provider = provider
+        self._image = image
+        self.model_name = provider.model_name
+
+    def generate(self, messages, generation_config):
+        return self._provider.generate_vision(
+            VisionGenerationRequest(messages, self._image), generation_config,
+        )
+
+    def stream(self, messages, generation_config, *, cancel_event):
+        yield from self._provider.stream_vision(
+            VisionGenerationRequest(messages, self._image), generation_config,
+            cancel_event=cancel_event,
+        )
 
 
 def _generation_output(

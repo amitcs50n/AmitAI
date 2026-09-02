@@ -14,6 +14,7 @@ from backend.chat_service import (
     ChatGenerationResult,
     ChatPrivacyError,
     GenerationMessage,
+    RemoteVisionDisclosureError,
 )
 from evaluation.constraints import (
     MAX_MECHANICAL_RETRIES,
@@ -25,11 +26,13 @@ from evaluation.hf_backend import GenerationOutput
 from .calculator import CalculatorTool
 from .config import RuntimeConfig
 from .context import compile_model_messages
-from .privacy import RemoteDisclosureBlockedError, require_execution_scope
+from .media import decoded_vision_image
+from .privacy import InferenceExecutionScope, RemoteDisclosureBlockedError, require_execution_scope
 from .providers import (
     EngineFactory,
     InferenceProvider,
     LocalTransformersInferenceProvider,
+    LocalVisionSession,
 )
 from .tooling import (
     MAX_TOOL_ITERATIONS,
@@ -88,6 +91,55 @@ class ProviderChatGenerator:
         self._execution_scope = require_execution_scope(provider)
         self._clock = clock
         self._tool_registry = tool_registry or ToolRegistry([CalculatorTool()])
+
+    @property
+    def supports_vision(self) -> bool:
+        return (
+            self._execution_scope is InferenceExecutionScope.LOCAL
+            and getattr(self._provider, "supports_vision", False) is True
+        )
+
+    def check_vision_allowed(self) -> None:
+        """Called by the backend before asset decryption, and again on direct entry."""
+        if self._execution_scope is InferenceExecutionScope.REMOTE:
+            raise RemoteVisionDisclosureError()
+
+    def _vision_session(self, image) -> ProviderChatGenerator:
+        if not self.supports_vision:
+            raise ChatGenerationError("Assistant generation failed")
+        return ProviderChatGenerator(
+            self.config, provider=LocalVisionSession(self._provider, image),
+            clock=self._clock, tool_registry=self._tool_registry,
+        )
+
+    def generate_vision_response(
+        self, messages: Sequence[GenerationMessage], image_png: bytes,
+    ) -> ChatGenerationResult:
+        self.check_vision_allowed()
+        try:
+            with decoded_vision_image(image_png) as image:
+                return self._vision_session(image).generate_response(messages)
+        except Exception:  # noqa: BLE001 - sanitize Pillow/processor/CUDA failures at the boundary
+            raise ChatGenerationError("Assistant generation failed") from None
+
+    def stream_vision_response(
+        self, messages: Sequence[GenerationMessage], image_png: bytes, *, cancel_event: Event,
+    ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]:
+        self.check_vision_allowed()
+        if cancel_event.is_set():
+            return
+        completed = False
+        try:
+            with decoded_vision_image(image_png) as image:
+                yield from self._vision_session(image).stream_response(
+                    messages, cancel_event=cancel_event,
+                )
+                completed = True
+        except Exception:  # noqa: BLE001 - sanitize worker/processor failures without content logging
+            raise ChatGenerationError("Assistant generation failed") from None
+        finally:
+            if not completed:
+                cancel_event.set()
 
     def _generate_once(self, messages: list[dict[str, str]]) -> GenerationOutput:
         try:

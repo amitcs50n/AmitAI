@@ -191,7 +191,9 @@ neither their bytes, filenames nor IDs are added to text-provider prompts.
 
 - Input: single-frame PNG, JPEG or WebP; no SVG, GIF, PDF or arbitrary files.
 - Limits: 20 MiB per input and normalized image, 8,192 pixels per side, 24,000,000 pixels total,
-  and four distinct asset IDs per chat message. The multipart envelope is capped at 20 MiB + 16 KiB.
+  and up to four staged uploads. Native vision V1 accepts only **one image per message**;
+  multiple-image requests are rejected without deleting uploads. The multipart envelope is capped
+  at 20 MiB + 16 KiB.
 - Validation: MIME must match decoded bytes; zero-byte, corrupt/truncated, animated, oversized,
   invalid multipart and unsupported inputs fail with sanitized errors. Extensions are not authority.
 - Canonical copy: orientation-corrected RGBA PNG reconstructed from pixels. EXIF/GPS/device data,
@@ -224,12 +226,84 @@ not inline bytes; the existing UI renders those previews on reload. Only IDs/pre
 image bytes or asset objects, are saved in browser web storage. Attachment count is per message;
 there is no total-disk quota yet.
 
-An attachment turn currently returns a local acknowledgment stating that vision, OCR, image
-editing and image generation are **not enabled**. It does not invoke a model, pretend to analyze
-an image, or execute memory commands from that turn. Normal text-only chat, tools, streaming,
-memory and mechanical retries are unchanged. This capability acknowledgment is not a generated
-or mechanically validated answer. Failed attachment requests can be retried while their uploads
-remain available; expired attachments must be uploaded again.
+An attachment turn uses native vision when the configured **local** Transformers generator is
+enabled. Mock/explicitly unsupported generators retain the non-analysis acknowledgment; a native
+load failure is an error, never a silent placeholder fallback. Remote-provider image requests fail
+with `Remote vision disclosure is not enabled` before decryption or HTTP. Failed attachment
+requests can be retried while their uploads remain available; expired attachments must be uploaded
+again. Normal text-only chat, tools, memory and remote text inference keep their existing contracts.
+
+#### Native local vision V1
+
+The same pinned `OBLITERATUS/Qwen3.8-27B-OBLITERATED` checkpoint at
+`a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8` supplies text and vision. Its
+[config](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED/blob/a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8/config.json)
+declares `Qwen3_5ForConditionalGeneration`, `language_model_only=false`, and a vision tower;
+its weight index contains `model.visual.*` tensors. The production loader uses that built-in
+conditional-generation class, BF16, `device_map="auto"`, and `trust_remote_code=False`.
+One lazily cached model, one `AutoProcessor` / `Qwen3VLProcessor`, and the processor's shared
+tokenizer serve both paths under the same generation lock. No second causal model is loaded.
+Incomplete/mismatched weights or incompatible processor metadata fail closed.
+
+The pinned processor and tokenizer templates contain text-only content rendering. A narrow
+runtime adapter adds the image-content rendering used by Qwen's native template, with special
+tokens checked against the pinned config/tokenizer. The processor expands image placeholders
+and creates pixel tensors. The original text-only chat template, runtime prompt, thinking setting,
+and frozen generation config are unchanged. Tests verify identical text-template rendering.
+
+Attach one photo, screenshot, chart/UI image, or visible-text image using the existing paperclip.
+The native path supports visual question answering and model-based text reading, not guaranteed
+forensic OCR. It does **not** support multiple-image comparison, remote vision, image editing,
+image generation, video input, or a separate OCR engine.
+
+`AssetService.processing_bytes()` authenticates/decrypts the current asset into normalized PNG
+bytes. A request-local `BytesIO`/Pillow RGB image goes to the processor; no asset ID, filesystem
+path, filename, database handle, AEK, base64 conversation content, or plaintext temp file enters
+that request. Pillow rejects excessive dimensions/aspect ratios (over 200:1), and resizes large
+images proportionally in RAM. Qwen processing uses 65,536 minimum / **1,048,576 maximum pixels**,
+with dimensions aligned to its 16-pixel patches and 2x spatial merge: at most **1,024 merged image
+tokens**, excluding wrapper tokens. The resulting image grid is checked before model execution.
+The encrypted canonical original and preview quality never change. Decoded images are closed on
+success, failure, and cancellation; Python/Torch may retain allocator memory, so this is not a
+claim of secure zeroization. Accelerate execution hooks determine placement for text and pixels.
+
+Only an image explicitly attached to the **current request** is read. The existing 20-message /
+20,000-character text-history compiler also applies to vision. Historical images are never loaded
+or automatically resent on followup text turns. Image turns do not retrieve or mutate structured
+memory in V1; make explicit memory commands in a separate text-only turn. Captions and extracted
+text are not automatically captured as memory.
+
+Both chat endpoints retain the normal response/metadata contract and actual configured model ID.
+Unconstrained vision uses the existing incremental streamer and prefix-commit tool filtering.
+The same bounded calculator loop remains available, with no new tool capabilities. Mechanically
+constrained vision remains buffered through bounded validation/retries, reusing the same
+request-local image. Exhausted validation emits no candidate/final/done success and persists
+nothing. Model work remains outside SQL transactions; only successful final answers and the
+user/asset relationship persist atomically. Cancellation closes the stream, joins the worker and
+releases the image; an in-flight CUDA operation cannot be interrupted instantly.
+
+Built-in Qwen support exists in the existing `transformers>=5.2,<6` range. The GPU environment must
+also provide matching CUDA PyTorch **and TorchVision**: `AutoProcessor` initializes Qwen's bundled
+video processor even for image-only use. As before, Torch packages are environment-managed, not
+installed by AmitAI's runtime extra. No `qwen-vl-utils` is needed.
+Jinja2 is a small dev dependency for CPU-only template regression tests.
+
+Real-weight validation is separate from the CPU/mock suite. On a suitable **A100 80GB** environment
+with matching CUDA PyTorch/TorchVision already installed, from the repository root the minimal
+opt-in synthetic smoke commands are:
+
+```bash
+pip install -e '.[runtime]'
+python -m scripts.vision_smoke
+```
+
+This uses the production pinned BF16 loader and an in-memory white image containing
+`AEVON VISION 42`, a red square, and a blue circle. It accepts no image path, calls no application
+API, and prints the answer, load/generation timing, and allocated/reserved/peak CUDA VRAM.
+It deliberately loads real weights **only when explicitly run**; normal tests use fakes.
+No real GPU accuracy/latency result is claimed yet. Keep one Uvicorn worker and no `--reload`
+for any deployed model server. This local-only milestone does not enable remote image transport;
+running the synthetic test on RunPod is not a claim of provider-blind inference.
 
 Explicit API clients may upload with `persistence_mode=conversation` plus an existing
 `conversation_id`; this retains the asset immediately. Temporary uploads cannot supply a
@@ -269,7 +343,7 @@ fsync equivalent here. No plaintext image temp, preview cache or migration backu
 Authenticated previews decrypt only in backend memory and continue returning normalized
 `image/png` with no-store, nosniff and same-origin headers. Browser storage and conversation JSON
 exports still contain no image bytes, AEK or ciphertext paths. Remote image processing remains
-disabled; vision/OCR/edit/generation is still not implemented.
+disabled; only the explicitly configured local native vision path can process images.
 
 **Legacy migration:** stop every other backend process and use one worker. After DB unlock and
 schema creation, the AEK is durably committed **before** migration. Startup verifies each legacy
@@ -307,11 +381,12 @@ Encryption at rest does not protect an unlocked process from same-user malware o
 application code, and does not make any future remote inference provider blind to supplied
 plaintext. OS/full-disk encryption remains complementary protection.
 
-`runtime/media.py` defines lightweight analysis/edit/generation request DTOs referencing IDs.
+`runtime/media.py` defines a request-local vision DTO containing compiled text and a borrowed
+in-memory image. Future edit/generation DTOs still only reference uploaded IDs.
 `AssetService.processing_bytes()` is the normalized-image preparation seam; remote access fails
 closed today, even if a future schema adds `remote_allowed`. A future media provider must receive
-only explicitly referenced uploads after a separate disclosure policy and consent check. No OCR,
-vision, image editing/generation provider, remote media transport or GPU work is implemented here.
+only explicitly referenced uploads after a separate disclosure policy and consent check.
+Image editing/generation and remote media transport remain unimplemented.
 
 #### Structured memory V1
 

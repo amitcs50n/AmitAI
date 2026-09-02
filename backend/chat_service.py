@@ -76,6 +76,20 @@ class StreamingResponseGenerator(Protocol):
     ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]: ...
 
 
+class VisionResponseGenerator(Protocol):
+    supports_vision: bool
+
+    def check_vision_allowed(self) -> None: ...
+
+    def generate_vision_response(
+        self, messages: Sequence[GenerationMessage], image_png: bytes,
+    ) -> ChatGenerationResult: ...
+
+    def stream_vision_response(
+        self, messages: Sequence[GenerationMessage], image_png: bytes, *, cancel_event: Event,
+    ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]: ...
+
+
 GenerationCallable = Callable[[Sequence[GenerationMessage]], ChatGenerationResult]
 
 
@@ -97,6 +111,11 @@ class ChatGenerationError(RuntimeError):
 class ChatPrivacyError(ChatGenerationError):
     def __init__(self) -> None:
         super().__init__("Remote inference blocked by local privacy policy")
+
+
+class RemoteVisionDisclosureError(AssetError):
+    def __init__(self) -> None:
+        super().__init__("Remote vision disclosure is not enabled", 403)
 
 
 @dataclass(frozen=True)
@@ -176,7 +195,8 @@ class ChatService:
         self,
         session: Session,
         generator: (
-            ResponseGenerator | StreamingResponseGenerator | GenerationCallable | None
+            ResponseGenerator | StreamingResponseGenerator | VisionResponseGenerator
+            | GenerationCallable | None
         ) = None,
         *,
         memory_owner_id: str = LOCAL_MEMORY_OWNER_ID,
@@ -222,8 +242,15 @@ class ChatService:
             raise TypeError("Generator memory metadata must be a list")
         return result
 
-    def _generate(self, messages: Sequence[GenerationMessage]) -> ChatGenerationResult:
-        if self.generator is None:
+    def _generate(
+        self, messages: Sequence[GenerationMessage], image_png: bytes | None = None,
+    ) -> ChatGenerationResult:
+        if image_png is not None:
+            vision_method = getattr(self.generator, "generate_vision_response", None)
+            if not callable(vision_method):
+                raise ChatGenerationError("Assistant generation failed")
+            result = vision_method(messages, image_png)
+        elif self.generator is None:
             result = generate_response(messages)
         elif callable(self.generator):
             result = self.generator(messages)
@@ -237,17 +264,22 @@ class ChatService:
         messages: Sequence[GenerationMessage],
         *,
         cancel_event: Event,
+        image_png: bytes | None = None,
     ) -> Iterator[ChatGenerationDelta | ChatGenerationResult]:
-        stream_method = getattr(self.generator, "stream_response", None)
+        stream_method = getattr(
+            self.generator, "stream_vision_response" if image_png is not None else "stream_response",
+            None,
+        )
         if not callable(stream_method):
-            result = self._generate(messages)
+            result = self._generate(messages, image_png)
             if cancel_event.is_set():
                 return
             yield ChatGenerationDelta(delta=result.response)
             yield result
             return
 
-        stream = iter(stream_method(messages, cancel_event=cancel_event))
+        args = (messages,) if image_png is None else (messages, image_png)
+        stream = iter(stream_method(*args, cancel_event=cancel_event))
         deltas: list[str] = []
         result: ChatGenerationResult | None = None
         try:
@@ -288,6 +320,12 @@ class ChatService:
     ) -> _PreparedChat:
         request_timestamp = utc_now()
         validate_asset_ids(asset_ids)
+        if len(asset_ids) > 1:
+            raise AssetError("Vision currently supports one image per message.", 422)
+        if asset_ids:
+            check_vision = getattr(self.generator, "check_vision_allowed", None)
+            if callable(check_vision):
+                check_vision()
         with self.session.begin():
             if conversation_id is None:
                 title = _deterministic_title(message)
@@ -308,11 +346,20 @@ class ChatService:
                 if self.assets is None:
                     raise AssetError("Image attachments are unavailable", 503)
                 self.assets.validate_links(asset_ids, conversation_id)
-                # No image content/filename/ID, user prompt, retrieved memory or
-                # automatic memory mutation enters inference for this stub turn.
+                # Image turns use bounded text history, but no memory reads/writes.
+                # Explicit memory commands require a separate text-only request.
+                vision_messages = []
+                if parse_memory_command(message).intent_detected:
+                    context = format_memory_command_context(MemoryCommandDecision(
+                        intent_detected=True, reason="Memory commands are not applied on image turns",
+                    ))
+                    if context:
+                        vision_messages.append(GenerationMessage("system", context))
+                vision_messages.extend(history_messages)
+                vision_messages.append(GenerationMessage("user", message))
                 return _PreparedChat(
                     conversation_id, message, title, request_timestamp,
-                    _timestamp_after(previous_timestamp), (), (), None, asset_ids,
+                    _timestamp_after(previous_timestamp), tuple(vision_messages), (), None, asset_ids,
                 )
 
             decision = parse_memory_command(message)
@@ -446,6 +493,15 @@ class ChatService:
             metadata=committed_generation,
         )
 
+    def _image_input(self, prepared: _PreparedChat) -> bytes | None:
+        if not prepared.asset_ids or getattr(self.generator, "supports_vision", False) is not True:
+            return None
+        if self.assets is None:
+            raise AssetError("Image attachments are unavailable", 503)
+        # Close the read transaction before decoding, loading a model, or generating.
+        with self.session.begin():
+            return self.assets.processing_bytes(prepared.asset_ids[0])
+
     @staticmethod
     def _final_event_data(result: ChatResult) -> dict[str, Any]:
         metadata = result.metadata
@@ -473,10 +529,12 @@ class ChatService:
                 message=message,
                 asset_ids=asset_ids,
             )
+            image_png = self._image_input(prepared)
             try:
                 generation = (
                     ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled")
-                    if prepared.asset_ids else self._generate(prepared.generation_messages)
+                    if prepared.asset_ids and image_png is None
+                    else self._generate(prepared.generation_messages, image_png)
                 )
             except ChatPrivacyError:
                 raise
@@ -512,12 +570,14 @@ class ChatService:
                 return
 
             generation: ChatGenerationResult | None = None
+            image_png = self._image_input(prepared)
             generation_stream = iter((
                 ChatGenerationDelta(VISION_NOT_ENABLED),
                 ChatGenerationResult(response=VISION_NOT_ENABLED, model="media-not-enabled"),
-            )) if prepared.asset_ids else self._stream_generation(
+            )) if prepared.asset_ids and image_png is None else self._stream_generation(
                 prepared.generation_messages,
                 cancel_event=signal,
+                image_png=image_png,
             )
             try:
                 for item in generation_stream:

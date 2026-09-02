@@ -66,6 +66,8 @@ test("explicit select uploads, previews, attaches and clears without web storage
   assert.ok(calls[0].init?.body instanceof FormData);
   assert.equal(container.querySelector("img")?.getAttribute("src"), `/api/assets/${ASSET.id}/content`);
   assert.match(container.textContent ?? "", /photo\.png[\s\S]*Local only/);
+  assert.match(container.textContent ?? "", /Vision requires a local model; one image per message/);
+  assert.doesNotMatch(container.textContent ?? "", /analysis is not enabled/);
 
   const textarea = container.querySelector("textarea")!;
   const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;

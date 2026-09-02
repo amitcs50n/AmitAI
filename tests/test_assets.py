@@ -424,17 +424,18 @@ def test_upload_commit_failure_removes_complete_file(app, client):
     assert not list(app.state.asset_storage.root.iterdir())
 
 
-def test_duplicate_uploads_are_independent_and_four_can_attach(client, app):
+def test_duplicate_uploads_are_independent_but_vision_rejects_multiple(client, app):
     assets = [upload(client).json() for _ in range(4)]
     ids = [asset["id"] for asset in assets]
     assert len(set(ids)) == 4
     assert len({asset["sha256"] for asset in assets}) == 1
     result = client.post("/api/chat", json={"message": "Keep these", "asset_ids": ids})
-    assert result.status_code == 200
+    assert result.status_code == 422
+    assert result.json()["detail"] == "Vision currently supports one image per message."
+    assert counts(app) == (0, 0, 4)
     assert client.delete(f"/api/assets/{ids[0]}").status_code == 204
     assert client.get(f"/api/assets/{ids[1]}/content").status_code == 200
-    history = client.get(f"/api/conversations/{result.json()['conversation_id']}").json()
-    assert len(history["messages"][0]["assets"]) == 3
+    assert counts(app) == (0, 0, 3)
 
 
 def test_failed_physical_delete_is_inaccessible_and_cleanup_retries(client, app, monkeypatch):
