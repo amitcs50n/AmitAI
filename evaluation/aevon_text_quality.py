@@ -22,6 +22,7 @@ from backend.chat_service import ChatGenerationDelta, ChatGenerationResult, Gene
 from backend.memory import MAX_MEMORY_CONTEXT_CHARS, MAX_RETRIEVED_MEMORIES, format_memory_context
 from evaluation.baseline import load_jsonl, stable_fingerprint
 from evaluation.constraints import parse_constraints, validate_response
+from evaluation.context_layouts import LAYOUTS, Layout, LayoutProvider, layout_messages
 from evaluation.hf_backend import GenerationOutput
 from evaluation.run_baseline import git_revision
 from evaluation.text_quality_storage import (
@@ -35,12 +36,13 @@ from evaluation.text_quality_storage import (
     truncate_torn_tail,
 )
 from runtime.app import select_response_generator
+from runtime.calculator import CalculatorTool
 from runtime.config import (
     DEFAULT_RUNTIME_CONFIG_PATH,
     RuntimeConfig,
     load_production_runtime_config,
 )
-from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES
+from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES, compile_model_messages
 from runtime.generator import ProviderChatGenerator
 from runtime.privacy import InferenceExecutionScope
 from runtime.providers import (
@@ -48,6 +50,7 @@ from runtime.providers import (
     LocalTransformersInferenceProvider,
     RemoteInferenceProvider,
 )
+from runtime.tooling import ToolRegistry
 
 DEFAULT_CASES = Path(__file__).resolve().parents[1] / "eval/aevon_text_quality_v1.jsonl"
 Category = Literal[
@@ -182,7 +185,7 @@ class ObservedProvider:
     intermediate model/tool candidates or provider credentials.
     """
 
-    def __init__(self, provider: InferenceProvider) -> None:
+    def __init__(self, provider: InferenceProvider, *, context_layout: Layout | None = None) -> None:
         self.provider = provider
         self.provider_name = provider.provider_name
         self.model_name = provider.model_name
@@ -190,6 +193,7 @@ class ObservedProvider:
         self.calls: list[list[dict[str, str]]] = []
         self.inject_fault = False
         self.injected_outputs = 0
+        self.context_layout = context_layout
 
     def prepare(self, case: QualityCase) -> None:
         self.calls = []
@@ -226,11 +230,18 @@ class ObservedProvider:
 
 def build_runtime(
     mode: str, *, config: RuntimeConfig | None = None,
+    context_layout: Layout | None = None,
 ) -> tuple[ProviderChatGenerator, ObservedProvider]:
+    if context_layout is not None and context_layout not in LAYOUTS:
+        raise ValueError("Unknown experimental context layout")
+
+    def adapt(observed):
+        return observed if context_layout is None else LayoutProvider(observed, context_layout)
+
     if mode == "fake":
-        observed = ObservedProvider(ScriptedProvider())
+        observed = ObservedProvider(ScriptedProvider(), context_layout=context_layout)
         return ProviderChatGenerator(
-            config or load_production_runtime_config(), provider=observed, clock=lambda: 0.0,
+            config or load_production_runtime_config(), provider=adapt(observed), clock=lambda: 0.0,
         ), observed
 
     providers: list[ObservedProvider] = []
@@ -238,14 +249,14 @@ def build_runtime(
     def local_factory(config: RuntimeConfig) -> ProviderChatGenerator:
         observed = ObservedProvider(LocalTransformersInferenceProvider(
             config.model, int(config.generation["seed"]),
-        ))
+        ), context_layout=context_layout)
         providers.append(observed)
-        return ProviderChatGenerator(config, provider=observed)
+        return ProviderChatGenerator(config, provider=adapt(observed))
 
-    def remote_factory(**kwargs) -> ObservedProvider:
-        observed = ObservedProvider(RemoteInferenceProvider(**kwargs))
+    def remote_factory(**kwargs):
+        observed = ObservedProvider(RemoteInferenceProvider(**kwargs), context_layout=context_layout)
         providers.append(observed)
-        return observed
+        return adapt(observed)
 
     if mode not in {"transformers", "remote"}:
         raise ValueError("Explicit benchmark mode must be fake, transformers, or remote")
@@ -268,6 +279,7 @@ def grade(
     calls: list[list[dict[str, str]]],
     *,
     config: RuntimeConfig,
+    context_layout: Layout | None = None,
 ) -> list[dict[str, Any]]:
     """Small literal checks are evidence, never a substitute for semantic review."""
     checks: list[dict[str, Any]] = []
@@ -315,6 +327,18 @@ def grade(
             validation)
 
     initial = calls[0] if calls else []
+    if context_layout is not None:
+        canonical = compile_model_messages(
+            generation_messages(case), runtime_system_prompt=config.runtime_system_prompt,
+            tool_instructions=ToolRegistry([CalculatorTool()]).instructions(),
+            execution_scope=InferenceExecutionScope.LOCAL,
+        )
+        matches = initial == layout_messages(canonical, context_layout)
+        add("experimental_layout_matches", "context", matches)
+        # Existing order/limit checks describe canonical compilation. Normalize
+        # only after exact equality proves the requested layout reached the provider.
+        # The raw `calls` below still grade content across every tool/retry request.
+        initial = canonical if matches else []
     add("production_identity_context", "context", bool(initial) and initial[0]["content"].startswith(
         config.runtime_system_prompt + "\n\n"
     ))
@@ -367,7 +391,8 @@ def evaluate_case(
     if result is None:
         error = "Assistant generation failed; final diagnostics unavailable"
     fake = isinstance(observed.provider, ScriptedProvider)
-    checks = grade(case, result, observed.calls, config=generator.config)
+    checks = grade(case, result, observed.calls, config=generator.config,
+                   context_layout=observed.context_layout)
     if streaming:
         checks.append({
             "name": "stream_reconstruction", "group": "streaming",
@@ -452,12 +477,14 @@ def _code_fingerprint() -> str:
 
 def _requested_manifest(
     cases, mode: str, streaming: bool, config: RuntimeConfig, *, suite: str,
+    context_layout: Layout | None = None,
 ) -> dict[str, Any]:
     revision = git_revision()
     if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
         raise RunArtifactError("Benchmark requires an identifiable source revision")
     return {
         "suite": suite, "schema_version": 2, "mode": mode,
+        **({"experimental_context_layout": context_layout} if context_layout is not None else {}),
         "streaming": streaming, "status": "running", "source_revision": revision,
         "source_code_sha256": _code_fingerprint(),
         "case_sha256": stable_fingerprint([case.model_dump() for case in cases]),
@@ -534,7 +561,10 @@ class _SavedResult(StrictModel):
     human_review: _SavedReview
 
 
-def _validate_saved_rows(rows, cases, *, config: RuntimeConfig, mode: str, streaming: bool) -> None:
+def _validate_saved_rows(
+    rows, cases, *, config: RuntimeConfig, mode: str, streaming: bool,
+    context_layout: Layout | None = None,
+) -> None:
     for index, row in enumerate(rows):
         try:
             _SavedResult.model_validate(row)
@@ -553,7 +583,9 @@ def _validate_saved_rows(rows, cases, *, config: RuntimeConfig, mode: str, strea
             raise RunArtifactError("Benchmark results must match the exact case prefix and definitions")
         if row["human_review"]["rubric"] != case.human_review:
             raise RunArtifactError("Benchmark review rubric does not match the case definition")
-        expected_checks = [(check["name"], check["group"]) for check in grade(case, None, [], config=config)]
+        expected_checks = [(check["name"], check["group"]) for check in grade(
+            case, None, [], config=config, context_layout=context_layout,
+        )]
         if streaming:
             expected_checks.append(("stream_reconstruction", "streaming"))
         if [(check["name"], check["group"]) for check in row["checks"]] != expected_checks:
@@ -577,7 +609,10 @@ def _progress_summary(rows, expected_total: int) -> dict[str, Any]:
 def run(
     *, mode: str = "fake", output_dir: str | Path, cases_path: str | Path = DEFAULT_CASES,
     ids: Sequence[str] | None = None, streaming: bool = False, resume: bool = False,
+    context_layout: Layout | None = None,
 ) -> Path:
+    if context_layout is not None and context_layout not in LAYOUTS:
+        raise ValueError("Unknown experimental context layout")
     cases = load_cases(cases_path)
     if ids is not None:
         if not ids or len(set(ids)) != len(ids) or set(ids) - {case.id for case in cases}:
@@ -598,7 +633,8 @@ def run(
     config = load_production_runtime_config() if mode == "fake" else load_production_runtime_config(
         os.getenv("AMITAI_RUNTIME_CONFIG", str(DEFAULT_RUNTIME_CONFIG_PATH)),
     )
-    requested = _requested_manifest(cases, mode, streaming, config, suite=Path(cases_path).stem)
+    requested = _requested_manifest(cases, mode, streaming, config, suite=Path(cases_path).stem,
+                                    context_layout=context_layout)
     if resume:
         # Give content-free compatibility/completed errors even for pre-lock legacy runs.
         # Recheck under the exclusive lease before trusting any recoverable progress.
@@ -607,7 +643,8 @@ def run(
         if resume:
             _validate_manifest(read_manifest(destination / "run.json"), requested)
             rows, torn_offset = read_results(destination / "results.jsonl", expected_count=len(cases))
-            _validate_saved_rows(rows, cases, config=config, mode=mode, streaming=streaming)
+            _validate_saved_rows(rows, cases, config=config, mode=mode, streaming=streaming,
+                                 context_layout=context_layout)
             if torn_offset is not None:
                 truncate_torn_tail(destination / "results.jsonl", torn_offset)
             print(f"Resuming {len(rows)}/{len(cases)} completed cases.")
@@ -619,13 +656,14 @@ def run(
         # Results are authoritative if a crash left summary/manifest behind.
         atomic_json(destination / "summary.json", _progress_summary(rows, len(cases)))
         if len(rows) < len(cases):
-            _run_pending(cases, rows, destination, mode=mode, streaming=streaming, config=config)
+            _run_pending(cases, rows, destination, mode=mode, streaming=streaming, config=config,
+                         context_layout=context_layout)
         atomic_json(destination / "run.json", {**requested, "status": "complete"})
     return destination
 
 
-def _run_pending(cases, rows, destination, *, mode, streaming, config) -> None:
-    generator, observed = build_runtime(mode, config=config)
+def _run_pending(cases, rows, destination, *, mode, streaming, config, context_layout=None) -> None:
+    generator, observed = build_runtime(mode, config=config, context_layout=context_layout)
     try:
         for case in cases[len(rows):]:
             row = evaluate_case(case, generator, observed, streaming=streaming)
@@ -645,11 +683,14 @@ def main() -> None:
     parser.add_argument("--ids", nargs="+")
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--context-layout", choices=LAYOUTS,
+                        help="Opt-in evaluation experiment only; production stays unchanged")
     args = parser.parse_args()
     try:
         destination = run(
             mode=args.mode, output_dir=args.output_dir, cases_path=args.cases,
             ids=args.ids, streaming=args.stream, resume=args.resume,
+            context_layout=args.context_layout,
         )
     except RunArtifactError as exc:
         parser.exit(2, f"{exc}\n")

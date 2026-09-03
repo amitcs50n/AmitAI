@@ -1,0 +1,180 @@
+{
+  "model": "OBLITERATUS/Qwen3.8-27B-OBLITERATED",
+  "revision": "a58c3b53b3ce71551eafde2ed5ec8df48e0f4ff8",
+  "template_sha256": "4c2b3eabcdd87d5fef156833b055d520a8185f73580c5a14c75d140a16acbc14",
+  "distance_unit": "Unicode characters, not tokens",
+  "captures": {
+    "v4_memory_conflict_A": {
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 4536,
+      "section_end_to_current_user_chars": 161,
+      "section": "memory",
+      "prompt_sha256": "783d67fa77bb887dd4e3c7a29f4a42f81492b887fe901fba73e3bcf4e896a46b"
+    },
+    "v4_memory_conflict_B": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 4509,
+      "section_end_to_current_user_chars": 161,
+      "section": "memory",
+      "prompt_sha256": "9321fc388cb4503bbb13d8f05de348ada8741e4c5970bfb291d418fbca572988"
+    },
+    "v4_memory_conflict_C": {
+      "roles": [
+        "system",
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 4536,
+      "section_end_to_current_user_chars": 161,
+      "section": "memory",
+      "prompt_sha256": "783d67fa77bb887dd4e3c7a29f4a42f81492b887fe901fba73e3bcf4e896a46b"
+    },
+    "v4_memory_conflict_D": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 4509,
+      "section_end_to_current_user_chars": 161,
+      "section": "memory",
+      "prompt_sha256": "9321fc388cb4503bbb13d8f05de348ada8741e4c5970bfb291d418fbca572988"
+    },
+    "v4_missing_opening_A": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 5260,
+      "section_end_to_current_user_chars": 1240,
+      "section": "omission_notice",
+      "prompt_sha256": "79894825a80cd9c8b878b7f2f98bacb4deea956eabee618b5290375c6f8d1997"
+    },
+    "v4_missing_opening_B": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "prompt_chars": 5260,
+      "section_end_to_current_user_chars": 1240,
+      "section": "omission_notice",
+      "prompt_sha256": "79894825a80cd9c8b878b7f2f98bacb4deea956eabee618b5290375c6f8d1997"
+    },
+    "v4_missing_opening_C": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "system",
+        "user"
+      ],
+      "prompt_chars": 5287,
+      "section_end_to_current_user_chars": 10,
+      "section": "omission_notice",
+      "prompt_sha256": "d424c73eb2dda692d45431154e99fb8bbfb549fb033a0a03bac4e2c462ed6806"
+    },
+    "v4_missing_opening_D": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "system",
+        "user"
+      ],
+      "prompt_chars": 5287,
+      "section_end_to_current_user_chars": 10,
+      "section": "omission_notice",
+      "prompt_sha256": "d424c73eb2dda692d45431154e99fb8bbfb549fb033a0a03bac4e2c462ed6806"
+    }
+  }
+}

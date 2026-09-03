@@ -1288,6 +1288,23 @@ an explicit selection to allow remote use. Policy-only edits send only sensitivi
 body. Value-only edits preserve the policy, edits refetch the current search/filter, and no memory
 values or sensitivity settings are saved in browser storage.
 
+## Experimental Aevon context layouts V4
+
+`eval/aevon_epistemic_regression_v4.jsonl` contains 10 semantic probes requiring
+human review. The existing runner accepts an explicit `--context-layout A|B|C|D` for
+evaluation only; production keeps its existing Layout A and prompt wording.
+See [the V4 experiment](docs/design/aevon_epistemic_v4.md) for layout definitions,
+exact prompt captures, measured distances, and the later A100 commands.
+
+```bash
+python -m evaluation.aevon_text_quality --mode fake --cases eval/aevon_epistemic_regression_v4.jsonl --context-layout A --output-dir outputs/aevon-epistemic-v4-fake-A
+python -m evaluation.context_layout_inspection --output-dir outputs/aevon-epistemic-v4-prompts
+```
+
+Repeat the fake command with B, C, and D and a separate output directory for each.
+The run manifest records the experimental layout; resume requires the same layout.
+Fake passes validate the harness, not semantic correctness or a layout winner.
+
 ## Production Aevon epistemic regression V3
 
 `eval/aevon_epistemic_regression_v3.jsonl` contains 16 focused cases for context and
