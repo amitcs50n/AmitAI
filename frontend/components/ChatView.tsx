@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, RotateCcw } from "lucide-react";
+import { useState } from "react";
+import { ArrowDown, LoaderCircle, RotateCcw } from "lucide-react";
 
 import type { Message as ChatMessage, UiPreferences, UploadedAsset, VisionCapability } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Composer } from "@/components/Composer";
 import { Message } from "@/components/Message";
 import { RemoteVisionConsent } from "@/components/RemoteVisionConsent";
+import { useChatScroll } from "@/components/useChatScroll";
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -15,6 +16,8 @@ interface ChatViewProps {
   streamingMessage: ChatMessage | null;
   loading: boolean;
   sending: boolean;
+  stopped?: boolean;
+  onStop?: () => void;
   loadError: string | null;
   sendError: string | null;
   preferences: UiPreferences;
@@ -41,6 +44,8 @@ export function ChatView({
   streamingMessage,
   loading,
   sending,
+  stopped = false,
+  onStop,
   loadError,
   sendError,
   preferences,
@@ -50,7 +55,6 @@ export function ChatView({
   vision,
   onReloadCapabilities,
 }: ChatViewProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const [retryConsentId, setRetryConsentId] = useState<string | null>(null);
   const retryHasImage = !!pendingMessage?.assets?.length;
   const retryRemote = retryHasImage && vision?.scope === "remote";
@@ -62,19 +66,20 @@ export function ChatView({
     ...(streamingMessage ? [streamingMessage] : []),
   ];
   const streamingContentLength = streamingMessage?.content.length ?? 0;
-  const hasStreamingMessage = streamingMessage !== null;
   const empty = !loading && !loadError && visibleMessages.length === 0;
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: hasStreamingMessage ? "auto" : "smooth",
-      block: "end",
-    });
-  }, [visibleMessages.length, sending, streamingContentLength, hasStreamingMessage]);
+  const { viewportRef, onScroll, showLatest, jumpToLatest } = useChatScroll({
+    loading,
+    sending,
+    pendingId: pendingMessage?.id,
+    contentVersion: `${messages.at(-1)?.id}:${visibleMessages.length}:${streamingContentLength}:${sending}:${stopped}:${sendError}`,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <p aria-live="polite" aria-atomic="true" className="sr-only" role="status">
+        {sending ? "Aevon is responding." : stopped ? "Generation stopped." : sendError ? "Response failed." : "Ready to send."}
+      </p>
+      <div aria-label="Chat messages" className="min-h-0 flex-1 overflow-y-auto" onScroll={onScroll} ref={viewportRef} role="region" tabIndex={0}>
         <div
           className={cn(
             "mx-auto flex min-h-full w-full max-w-[58rem] flex-col px-5 sm:px-8",
@@ -103,7 +108,7 @@ export function ChatView({
               <h2 className="font-serif text-5xl tracking-[-0.03em] text-[#eee8e1] sm:text-6xl">Aevon</h2>
               <p className="mt-3 text-base text-[#948d86]">What are we working on?</p>
               <div className="mt-8 w-full max-w-[52rem] text-left">
-                <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
+                <Composer disabled={sending} onStop={onStop} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
               </div>
             </div>
           ) : (
@@ -117,9 +122,9 @@ export function ChatView({
                 />
               ))}
               {sending && !streamingContentLength ? <AssistantWaiting /> : null}
-              {sendError ? (
+              {sendError || stopped ? (
                 <div className="ml-16 flex flex-wrap items-center gap-3 rounded-xl border border-[#754735]/60 bg-[#261812]/70 px-4 py-3 text-sm text-[#e0cfc4]">
-                  <span>{sendError}</span>
+                  <span>{stopped ? "Generation stopped. You can retry this message." : sendError}</span>
                   {retryRemote ? <RemoteVisionConsent checked={retryConsent} disabled={sending} onChange={(checked) => setRetryConsentId(checked ? pendingMessage!.id : null)} /> : null}
                   <button
                     className="inline-flex items-center gap-1.5 text-[#dca778] hover:text-[#efbf93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
@@ -132,15 +137,19 @@ export function ChatView({
                   </button>
                 </div>
               ) : null}
-              <div ref={bottomRef} />
             </div>
           )}
         </div>
       </div>
+      {showLatest ? (
+        <button aria-label="Jump to latest" className="mx-auto mt-2 inline-flex shrink-0 items-center gap-2 rounded-full border border-[#805a3d]/65 bg-[#191713] px-3 py-1.5 text-xs text-[#dca778] hover:text-[#efbf93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]" onClick={jumpToLatest} type="button">
+          <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />Jump to latest
+        </button>
+      ) : null}
       {!empty && !loading && !loadError ? (
         <div className="shrink-0 bg-[#0d0e0e] px-5 pb-5 pt-3 sm:px-8 sm:pb-7">
           <div className="mx-auto w-full max-w-[52rem]">
-            <Composer disabled={sending} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
+            <Composer disabled={sending} onStop={onStop} enterToSend={preferences.enterToSend} onSend={onSend} vision={vision} onReloadCapabilities={onReloadCapabilities} />
           </div>
         </div>
       ) : null}

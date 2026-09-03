@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, Paperclip } from "lucide-react";
+import { ArrowUp, Paperclip, Square } from "lucide-react";
 import { ApiError, deleteAsset, uploadImage } from "@/lib/api";
 import type { UploadedAsset, VisionCapability } from "@/lib/types";
 import { AssetPreview } from "@/components/AssetPreview";
@@ -9,13 +9,14 @@ import { RemoteVisionConsent } from "@/components/RemoteVisionConsent";
 
 interface ComposerProps {
   disabled?: boolean;
+  onStop?: () => void;
   enterToSend: boolean;
   onSend: (message: string, assets?: UploadedAsset[], allowRemoteVision?: boolean) => Promise<void> | void;
   vision?: VisionCapability | null;
   onReloadCapabilities?: () => void;
 }
 
-export function Composer({ disabled = false, enterToSend, onSend, vision, onReloadCapabilities }: ComposerProps) {
+export function Composer({ disabled = false, onStop, enterToSend, onSend, vision, onReloadCapabilities }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -25,6 +26,7 @@ export function Composer({ disabled = false, enterToSend, onSend, vision, onRelo
   const busy = useRef(false);
   const staged = useRef<UploadedAsset[]>([]);
   const mounted = useRef(true);
+  const wasDisabled = useRef(disabled);
   const [consentAssetId, setConsentAssetId] = useState<string | null>(null);
   const remote = vision?.scope === "remote";
   const consent = assets.length === 1 && consentAssetId === assets[0].id;
@@ -93,6 +95,11 @@ export function Composer({ disabled = false, enterToSend, onSend, vision, onRelo
     textarea.style.height = `${Math.min(textarea.scrollHeight, 176)}px`;
   }, [value]);
 
+  useEffect(() => {
+    if (wasDisabled.current && !disabled) textareaRef.current?.focus();
+    wasDisabled.current = disabled;
+  }, [disabled]);
+
   async function submit(event?: FormEvent) {
     event?.preventDefault();
     const message = value.trim();
@@ -102,7 +109,7 @@ export function Composer({ disabled = false, enterToSend, onSend, vision, onRelo
     setStaged([]); // Ownership passes to the pending chat, including retry state.
     setValue("");
     await onSend(message, attachments, allowRemoteVision);
-    textareaRef.current?.focus();
+    if (mounted.current && !textareaRef.current?.disabled) textareaRef.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -160,12 +167,13 @@ export function Composer({ disabled = false, enterToSend, onSend, vision, onRelo
           value={value}
         />
         <button
-          aria-label={disabled ? "Waiting for Aevon" : "Send message"}
+          aria-label={onStop ? "Stop generation" : disabled ? "Waiting for Aevon" : "Send message"}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#a87349] text-[#0c0b0a] transition hover:bg-[#bd8558] disabled:cursor-not-allowed disabled:bg-[#4c3b2d] disabled:text-[#867568] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e4b487] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111212]"
-          disabled={disabled || uploading || !value.trim() || imageBlocked}
-          type="submit"
+          disabled={!onStop && (disabled || uploading || !value.trim() || imageBlocked)}
+          onClick={onStop}
+          type={onStop ? "button" : "submit"}
         >
-          <ArrowUp aria-hidden="true" className="h-5 w-5" strokeWidth={2} />
+          {onStop ? <Square aria-hidden="true" className="h-4 w-4" fill="currentColor" /> : <ArrowUp aria-hidden="true" className="h-5 w-5" strokeWidth={2} />}
         </button>
       </div>
     </form>

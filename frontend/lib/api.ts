@@ -276,7 +276,8 @@ export async function sendChatStream(
   let finalResponse: ChatResponse | null = null;
 
   try {
-    for await (const event of parseSseStream(response.body)) {
+    for await (const event of parseSseStream(response.body, signal)) {
+      signal?.throwIfAborted();
       if (!["error", "start", "text", "final", "done"].includes(event.event)) continue;
       const data = parseStreamData(event.data, response.status);
 

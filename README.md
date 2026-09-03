@@ -182,6 +182,19 @@ cancellation. An in-flight CUDA operation may not stop immediately, so the model
 remains held until the worker actually exits; the server does not pretend cancellation completed
 or allow another GPU generation to overlap it.
 
+In Aevon, **Stop generation** replaces Send while a response is being generated. It aborts the
+current fetch, removes transient assistant text, and leaves the pending user message available
+for an explicit Retry without marking the backend disconnected. Every remote-image retry needs
+fresh consent. No drafts or partial responses are written to browser storage. Cancellation is
+best effort: it cannot undo an atomic save that wins the disconnect race. Once `final` confirms
+that save, Stop is no longer offered; if `done` is lost, the UI keeps the saved response and offers
+history reload instead of resending it. An unconfirmed completion race may require reloading
+history before retrying; there is no server-side request-id deduplication in this UI change.
+
+The chat follows new output while within 96 pixels of the bottom. Scrolling up pauses following;
+**Jump to latest**, scrolling back near the bottom, or sending a new turn resumes it. Scroll work
+is coalesced to animation frames, and status announcements do not repeat for each text chunk.
+
 #### Explicit image uploads (foundation only)
 
 Aevon cannot browse your files, repositories or folders. The composer paperclip accepts only an

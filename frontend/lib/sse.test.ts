@@ -190,3 +190,52 @@ test("surfaces a server error event as a reached-backend error", async () => {
     },
   );
 });
+
+test("abort between buffered events prevents text/final/done callbacks and releases the reader", async () => {
+  const controller = new AbortController();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) {
+      stream.enqueue(encoder.encode(
+        sseEvent("start", { conversation_id: null }) +
+        sseEvent("text", { delta: finalResponse.response }) +
+        sseEvent("final", finalResponse) + sseEvent("done", {}),
+      ));
+    },
+    cancel() { cancelled = true; },
+  });
+  const callbacks: string[] = [];
+  await assert.rejects(withFetchResponse(new Response(body, {
+    headers: { "Content-Type": "text/event-stream" },
+  }), () => sendChatStream({ conversation_id: null, message: "Stop" }, {
+    onStart: () => controller.abort(),
+    onText: () => { callbacks.push("text"); },
+    onFinal: () => { callbacks.push("final"); },
+    onDone: () => { callbacks.push("done"); },
+  }, controller.signal)), { name: "AbortError" });
+  assert.deepEqual(callbacks, []);
+  assert.equal(cancelled, true);
+  assert.equal(body.locked, false);
+});
+
+test("abort cancels a pending body read without waiting for another server event", async () => {
+  const controller = new AbortController();
+  let reading!: () => void;
+  const readStarted = new Promise<void>((resolve) => { reading = resolve; });
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull() { reading(); },
+    cancel() { cancelled = true; },
+  });
+  await withFetchResponse(new Response(body, { headers: { "Content-Type": "text/event-stream" } }), async () => {
+    const pending = sendChatStream({ conversation_id: null, message: "Stop" }, {
+      onText: () => assert.fail("no text expected"),
+    }, controller.signal);
+    const rejected = assert.rejects(pending, { name: "AbortError" });
+    await readStarted;
+    controller.abort();
+    await rejected;
+  });
+  assert.equal(cancelled, true);
+  assert.equal(body.locked, false);
+});

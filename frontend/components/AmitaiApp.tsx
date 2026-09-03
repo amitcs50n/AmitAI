@@ -15,6 +15,7 @@ import {
 import type {
   AppView,
   ChatMetadata,
+  ChatResponse,
   ConnectionState,
   Conversation,
   ConversationDetail,
@@ -89,6 +90,9 @@ function updateConnectionFromError(
 export function AmitaiApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Stable across a new conversation's first save, so completion does not
+  // remount ChatView and reset a reader who has scrolled away from the bottom.
+  const [chatViewKey, setChatViewKey] = useState(0);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [view, setView] = useState<AppView>("chat");
   const [connection, setConnection] = useState<ConnectionState>("connecting");
@@ -96,6 +100,8 @@ export function AmitaiApp() {
   const [developerOpen, setDeveloperOpen] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [sending, setSending] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const [failedInput, setFailedInput] = useState<string | null>(null);
@@ -109,14 +115,20 @@ export function AmitaiApp() {
   const [preferences, setPreferences] = useState<UiPreferences>(DEFAULT_PREFERENCES);
   const conversationRequestRef = useRef(0);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const committedRef = useRef(false);
+  const mountedRef = useRef(false);
 
   const markConnected = useCallback(() => setConnection("connected"), []);
   const loadCapabilities = useCallback(async () => {
-    try { setVision((await getCapabilities()).vision); }
-    catch { setVision(null); }
+    try {
+      const capabilities = await getCapabilities();
+      if (mountedRef.current) setVision(capabilities.vision);
+    } catch { if (mountedRef.current) setVision(null); }
   }, []);
 
   const loadConversation = useCallback(async (id: string) => {
+    setChatViewKey((current) => current + 1);
+    setStopped(false);
     const requestId = ++conversationRequestRef.current;
     setLoadingConversation(true);
     setLoadError(null);
@@ -198,6 +210,7 @@ export function AmitaiApp() {
   }, [markConnected]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const initializeTimer = window.setTimeout(() => {
       setPreferences(loadInitialPreferences());
       if (window.innerWidth < 1024) setSidebarOpen(false);
@@ -206,7 +219,10 @@ export function AmitaiApp() {
     }, 0);
     return () => {
       window.clearTimeout(initializeTimer);
+      mountedRef.current = false;
+      conversationRequestRef.current += 1;
       streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
     };
   }, [initialize, loadCapabilities]);
 
@@ -219,18 +235,23 @@ export function AmitaiApp() {
   }
 
   async function refreshConversationList() {
+    const requestId = conversationRequestRef.current;
     try {
       const listed = await listConversations();
+      if (!mountedRef.current || requestId !== conversationRequestRef.current) return;
       setConversations(listed);
       markConnected();
     } catch (error) {
+      if (!mountedRef.current || requestId !== conversationRequestRef.current) return;
       updateConnectionFromError(error, setConnection);
       setActionAlert({ message: "Conversation saved, but the sidebar could not refresh.", retry: () => void refreshConversationList() });
     }
   }
 
   function handleNewConversation() {
-    if (sending) return;
+    if (streamAbortRef.current) return;
+    setChatViewKey((current) => current + 1);
+    setStopped(false);
     conversationRequestRef.current += 1;
     setLoadingConversation(false);
     setView("chat");
@@ -247,7 +268,7 @@ export function AmitaiApp() {
   }
 
   function handleSelectConversation(id: string) {
-    if (sending) return;
+    if (streamAbortRef.current) return;
     setView("chat");
     setSelectedId(id);
     if (window.innerWidth < 1024) setSidebarOpen(false);
@@ -260,27 +281,60 @@ export function AmitaiApp() {
   }
 
   async function submitMessage(message: string, retry = false, assets: UploadedAsset[] = [], allowRemoteVision = false) {
+    // Reserve ownership synchronously, before React state updates or any await.
+    if (streamAbortRef.current || !mountedRef.current) return;
+    const requestId = ++conversationRequestRef.current;
     const targetId = selectedId;
     const userMessage = retry && pendingMessage ? pendingMessage : temporaryUserMessage(message, targetId, assets);
     const streamMessageId = `streaming-${crypto.randomUUID()}`;
     const streamCreatedAt = new Date().toISOString();
     const abortController = new AbortController();
     let streamedText = "";
+    const committed: { response: ChatResponse | null } = { response: null };
+    const isCurrent = () => mountedRef.current && streamAbortRef.current === abortController;
+    const isSelected = () => mountedRef.current && requestId === conversationRequestRef.current;
 
-    streamAbortRef.current?.abort();
     streamAbortRef.current = abortController;
+    committedRef.current = false;
     if (!retry) setPendingMessage(userMessage);
     setStreamingMessage(null);
     setSending(true);
+    setFinishing(false);
+    setStopped(false);
+    setActionAlert(null);
     setSendError(null);
     setFailedInput(null);
+
+    function showSavedResponse(result: ChatResponse) {
+      const now = new Date().toISOString();
+      const assistantMessage: Message = {
+        id: result.message_id,
+        conversation_id: result.conversation_id,
+        role: "assistant",
+        content: result.response,
+        created_at: now,
+        metadata: responseMetadata(result.metadata),
+      };
+      const fallback: ConversationDetail = {
+        ...(conversation ?? { title: "Conversation", created_at: now, archived: false }),
+        id: result.conversation_id,
+        updated_at: now,
+        messages: [...(conversation?.messages ?? []), userMessage, assistantMessage],
+      };
+      setSelectedId(result.conversation_id);
+      setConversation(fallback);
+      setPendingMessage(null);
+      setStreamingMessage(null);
+      localStorage.setItem(SELECTED_CONVERSATION_KEY, result.conversation_id);
+    }
 
     try {
       const result = await sendChatStream(
         { conversation_id: targetId, message, asset_ids: (userMessage.assets ?? []).map((asset) => asset.id), allow_remote_vision: allowRemoteVision },
         {
-          onStart: markConnected,
+          onStart: () => { if (isCurrent()) markConnected(); },
           onText: (delta) => {
+            if (!isCurrent()) return;
             streamedText += delta;
             if (!streamedText) return;
             setStreamingMessage({
@@ -293,6 +347,11 @@ export function AmitaiApp() {
             });
           },
           onFinal: (finalResponse) => {
+            if (!isCurrent()) return;
+            // The server commits before final; Stop cannot undo a saved turn.
+            committed.response = finalResponse;
+            committedRef.current = true;
+            setFinishing(true);
             setStreamingMessage({
               id: finalResponse.message_id,
               conversation_id: finalResponse.conversation_id,
@@ -305,43 +364,20 @@ export function AmitaiApp() {
         },
         abortController.signal,
       );
+      if (!isCurrent()) return;
       markConnected();
-      const assistantMessage: Message = {
-        id: result.message_id,
-        conversation_id: result.conversation_id,
-        role: "assistant",
-        content: result.response,
-        created_at: new Date().toISOString(),
-        metadata: responseMetadata(result.metadata),
-      };
-      const now = new Date().toISOString();
-      const fallback: ConversationDetail = conversation
-        ? {
-            ...conversation,
-            id: result.conversation_id,
-            updated_at: now,
-            messages: [...conversation.messages, userMessage, assistantMessage],
-          }
-        : {
-            id: result.conversation_id,
-            title: "Conversation",
-            created_at: now,
-            updated_at: now,
-            archived: false,
-            messages: [userMessage, assistantMessage],
-          };
-
-      setSelectedId(result.conversation_id);
-      setConversation(fallback);
-      setPendingMessage(null);
-      setStreamingMessage(null);
-      localStorage.setItem(SELECTED_CONVERSATION_KEY, result.conversation_id);
+      showSavedResponse(result);
+      streamAbortRef.current = null;
+      setSending(false);
+      setFinishing(false);
 
       try {
         const persisted = await getConversation(result.conversation_id);
+        if (!isSelected()) return;
         setConversation(persisted);
         markConnected();
       } catch (error) {
+        if (!isSelected()) return;
         updateConnectionFromError(error, setConnection);
         setActionAlert({
           message: "Your response was saved, but persisted history could not be reloaded.",
@@ -350,18 +386,46 @@ export function AmitaiApp() {
       }
       await refreshConversationList();
     } catch (error) {
+      if (!isCurrent()) return;
       setStreamingMessage(null);
       if (!abortController.signal.aborted) {
         updateConnectionFromError(error, setConnection);
+        if (committed.response) {
+          // Missing done is a failure, but retrying a confirmed commit would
+          // duplicate the turn. Keep the saved fallback and offer a reload.
+          const saved = committed.response;
+          showSavedResponse(saved);
+          setActionAlert({
+            message: "Your response was saved, but the stream did not finish normally. Reload history to verify it.",
+            retry: () => void loadConversation(saved.conversation_id),
+          });
+          return;
+        }
         setFailedInput(message);
         setSendError(
           backendResponded(error) ? "Generation failed. Try again." : "Unable to connect to Aevon.",
         );
       }
     } finally {
-      if (streamAbortRef.current === abortController) streamAbortRef.current = null;
-      setSending(false);
+      if (isCurrent()) {
+        streamAbortRef.current = null;
+        setSending(false);
+        setFinishing(false);
+      }
     }
+  }
+
+  function stopGeneration() {
+    const controller = streamAbortRef.current;
+    if (!controller || committedRef.current) return;
+    streamAbortRef.current = null; // Invalidate callbacks before abort settles.
+    controller.abort();
+    setStreamingMessage(null);
+    setSending(false);
+    setFinishing(false);
+    setStopped(true);
+    setSendError(null);
+    setFailedInput(pendingMessage?.content ?? null);
   }
 
   function retrySend(allowRemoteVision = false) {
@@ -471,7 +535,7 @@ export function AmitaiApp() {
 
         {view === "chat" ? (
           <ChatView
-            key={selectedId ?? "new-chat"}
+            key={chatViewKey}
             loadError={loadError}
             loading={loadingConversation}
             messages={conversation?.messages ?? []}
@@ -484,6 +548,8 @@ export function AmitaiApp() {
             preferences={preferences}
             sendError={sendError}
             sending={sending}
+            stopped={stopped}
+            onStop={sending && !finishing ? stopGeneration : undefined}
             streamingMessage={streamingMessage}
           />
         ) : view === "memory" ? (

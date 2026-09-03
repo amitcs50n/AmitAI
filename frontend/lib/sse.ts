@@ -29,6 +29,7 @@ function findLineEnding(buffer: string, endOfStream: boolean): LineEnding | null
  */
 export async function* parseSseStream(
   stream: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
 ): AsyncGenerator<SseEvent> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -36,6 +37,8 @@ export async function* parseSseStream(
   let eventName = "";
   let dataLines: string[] = [];
   let reachedEnd = false;
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true });
 
   function consumeLine(line: string): SseEvent | null {
     if (line === "") {
@@ -67,7 +70,9 @@ export async function* parseSseStream(
 
   try {
     while (true) {
+      signal?.throwIfAborted();
       const chunk = await reader.read();
+      signal?.throwIfAborted();
       if (chunk.done) {
         buffer += decoder.decode();
         reachedEnd = true;
@@ -81,7 +86,10 @@ export async function* parseSseStream(
         const line = buffer.slice(0, ending.index);
         buffer = buffer.slice(ending.index + ending.length);
         const event = consumeLine(line);
-        if (event) yield event;
+        if (event) {
+          signal?.throwIfAborted();
+          yield event;
+        }
       }
 
       if (!reachedEnd) continue;
@@ -92,6 +100,7 @@ export async function* parseSseStream(
       return;
     }
   } finally {
+    signal?.removeEventListener("abort", abort);
     if (!reachedEnd) {
       try {
         await reader.cancel();
