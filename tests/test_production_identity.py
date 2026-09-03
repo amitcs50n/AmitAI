@@ -23,7 +23,12 @@ from runtime.config import (
     load_production_runtime_config,
     load_runtime_config,
 )
-from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES, compile_model_messages
+from runtime.context import (
+    HISTORY_OMISSION_NOTICE,
+    MAX_HISTORY_CONTEXT_CHARS,
+    MAX_HISTORY_MESSAGES,
+    compile_model_messages,
+)
 from runtime.generator import TransformersChatGenerator
 from tests.test_assets import image_bytes
 from tests.test_remote_vision import ORIGIN, TOKEN, Harness
@@ -35,16 +40,20 @@ EPISTEMIC_RULES = (
     "reasonable everyday inferences without unnecessary hedging",
     "Never invent unavailable facts, citations, evidence, memories, conversation",
     "tool results, files inspected, actions completed, schema, or configuration",
-    "Use explicit trusted context unless overridden by higher-priority instructions or evidence",
+    "Use explicit trusted context over older assistant guesses",
+    "Do not agree just to follow the question's framing",
+    "Explicit facts beat plausible unstated assumptions",
     "never substitute plausible alternatives",
     "Do not reconstruct missing or truncated history",
-    "a reference is materially ambiguous",
+    "a reference has no usable referent or materially different possible referents",
     "ask a concise clarification",
-    "Give a useful qualified answer when partial reasoning suffices",
+    "before agreeing or acting",
+    "give a useful qualified answer when partial reasoning suffices",
     "do not escape contradictions by redefining terms or inventing exceptions",
     "Distinguish facts from hypotheses",
     "an unverified cause is not an established root cause",
-    "Lack of evidence does not establish nonexistence",
+    "Missing evidence does not prove global nonexistence",
+    "an explicitly complete list establishes absence from that stated set",
 )
 
 
@@ -71,7 +80,7 @@ def test_production_profile_is_prompt_only_and_establishes_identity():
     assert "report the exact configured model identifier above" in prompt
     assert "or mention AmitAI, Qwen, or model identity unless relevant" in prompt
     assert "You are AmitAI" not in prompt and "${model_name}" not in prompt
-    assert len(prompt.split()) < 360
+    assert len(prompt.split()) < 390
     for principle in (
         "actual question first",
         "concise by default",
@@ -277,6 +286,7 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
                 assert EXPECTED_MODEL_NAME in compiled[0]["content"]
                 assert all(rule in compiled[0]["content"] for rule in EPISTEMIC_RULES)
                 assert compiled[0] == _text_messages(engine.calls[0][0])[0]
+                assert compiled[0]["content"].count(HISTORY_OMISSION_NOTICE) == 1
                 assert compiled[1:3] == [
                     {"role": m.role, "content": m.content} for m in messages[:2]
                 ]
@@ -303,6 +313,39 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
         if streaming:
             expected_route += "/stream"
         assert all(request.url.path == expected_route for request in harness.requests)
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("vision", [False, True])
+def test_tools_and_retries_keep_memory_and_omission_notice_in_every_provider_path(streaming, vision):
+    messages = _messages("Calculate 2+3, then identify yourself. Answer in exactly 3 words.")
+    tool = '<tool_call>{"name":"calculator","arguments":{"expression":"2+3"}}</tool_call>'
+    outputs = [tool, "This candidate has too many words.", tool, "Aevon is here."]
+    with runtime_pair(outputs) as (local, remote, _harness):
+        for generator, engine in (local, remote):
+            kwargs = {"remote_grant": RemoteVisionGrant(str(uuid4()), True)} if vision else {}
+            args = (messages, image_bytes()) if vision else (messages,)
+            if streaming:
+                method = generator.stream_vision_response if vision else generator.stream_response
+                result = list(method(*args, cancel_event=Event(), **kwargs))[-1]
+            else:
+                method = generator.generate_vision_response if vision else generator.generate_response
+                result = method(*args, **kwargs)
+            assert result.validator["retry_count"] == 1
+            assert len(result.tools) == 2 and all(tool["success"] for tool in result.tools)
+            assert len(engine.calls) == 4
+            first = _text_messages(engine.calls[0][0])
+            for model_messages, _config in engine.calls:
+                compiled = _text_messages(model_messages)
+                assert compiled[:3] == first[:3]  # Canonical system, exact memory, memory command.
+                assert compiled[0]["content"].count(HISTORY_OMISSION_NOTICE) == 1
+                assert compiled[1]["content"] == messages[0].content
+                assert "OLD_DROPPED_IDENTITY_HISTORY" not in repr(compiled)
+            for index in (1, 3):
+                assert _text_messages(engine.calls[index][0])[-1]["content"].startswith("<tool_result>")
+        assert [_text_messages(call[0]) for call in local[1].calls] == [
+            _text_messages(call[0]) for call in remote[1].calls
+        ]
 
 
 def test_production_unconstrained_stream_still_yields_before_generation_finishes():

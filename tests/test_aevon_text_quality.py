@@ -391,6 +391,7 @@ def test_memory_checks_are_only_literal_evidence_and_fail_on_leak():
 
 @pytest.mark.parametrize("path,blob_id", [
     ("eval/aevon_text_quality_v1.jsonl", "739f4d888b5098bb798ca41dd44b128fa8ca12d6"),
+    ("eval/aevon_epistemic_regression_v2.jsonl", "40292e319f80d0243ecd5d618019c3dcb34c1e75"),
     ("configs/baseline_eval.yaml", "e4a9a1ad33173587b77543edb80be55047dda553"),
     ("configs/baseline_eval_v2.yaml", "9faae6a220867969c4200242e9d883b57defc313"),
     ("configs/baseline_eval_v2_constrained.yaml", "3d4910c7f4437e6aa75021aeb7f50b6af3668bd0"),
@@ -401,7 +402,7 @@ def test_memory_checks_are_only_literal_evidence_and_fail_on_leak():
     ("evaluation/summarize.py", "f94260effd77929f0b6691d24a99a838b905f0b7"),
 ])
 def test_frozen_baseline_assets_remain_unchanged(path, blob_id):
-    # Baseline 8586073 and text-quality V1 at b7314c6; only normalize checkout CRLF.
+    # Baseline 8586073, V1 at b7314c6, V2 at a0acc41; only normalize checkout CRLF.
     content = Path(path).read_bytes().replace(b"\r\n", b"\n")
     blob = b"blob " + str(len(content)).encode() + b"\0" + content
     assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == blob_id

@@ -1288,6 +1288,18 @@ an explicit selection to allow remote use. Policy-only edits send only sensitivi
 body. Value-only edits preserve the policy, edits refetch the current search/filter, and no memory
 values or sensitivity settings are saved in browser storage.
 
+## Production Aevon epistemic regression V3
+
+`eval/aevon_epistemic_regression_v3.jsonl` contains 16 focused cases for context and
+memory fidelity, with direct-answer controls. See the [input-path investigation and
+design](docs/design/aevon_epistemic_v3.md) for the verified template behavior, conditional
+history-omission notice, unchanged memory representation, and later A100 command.
+All semantic outcomes still require human review. Exercise the existing offline runner:
+
+```bash
+python -m evaluation.aevon_text_quality --mode fake --cases eval/aevon_epistemic_regression_v3.jsonl --output-dir outputs/aevon-epistemic-v3-fake
+```
+
 ## Production Aevon epistemic regression V2
 
 `eval/aevon_epistemic_regression_v2.jsonl` adds 24 targeted cases to the same text-quality

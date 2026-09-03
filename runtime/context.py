@@ -12,6 +12,10 @@ from .privacy import InferenceExecutionScope
 
 MAX_HISTORY_MESSAGES = 20
 MAX_HISTORY_CONTEXT_CHARS = 20_000
+HISTORY_OMISSION_NOTICE = (
+    "Earlier conversation turns were omitted from the available context. "
+    "Do not infer or reconstruct their contents."
+)
 
 _TRUSTED_CONTEXT_PREFIXES = (
     "MEMORY_CONTEXT_V1\n",
@@ -54,14 +58,17 @@ def _is_trusted_runtime_context(message: ContextMessage) -> bool:
 
 def _select_recent_history(
     history: Sequence[ContextMessage],
-) -> list[ContextMessage]:
+) -> tuple[list[ContextMessage], bool]:
     selected_newest_first: list[ContextMessage] = []
     content_chars = 0
+    truncated = False
     for message in reversed(history):
         if len(selected_newest_first) == MAX_HISTORY_MESSAGES:
+            truncated = True
             break
         message_chars = len(message.content)
         if content_chars + message_chars > MAX_HISTORY_CONTEXT_CHARS:
+            truncated = True
             break
         selected_newest_first.append(message)
         content_chars += message_chars
@@ -69,7 +76,7 @@ def _select_recent_history(
     selected = list(reversed(selected_newest_first))
     while selected and selected[0].role == "assistant":
         selected.pop(0)
-    return selected
+    return selected, truncated
 
 
 def compile_model_messages(
@@ -98,17 +105,22 @@ def compile_model_messages(
         history_start = len(prior_messages)
 
     trusted_context = _project(trusted_context, execution_scope)
-    recent_history = _select_recent_history(
+    # Decide only from projected history: private omissions and orphan cleanup
+    # must not manufacture a limit-truncation signal or disclose removed content.
+    recent_history, truncated = _select_recent_history(
         _project(prior_messages[history_start:], execution_scope)
     )
     projected_current = _project(messages[-1:], execution_scope)
     if not projected_current:
         raise ValueError("Current user context must not be omitted")
     current_user = projected_current[0]
+    system_content = f"{runtime_system_prompt}\n\n{tool_instructions}"
+    if truncated:
+        system_content += f"\n\nCONTEXT_AVAILABILITY\n{HISTORY_OMISSION_NOTICE}"
     return [
         {
             "role": "system",
-            "content": f"{runtime_system_prompt}\n\n{tool_instructions}",
+            "content": system_content,
         },
         *(
             {"role": message.role, "content": message.content}

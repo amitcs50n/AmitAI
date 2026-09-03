@@ -7,13 +7,22 @@ from threading import Event, Thread, current_thread
 from types import SimpleNamespace
 
 import pytest
-from jinja2 import Environment
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 from PIL import Image
 
+from backend.chat_service import GenerationMessage
+from backend.memory import format_memory_context
 from evaluation.hf_backend import GenerationOutput
-from runtime.config import EXPECTED_MODEL_NAME, EXPECTED_MODEL_REVISION, load_runtime_config
+from runtime.config import (
+    EXPECTED_MODEL_NAME,
+    EXPECTED_MODEL_REVISION,
+    load_production_runtime_config,
+    load_runtime_config,
+)
+from runtime.context import HISTORY_OMISSION_NOTICE, compile_model_messages
 from runtime.media import MAX_VISION_PIXELS, MIN_VISION_PIXELS, VisionGenerationRequest
 from runtime.model import NativeQwenGenerator, _execution_device, vision_chat_template
+from runtime.privacy import InferenceExecutionScope
 from scripts.vision_smoke import synthetic_image
 
 # Exact template published at the pinned checkpoint, metadata only (no weights).
@@ -65,17 +74,27 @@ class Tensor:
         return Tensor((1, self.shape[1] - key[1].start))
 
 
+def render_template(template, **kwargs):
+    # Match Transformers' _compile_jinja_template whitespace/sandbox settings.
+    # This pinned template needs no Transformers-specific filters or extensions.
+    return ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True).from_string(
+        template,
+    ).render(**kwargs)
+
+
 class Tokenizer:
     chat_template = PINNED_TEMPLATE
 
     def __init__(self):
         self.text_calls = []
+        self.rendered_prompts = []
 
     def apply_chat_template(self, messages, **kwargs):
         self.text_calls.append((messages, kwargs))
-        return Environment().from_string(self.chat_template).render(messages=messages, **kwargs)
+        return render_template(self.chat_template, messages=messages, **kwargs)
 
     def __call__(self, prompt, **kwargs):
+        self.rendered_prompts.append(prompt)
         assert "PIL" not in prompt and "image_pad" not in prompt
         return {"input_ids": Tensor(), "attention_mask": Tensor()}
 
@@ -100,14 +119,14 @@ class Qwen3VLProcessor:
         self.tokenizer = Tokenizer()
         self.image_processor = SimpleNamespace(patch_size=16, merge_size=2, temporal_patch_size=2)
         self.calls = []
+        self.rendered_prompts = []
         self.grid = [[1, 64, 64]]
 
     def apply_chat_template(self, messages, *, processor_kwargs=None, **kwargs):
         self.calls.append((messages, kwargs))
         assert kwargs["tokenize"] and kwargs["return_dict"] and kwargs["return_tensors"] == "pt"
-        prompt = (
-            Environment().from_string(kwargs["chat_template"]).render(messages=messages, **kwargs)
-        )
+        prompt = render_template(kwargs["chat_template"], messages=messages, **kwargs)
+        self.rendered_prompts.append(prompt)
         assert prompt.count("<|vision_start|><|image_pad|><|vision_end|>") == 1
         assert "PIL" not in prompt
         assert not set(processor_kwargs).intersection(kwargs)
@@ -479,7 +498,7 @@ def test_template_adapter_preserves_every_text_byte_and_renders_only_current_ima
         {"role": "user", "content": "Current question"},
     ]
     kwargs = {"messages": messages, "add_generation_prompt": True, "enable_thinking": thinking}
-    render = lambda template: Environment().from_string(template).render(**kwargs)
+    render = lambda template: render_template(template, **kwargs)
     assert render(vision_chat_template(PINNED_TEMPLATE)) == render(PINNED_TEMPLATE)
     with Image.new("RGB", (32, 32)) as image:
         request = VisionGenerationRequest(messages, image)
@@ -487,18 +506,68 @@ def test_template_adapter_preserves_every_text_byte_and_renders_only_current_ima
         multimodal = request.model_messages()
         assert multimodal[:-1] == messages[:-1]
         assert isinstance(messages[-1]["content"], str)
-        result = (
-            Environment()
-            .from_string(vision_chat_template(PINNED_TEMPLATE))
-            .render(
-                **{**kwargs, "messages": multimodal},
-                vision_start_token="<|vision_start|>",
-                image_token="<|image_pad|>",
-                vision_end_token="<|vision_end|>",
-            )
+        result = render_template(
+            vision_chat_template(PINNED_TEMPLATE),
+            **{**kwargs, "messages": multimodal},
+            vision_start_token="<|vision_start|>",
+            image_token="<|image_pad|>",
+            vision_end_token="<|vision_end|>",
         )
         assert result.count("<|image_pad|>") == 1 and "PIL" not in result
         assert "Current question" in result
+
+
+@pytest.mark.parametrize("vision", [False, True])
+@pytest.mark.parametrize("truncated", [False, True])
+@pytest.mark.parametrize("correction", [False, True])
+def test_exact_native_render_keeps_memory_roles_correction_and_omission_signal(
+    loader, vision, truncated, correction,
+):
+    # loader replaces all Torch/Transformers factories with CPU fixtures; this
+    # exercises NativeQwenGenerator's real preparation method without model inference.
+    config = load_production_runtime_config()
+    memory = format_memory_context([
+        {"category": "project", "key": "audit.database", "value": "PostgreSQL"},
+    ])
+    current = ("Correction: use SQLite for this task." if correction
+               else "Which database is specified in trusted context?")
+    source = [GenerationMessage("system", memory)]
+    if truncated:
+        source.extend([
+            GenerationMessage("user", "OMITTED_RENDER_CANARY"),
+            GenerationMessage("assistant", "x" * 20_001),
+        ])
+    source.extend([
+        GenerationMessage("user", "What database does the service use?"),
+        GenerationMessage("assistant", "My earlier guess was MariaDB."),
+        GenerationMessage("user", current),
+    ])
+    compiled = compile_model_messages(
+        source, runtime_system_prompt=config.runtime_system_prompt,
+        tool_instructions="Tool instructions", execution_scope=InferenceExecutionScope.LOCAL,
+    )
+    assert compiled[1] == {"role": "system", "content": memory}
+    assert [item["role"] for item in compiled] == ["system", "system", "user", "assistant", "user"]
+    engine = make_engine()
+    with Image.new("RGB", (32, 32)) as image:
+        model_messages = VisionGenerationRequest(compiled, image).model_messages() if vision else compiled
+        engine._prepare_generation(model_messages, config.generation)
+    rendered = (loader.processor.rendered_prompts if vision
+                else loader.processor.tokenizer.rendered_prompts)[-1]
+    expected = ""
+    for index, item in enumerate(compiled):
+        content = item["content"]
+        if vision and index == len(compiled) - 1:
+            content = "<|vision_start|><|image_pad|><|vision_end|>" + content
+        expected += f"<|im_start|>{item['role']}\n{content}<|im_end|>"
+    # Preserve the published template's exact generation prefix, including whitespace.
+    expected += "<|im_start|>assistant<think>\n\n</think>"
+    assert rendered == expected  # Every role frame and content byte reaches tokenization.
+    assert f"<|im_start|>system\n{memory}<|im_end|>" in rendered
+    assert rendered.count('"value":"PostgreSQL"') == 1
+    assert rendered.index(memory) < rendered.index("My earlier guess was MariaDB.") < rendered.index(current)
+    assert rendered.count(HISTORY_OMISSION_NOTICE) == int(truncated)
+    assert "OMITTED_RENDER_CANARY" not in rendered
 
 
 def test_execution_device_requires_real_device_or_dispatch_hook():
