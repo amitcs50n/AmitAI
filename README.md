@@ -1303,7 +1303,45 @@ inference server automatically. The operator must deploy the matching pinned mod
 the client cannot attest remote weights. Never put tokens in benchmark cases or artifacts.
 `--stream` exercises production streaming; use a different output directory for each run.
 `--ids identity_name tools_recovery` selects cases; `--cases PATH` selects a validated JSONL
-suite. Existing output directories are refused, so review work is not silently overwritten.
+suite. `--ids` preserves the supplied order and rejects duplicates. Existing output directories
+are refused unless `--resume` is explicit, so review work is not silently overwritten.
+
+To resume an interrupted run, use the same commit, configuration, cases, mode and flags:
+
+```bash
+python -m evaluation.aevon_text_quality --mode transformers --output-dir outputs/aevon-text-v1-real --resume
+```
+
+Resume also supports `fake`, `remote`, `--stream`, `--cases`, and `--ids`. It requires an
+existing incomplete run; it never creates a replacement. Before constructing a provider it
+checks the suite/schema, mode, streaming flag, exact ordered case IDs and case fingerprint,
+production prompt fingerprint, validated model/generation settings, source commit and a hash
+of backend/runtime/evaluation Python code (including uncommitted changes). All must match.
+Remote endpoint credentials are not stored in artifacts; the remote operator must still keep
+the deployed weights/settings unchanged. Schema 2 runs support resume; older schema 1
+incomplete runs are refused rather than migrated. Completed runs exit 2 with a sanitized
+"already complete" error, without inference or artifact rewrites.
+
+`results.jsonl` is authoritative: existing rows must form the exact contiguous prefix of
+selected cases and retain their immutable input/expectation/review-rubric fields. Completed
+rows, including recorded generation failures and controlled tool-recovery cases, are never
+regenerated or rewritten. An interrupted current case with no complete row may run again.
+Each completed result is serialized to one compact UTF-8 line, appended, flushed and fsynced
+where supported before it counts as progress. The runner then atomically replaces the summary
+and prints only `[17/54] technical_pipeline_watermark complete`; resume first reports the
+completed count. No prompt, response, memory or credential content is printed.
+
+Only a syntactically valid-but-incomplete final object **without a terminating newline** can
+be discarded as a torn write, after all earlier rows validate. Truncation is exactly to that
+line's start and is fsynced; earlier bytes remain untouched. Invalid middle lines, complete
+malformed lines, duplicate/unknown/out-of-order IDs, invalid UTF-8, and ambiguous corruption
+fail closed. A UTF-8 code point cut short inside an unfinished string is recoverable. A valid
+final row lacking only its newline is kept, with a separator appended if another row follows.
+Recovery is bounded to 1 MiB manifests, 2 MiB result lines, 64 MiB results and 64-level JSON
+nesting. An OS advisory `.run.lock` permits one writer per output directory and releases on
+process exit; do not remove the lock file or edit artifacts during a run. Storage durability
+still depends on filesystem support; directory fsync is not available through this Windows
+implementation. Atomic writes use fsynced temporary files before replacement.
 
 The runner uses the existing provider selection, context compiler, trusted
 `MEMORY_CONTEXT_V1` formatter, bounded calculator loop and mechanical validator. It never
@@ -1325,7 +1363,10 @@ Each run writes:
   flags, nullable `overall_pass`, and notes. It excludes raw intermediate model candidates.
 - `summary.json`: overall/category deterministic pass rates, mechanical/tool/identity and
   memory/context check failures, generation failures, failed tool attempts (including recovered
-  injected faults), and IDs requiring human review.
+  injected faults), and IDs requiring human review. It is rebuilt after every durable result
+  and on resume, with `expected_total_cases`, `completed_cases`, `remaining_cases`, and
+  `status`. Statistics cover **completed cases only**, not a final suite score while incomplete;
+  zero completed cases have no pass rate. Final summary precedes the atomic complete manifest.
 
 Checks include case-insensitive contains/forbidden text, narrow assistant-name probes, exact
 configured-model identifier inclusion, successful calculator use/no attempts, memory canaries,
@@ -1339,7 +1380,10 @@ Generation failures are retained as failed cases without inventing final text or
 validator diagnostics. Cases without a successful final response fail applicable checks; summary failure
 counts are check outcomes, not inferred root causes. The CLI exits successfully when artifact
 collection completes (even with failed cases); inspect the summary. Setup/artifact errors exit
-nonzero; interrupted runs remain marked running and are not resumable in V1. Artifacts are
+nonzero; interrupted runs remain marked running and can be explicitly resumed as above.
+Clean and resumed fake final artifacts are byte-identical with the same inputs/code, unless
+human review fields were edited; those existing edits are retained, not reset. Resume is
+infrastructure recovery, not evidence of model quality. Artifacts are
 local plaintext and contain prompts/responses: use synthetic inputs, protect custom sensitive
 runs, and do not commit outputs. Remote inference sees supplied text in plaintext during
 execution. No judge LLM or hidden external API is used.

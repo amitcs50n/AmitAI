@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import time
 from collections.abc import Iterator, Mapping, Sequence
@@ -19,12 +20,26 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from backend.chat_service import ChatGenerationDelta, ChatGenerationResult, GenerationMessage
 from backend.memory import MAX_MEMORY_CONTEXT_CHARS, MAX_RETRIEVED_MEMORIES, format_memory_context
-from evaluation.baseline import append_jsonl, load_jsonl, stable_fingerprint, write_json
+from evaluation.baseline import load_jsonl, stable_fingerprint
 from evaluation.constraints import parse_constraints, validate_response
 from evaluation.hf_backend import GenerationOutput
 from evaluation.run_baseline import git_revision
+from evaluation.text_quality_storage import (
+    RunArtifactError,
+    atomic_json,
+    durable_append,
+    exclusive_run,
+    flush_durable,
+    read_manifest,
+    read_results,
+    truncate_torn_tail,
+)
 from runtime.app import select_response_generator
-from runtime.config import RuntimeConfig, load_production_runtime_config
+from runtime.config import (
+    DEFAULT_RUNTIME_CONFIG_PATH,
+    RuntimeConfig,
+    load_production_runtime_config,
+)
 from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES
 from runtime.generator import ProviderChatGenerator
 from runtime.privacy import InferenceExecutionScope
@@ -206,11 +221,13 @@ class ObservedProvider:
             close()
 
 
-def build_runtime(mode: str) -> tuple[ProviderChatGenerator, ObservedProvider]:
+def build_runtime(
+    mode: str, *, config: RuntimeConfig | None = None,
+) -> tuple[ProviderChatGenerator, ObservedProvider]:
     if mode == "fake":
         observed = ObservedProvider(ScriptedProvider())
         return ProviderChatGenerator(
-            load_production_runtime_config(), provider=observed, clock=lambda: 0.0,
+            config or load_production_runtime_config(), provider=observed, clock=lambda: 0.0,
         ), observed
 
     providers: list[ObservedProvider] = []
@@ -232,9 +249,13 @@ def build_runtime(mode: str) -> tuple[ProviderChatGenerator, ObservedProvider]:
     # Existing startup owns settings, environment selection, transport and privacy.
     generator = select_response_generator(
         mode=mode, generator_factory=local_factory, remote_provider_factory=remote_factory,
+        config_path=config.source_path if config is not None else None,
     )
     if not isinstance(generator, ProviderChatGenerator):
         raise TypeError("Benchmark requires the production provider-backed generator")
+    if config is not None and generator.config != config:
+        providers[0].close()
+        raise RunArtifactError("Benchmark configuration changed during startup")
     return generator, providers[0]
 
 
@@ -384,7 +405,8 @@ def evaluate_case(
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     def rates(selected):
         passed = sum(row["deterministic_pass"] for row in selected)
-        return {"total": len(selected), "passed": passed, "pass_rate": passed / len(selected)}
+        return {"total": len(selected), "passed": passed,
+                "pass_rate": passed / len(selected) if selected else None}
 
     def failed_groups(groups):
         return sum(any(not check["passed"] and check["group"] in groups for check in row["checks"])
@@ -413,43 +435,201 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _code_fingerprint() -> str:
+    root = Path(__file__).resolve().parents[1]
+    digest = hashlib.sha256()
+    for folder in ("backend", "evaluation", "runtime"):
+        for path in sorted((root / folder).rglob("*.py")):
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(b"\0")
+            digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _requested_manifest(cases, mode: str, streaming: bool, config: RuntimeConfig) -> dict[str, Any]:
+    revision = git_revision()
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise RunArtifactError("Benchmark requires an identifiable source revision")
+    return {
+        "suite": "aevon_text_quality_v1", "schema_version": 2, "mode": mode,
+        "streaming": streaming, "status": "running", "source_revision": revision,
+        "source_code_sha256": _code_fingerprint(),
+        "case_sha256": stable_fingerprint([case.model_dump() for case in cases]),
+        "model_settings": config.model, "generation_settings": config.generation,
+        "production_prompt_sha256": hashlib.sha256(
+            config.runtime_system_prompt.encode("utf-8")
+        ).hexdigest(),
+        "case_ids": [case.id for case in cases], "expected_total_cases": len(cases),
+        "notice": "Synthetic inputs; fake outputs are harness checks, not model-quality evidence.",
+    }
+
+
+def _validate_manifest(existing: dict[str, Any], requested: dict[str, Any]) -> None:
+    if existing.get("suite") != "aevon_text_quality_v1" or type(existing.get("schema_version")) is not int:
+        raise RunArtifactError("Unsupported benchmark run manifest")
+    if existing.get("status") == "complete":
+        raise RunArtifactError("Benchmark run is already complete")
+    if existing["schema_version"] != 2:
+        raise RunArtifactError("Unsupported benchmark run schema; start a new run")
+    if existing.get("status") not in ("running", "incomplete"):
+        raise RunArtifactError("Benchmark run is not incomplete")
+    normalized = {**existing, "status": "running"}
+    if stable_fingerprint(normalized) != stable_fingerprint(requested):
+        raise RunArtifactError("Benchmark resume invocation or source does not match the original run")
+
+
+Nonnegative = Annotated[int, Field(ge=0)]
+
+
+class _SavedCheck(StrictModel):
+    name: Text
+    group: Text
+    passed: bool
+    detail: Any
+
+
+class _SavedReview(StrictModel):
+    required: Literal[True]
+    status: Text
+    rubric: list[Text]
+    flags: list[Text]
+    overall_pass: bool | None
+    notes: str
+
+
+class _SavedTool(StrictModel):
+    attempt: Annotated[int, Field(ge=1)]
+    name: str | None
+    success: bool
+    arguments: dict[str, Any] | None = None
+    result: str | None = None
+    error: dict[str, str] | None = None
+
+
+class _SavedResult(StrictModel):
+    id: Text
+    category: Category
+    scenario: Literal["natural", "forced_malformed_tool_call"]
+    messages: list[dict[str, str]]
+    expectations: Expectations
+    response: Text | None
+    model: Text
+    latency_ms: Nonnegative | None
+    input_tokens: Nonnegative | None
+    output_tokens: Nonnegative | None
+    metrics_kind: Literal["synthetic", "runtime"]
+    validator: dict[str, Any] | None
+    tools: list[_SavedTool] | None
+    provider_calls: Nonnegative
+    injected_outputs: Nonnegative
+    error: str | None
+    checks: list[_SavedCheck] = Field(min_length=1)
+    deterministic_pass: bool
+    human_review: _SavedReview
+
+
+def _validate_saved_rows(rows, cases, *, config: RuntimeConfig, mode: str, streaming: bool) -> None:
+    for index, row in enumerate(rows):
+        try:
+            _SavedResult.model_validate(row)
+        except ValueError:
+            raise RunArtifactError("Invalid benchmark result schema") from None
+        case = cases[index]
+        immutable = {
+            "id": case.id, "category": case.category, "scenario": case.scenario,
+            "messages": [{"role": item.role, "content": item.content}
+                         for item in generation_messages(case)],
+            "expectations": case.expectations.model_dump(),
+            "model": "fake-scripted" if mode == "fake" else str(config.model["name"]),
+            "metrics_kind": "synthetic" if mode == "fake" else "runtime",
+        }
+        if stable_fingerprint({key: row[key] for key in immutable}) != stable_fingerprint(immutable):
+            raise RunArtifactError("Benchmark results must match the exact case prefix and definitions")
+        if row["human_review"]["rubric"] != case.human_review:
+            raise RunArtifactError("Benchmark review rubric does not match the case definition")
+        expected_checks = [(check["name"], check["group"]) for check in grade(case, None, [], config=config)]
+        if streaming:
+            expected_checks.append(("stream_reconstruction", "streaming"))
+        if [(check["name"], check["group"]) for check in row["checks"]] != expected_checks:
+            raise RunArtifactError("Benchmark result checks do not match the case definition")
+        if row["deterministic_pass"] != all(check["passed"] for check in row["checks"]):
+            raise RunArtifactError("Benchmark result has inconsistent deterministic statistics")
+        if (row["response"] is None) != (row["error"] is not None):
+            raise RunArtifactError("Benchmark result has inconsistent completion status")
+
+
+def _progress_summary(rows, expected_total: int) -> dict[str, Any]:
+    return {
+        **summarize(rows),
+        "expected_total_cases": expected_total, "completed_cases": len(rows),
+        "remaining_cases": expected_total - len(rows),
+        "status": "complete" if len(rows) == expected_total else "incomplete",
+        "statistics_scope": "completed_cases_only",
+    }
+
+
 def run(
     *, mode: str = "fake", output_dir: str | Path, cases_path: str | Path = DEFAULT_CASES,
-    ids: Sequence[str] | None = None, streaming: bool = False,
+    ids: Sequence[str] | None = None, streaming: bool = False, resume: bool = False,
 ) -> Path:
     cases = load_cases(cases_path)
     if ids is not None:
-        if not ids or set(ids) - {case.id for case in cases}:
-            raise ValueError("Unknown or empty case selection")
-        cases = [case for case in cases if case.id in ids]
+        if not ids or len(set(ids)) != len(ids) or set(ids) - {case.id for case in cases}:
+            raise ValueError("Unknown, duplicate or empty case selection")
+        by_id = {case.id: case for case in cases}
+        cases = [by_id[case_id] for case_id in ids]
     destination = Path(output_dir)
-    # Never overwrite historical benchmark or human-review artifacts implicitly.
-    destination.mkdir(parents=True, exist_ok=False)
-    generator, observed = build_runtime(mode)
-    manifest = {
-        "suite": "aevon_text_quality_v1", "schema_version": 1, "mode": mode,
-        "streaming": streaming, "status": "running", "source_revision": git_revision(),
-        "case_sha256": stable_fingerprint([case.model_dump() for case in cases]),
-        "model_settings": generator.config.model, "generation_settings": generator.config.generation,
-        "production_prompt_sha256": hashlib.sha256(
-            generator.config.runtime_system_prompt.encode("utf-8")
-        ).hexdigest(),
-        "case_ids": [case.id for case in cases],
-        "notice": "Synthetic inputs; fake outputs are harness checks, not model-quality evidence.",
-    }
-    rows = []
+    if destination.is_symlink():
+        raise RunArtifactError("Benchmark output must be a local directory")
+    if resume:
+        if not destination.is_dir():
+            raise RunArtifactError("Resume requires an existing benchmark run directory")
+    else:
+        destination.mkdir(parents=True, exist_ok=False)
+    if mode not in {"fake", "transformers", "remote"}:
+        raise RunArtifactError("Unsupported benchmark mode")
+    # Read settings only: no provider construction, transport, engine or database.
+    config = load_production_runtime_config() if mode == "fake" else load_production_runtime_config(
+        os.getenv("AMITAI_RUNTIME_CONFIG", str(DEFAULT_RUNTIME_CONFIG_PATH)),
+    )
+    requested = _requested_manifest(cases, mode, streaming, config)
+    if resume:
+        # Give content-free compatibility/completed errors even for pre-lock legacy runs.
+        # Recheck under the exclusive lease before trusting any recoverable progress.
+        _validate_manifest(read_manifest(destination / "run.json"), requested)
+    with exclusive_run(destination, resume=resume):
+        if resume:
+            _validate_manifest(read_manifest(destination / "run.json"), requested)
+            rows, torn_offset = read_results(destination / "results.jsonl", expected_count=len(cases))
+            _validate_saved_rows(rows, cases, config=config, mode=mode, streaming=streaming)
+            if torn_offset is not None:
+                truncate_torn_tail(destination / "results.jsonl", torn_offset)
+            print(f"Resuming {len(rows)}/{len(cases)} completed cases.")
+        else:
+            rows = []
+            with (destination / "results.jsonl").open("xb") as handle:
+                flush_durable(handle)
+            atomic_json(destination / "run.json", requested)
+        # Results are authoritative if a crash left summary/manifest behind.
+        atomic_json(destination / "summary.json", _progress_summary(rows, len(cases)))
+        if len(rows) < len(cases):
+            _run_pending(cases, rows, destination, mode=mode, streaming=streaming, config=config)
+        atomic_json(destination / "run.json", {**requested, "status": "complete"})
+    return destination
+
+
+def _run_pending(cases, rows, destination, *, mode, streaming, config) -> None:
+    generator, observed = build_runtime(mode, config=config)
     try:
-        write_json(destination / "run.json", manifest)
-        for case in cases:
+        for case in cases[len(rows):]:
             row = evaluate_case(case, generator, observed, streaming=streaming)
-            append_jsonl(destination / "results.jsonl", row)
+            durable_append(destination / "results.jsonl", row)
             rows.append(row)
-        write_json(destination / "summary.json", summarize(rows))
-        manifest["status"] = "complete"
-        write_json(destination / "run.json", manifest)
+            atomic_json(destination / "summary.json", _progress_summary(rows, len(cases)))
+            print(f"[{len(rows)}/{len(cases)}] {case.id} complete")
     finally:
         observed.close()
-    return destination
 
 
 def main() -> None:
@@ -459,12 +639,15 @@ def main() -> None:
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--ids", nargs="+")
     parser.add_argument("--stream", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     try:
         destination = run(
             mode=args.mode, output_dir=args.output_dir, cases_path=args.cases,
-            ids=args.ids, streaming=args.stream,
+            ids=args.ids, streaming=args.stream, resume=args.resume,
         )
+    except RunArtifactError as exc:
+        parser.exit(2, f"{exc}\n")
     except Exception:  # noqa: BLE001 - no prompt/config/token details in CLI errors
         parser.exit(2, "Benchmark could not complete; check configuration and use a new output directory.\n")
     print(f"Benchmark artifacts written to {destination}")
