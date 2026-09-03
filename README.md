@@ -1288,6 +1288,40 @@ an explicit selection to allow remote use. Policy-only edits send only sensitivi
 body. Value-only edits preserve the policy, edits refetch the current search/filter, and no memory
 values or sensitivity settings are saved in browser storage.
 
+## Production Aevon epistemic regression V2
+
+`eval/aevon_epistemic_regression_v2.jsonl` adds 24 targeted cases to the same text-quality
+runner. It covers ambiguous references, insufficient evidence, false premises, contradictions,
+invented continuity, trusted-memory fidelity, missing history, unsupported nonexistence,
+hypotheses versus facts, and technical schema/stack invention. Ten cases (IDs ending in
+`_control`) require a direct answer from sufficient evidence, one in each category. Review
+both fabrication and unnecessary hedging: this suite measures calibration, not refusal rate.
+
+The production profile in `configs/production_runtime.yaml` adds compact epistemic guidance.
+Checkpoint, revision, BF16, generation settings, context compilation, memory, and tools are
+unchanged. V1 cases and frozen historical baseline assets remain unchanged.
+
+Run the CPU-only scripted harness from the repository root:
+
+```bash
+python -m evaluation.aevon_text_quality --mode fake --cases eval/aevon_epistemic_regression_v2.jsonl --output-dir outputs/aevon-epistemic-v2-fake
+```
+
+Later, explicitly on the provisioned A100 environment, run the production model:
+
+```bash
+python -m evaluation.aevon_text_quality --mode transformers --cases eval/aevon_epistemic_regression_v2.jsonl --output-dir outputs/aevon-epistemic-v2-real
+```
+
+The existing `--stream`, `--ids`, and `--resume` options also apply. `run.json` names the
+suite from the case filename; fingerprints and resume compatibility checks still apply.
+V2 uses existing context/protocol/tool checks and mechanical constraints, without new
+wording-based semantic graders. Numeric controls accept digits or spelled-out numbers.
+Every case still requires the supplied human rubric: a deterministic pass can include a
+factually wrong answer, and a fake pass establishes harness operation only. Review whether
+claims are supported, corrections are accurate, terminology is sound, and uncertainty is
+concise and useful. No scripted answer or rubric is sent to real inference.
+
 ## Production Aevon text-quality benchmark V1
 
 `eval/aevon_text_quality_v1.jsonl` contains 54 synthetic cases across identity, normal

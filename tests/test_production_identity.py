@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from backend.chat_service import ChatGenerationDelta, GenerationMessage
+from backend.memory import format_memory_context
 from backend.vision_grant import RemoteVisionGrant
 from evaluation.run_baseline import load_config as load_eval_config
 from runtime import config as configuration
@@ -27,6 +28,24 @@ from runtime.generator import TransformersChatGenerator
 from tests.test_assets import image_bytes
 from tests.test_remote_vision import ORIGIN, TOKEN, Harness
 from tests.test_vision import VisionEngine
+
+EPISTEMIC_RULES = (
+    "correct weak assumptions or false premises",
+    "Be confident when evidence suffices",
+    "reasonable everyday inferences without unnecessary hedging",
+    "Never invent unavailable facts, citations, evidence, memories, conversation",
+    "tool results, files inspected, actions completed, schema, or configuration",
+    "Use explicit trusted context unless overridden by higher-priority instructions or evidence",
+    "never substitute plausible alternatives",
+    "Do not reconstruct missing or truncated history",
+    "a reference is materially ambiguous",
+    "ask a concise clarification",
+    "Give a useful qualified answer when partial reasoning suffices",
+    "do not escape contradictions by redefining terms or inventing exceptions",
+    "Distinguish facts from hypotheses",
+    "an unverified cause is not an established root cause",
+    "Lack of evidence does not establish nonexistence",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -52,19 +71,18 @@ def test_production_profile_is_prompt_only_and_establishes_identity():
     assert "report the exact configured model identifier above" in prompt
     assert "or mention AmitAI, Qwen, or model identity unless relevant" in prompt
     assert "You are AmitAI" not in prompt and "${model_name}" not in prompt
-    assert len(prompt.split()) < 320
+    assert len(prompt.split()) < 360
     for principle in (
         "actual question first",
         "concise by default",
         "correct weak assumptions",
-        "Never invent facts, citations, memories, tool results, files inspected, or actions completed",
-        "solution, root cause, and verification",
+        "solution, supported causes, and verification",
         "latest explicit user correction overrides older",
         "hard constraints",
         '"exactly", "at most", and "code only"',
         "humor or profanity only when it fits",
         "fake praise",
-    ):
+    ) + EPISTEMIC_RULES:
         assert principle in prompt
 
 
@@ -181,7 +199,10 @@ def _messages(current):
     return [
         GenerationMessage(
             "system",
-            'MEMORY_CONTEXT_V1\n<memory_context>[{"category":"preference","key":"style","value":"concise"}]</memory_context>',
+            format_memory_context([
+                {"category": "preference", "key": "style", "value": "concise"},
+                {"category": "project", "key": "database", "value": "PostgreSQL"},
+            ]),
         ),
         GenerationMessage(
             "system", 'MEMORY_COMMAND_V1\n<memory_command>{"operation":"none"}</memory_command>'
@@ -254,9 +275,12 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
                     generator.config.runtime_system_prompt + "\n\nTOOLS\n"
                 )
                 assert EXPECTED_MODEL_NAME in compiled[0]["content"]
+                assert all(rule in compiled[0]["content"] for rule in EPISTEMIC_RULES)
+                assert compiled[0] == _text_messages(engine.calls[0][0])[0]
                 assert compiled[1:3] == [
                     {"role": m.role, "content": m.content} for m in messages[:2]
                 ]
+                assert '"value":"PostgreSQL"' in compiled[1]["content"]
                 assert compiled[3]["role"] == "user"  # no orphan assistant
                 assert len(compiled[3:-1]) <= MAX_HISTORY_MESSAGES
                 assert sum(len(m["content"]) for m in compiled[3:-1]) <= MAX_HISTORY_CONTEXT_CHARS

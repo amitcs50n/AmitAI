@@ -53,6 +53,9 @@ DEFAULT_CASES = Path(__file__).resolve().parents[1] / "eval/aevon_text_quality_v
 Category = Literal[
     "identity", "conversation", "judgment", "technical", "reasoning", "continuity",
     "memory", "tone", "format", "tools", "uncertainty", "long_context",
+    "ambiguous_reference", "insufficient_evidence", "false_premise", "contradiction",
+    "continuity_no_invention", "trusted_memory_fidelity", "missing_history",
+    "unsupported_nonexistence", "hypothesis_vs_fact", "technical_no_schema_invention",
 ]
 Text = Annotated[str, StringConstraints(min_length=1, pattern=r"\S")]
 MALFORMED_TOOL_FIXTURE = '<tool_call>{"name":</tool_call>'
@@ -447,12 +450,14 @@ def _code_fingerprint() -> str:
     return digest.hexdigest()
 
 
-def _requested_manifest(cases, mode: str, streaming: bool, config: RuntimeConfig) -> dict[str, Any]:
+def _requested_manifest(
+    cases, mode: str, streaming: bool, config: RuntimeConfig, *, suite: str,
+) -> dict[str, Any]:
     revision = git_revision()
     if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
         raise RunArtifactError("Benchmark requires an identifiable source revision")
     return {
-        "suite": "aevon_text_quality_v1", "schema_version": 2, "mode": mode,
+        "suite": suite, "schema_version": 2, "mode": mode,
         "streaming": streaming, "status": "running", "source_revision": revision,
         "source_code_sha256": _code_fingerprint(),
         "case_sha256": stable_fingerprint([case.model_dump() for case in cases]),
@@ -466,7 +471,7 @@ def _requested_manifest(cases, mode: str, streaming: bool, config: RuntimeConfig
 
 
 def _validate_manifest(existing: dict[str, Any], requested: dict[str, Any]) -> None:
-    if existing.get("suite") != "aevon_text_quality_v1" or type(existing.get("schema_version")) is not int:
+    if existing.get("suite") != requested["suite"] or type(existing.get("schema_version")) is not int:
         raise RunArtifactError("Unsupported benchmark run manifest")
     if existing.get("status") == "complete":
         raise RunArtifactError("Benchmark run is already complete")
@@ -593,7 +598,7 @@ def run(
     config = load_production_runtime_config() if mode == "fake" else load_production_runtime_config(
         os.getenv("AMITAI_RUNTIME_CONFIG", str(DEFAULT_RUNTIME_CONFIG_PATH)),
     )
-    requested = _requested_manifest(cases, mode, streaming, config)
+    requested = _requested_manifest(cases, mode, streaming, config, suite=Path(cases_path).stem)
     if resume:
         # Give content-free compatibility/completed errors even for pre-lock legacy runs.
         # Recheck under the exclusive lease before trusting any recoverable progress.

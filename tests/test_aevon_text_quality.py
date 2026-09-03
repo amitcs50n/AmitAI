@@ -4,7 +4,6 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
-from typing import get_args
 
 import httpx
 import pytest
@@ -30,7 +29,10 @@ def test_dataset_schema_unique_ids_categories_and_coverage():
     cases = quality.load_cases()
     assert len(cases) == 54
     assert len({case.id for case in cases}) == 54
-    assert {case.category for case in cases} == set(get_args(quality.Category))
+    assert {case.category for case in cases} == {
+        "identity", "conversation", "judgment", "technical", "reasoning", "continuity",
+        "memory", "tone", "format", "tools", "uncertainty", "long_context",
+    }
     assert all(case.human_review for case in cases)
     assert all(case.messages[-1].role == "user" for case in cases)
     assert {constraint["type"] for case in cases
@@ -205,6 +207,7 @@ def test_retry_and_tool_followup_keep_minimized_context(streaming):
     assert row["response"] == "It is 1411."
     assert len(observed.calls) == 4
     for call in observed.calls:
+        assert call[0] == observed.calls[0][0]  # tool followups and repairs keep the full prompt
         assert call[0]["content"].startswith(generator.config.runtime_system_prompt)
         assert "RECENT_CONTEXT_CANARY" in repr(call)
         assert "OLD_CONTEXT_CANARY_00" not in repr(call)
@@ -387,6 +390,7 @@ def test_memory_checks_are_only_literal_evidence_and_fail_on_leak():
 
 
 @pytest.mark.parametrize("path,blob_id", [
+    ("eval/aevon_text_quality_v1.jsonl", "739f4d888b5098bb798ca41dd44b128fa8ca12d6"),
     ("configs/baseline_eval.yaml", "e4a9a1ad33173587b77543edb80be55047dda553"),
     ("configs/baseline_eval_v2.yaml", "9faae6a220867969c4200242e9d883b57defc313"),
     ("configs/baseline_eval_v2_constrained.yaml", "3d4910c7f4437e6aa75021aeb7f50b6af3668bd0"),
@@ -397,7 +401,7 @@ def test_memory_checks_are_only_literal_evidence_and_fail_on_leak():
     ("evaluation/summarize.py", "f94260effd77929f0b6691d24a99a838b905f0b7"),
 ])
 def test_frozen_baseline_assets_remain_unchanged(path, blob_id):
-    # Git blobs from baseline 8586073; allow only checkout CRLF normalization.
+    # Baseline 8586073 and text-quality V1 at b7314c6; only normalize checkout CRLF.
     content = Path(path).read_bytes().replace(b"\r\n", b"\n")
     blob = b"blob " + str(len(content)).encode() + b"\0" + content
     assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == blob_id
