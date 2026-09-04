@@ -144,6 +144,39 @@ class _PreparedChat:
     retrieved_memory: tuple[dict[str, Any], ...]
     staged_memory: StagedMemoryMutation | None
     asset_ids: tuple[str, ...] = ()
+    memory_decision: MemoryCommandDecision = field(
+        default_factory=lambda: MemoryCommandDecision(intent_detected=False),
+    )
+
+
+def _memory_acknowledgment(prepared: _PreparedChat) -> ChatGenerationResult | None:
+    """Build locally; callers must commit the mutation before exposing this text."""
+    if not prepared.memory_decision.intent_detected:
+        return None
+    mutation = prepared.staged_memory
+    if prepared.asset_ids:
+        response = "No memory was changed. Send the memory command in a text-only message."
+    elif mutation is None:
+        if prepared.memory_decision.reason == "Memory target was not found or is not active":
+            response = "I couldn't find that saved memory. No memory was changed."
+        elif prepared.memory_decision.reason == "Sensitive credentials cannot be stored in memory":
+            response = "No memory was changed. Credentials cannot be saved in memory."
+        else:
+            response = (
+                "No memory was changed. Use one explicit fact, such as "
+                "\u201cRemember my favourite color is black.\u201d You can also use Memory to manage it."
+            )
+    elif mutation.operation == "deleted":
+        response = "Forgotten from saved memory."
+    else:
+        response = "Memory saved." if mutation.operation == "stored" else "Memory updated."
+        response += (
+            " It is local only. To let remote Aevon use it, open Memory, edit this memory, "
+            "set Inference access to Remote allowed, and save changes."
+            if mutation.sensitivity == "local_only" else
+            " You have allowed remote Aevon to use this memory when relevant."
+        )
+    return ChatGenerationResult(response=response, model="local-memory")
 
 
 def _deterministic_title(message: str) -> str:
@@ -375,6 +408,7 @@ class ChatService:
                 return _PreparedChat(
                     conversation_id, message, title, request_timestamp,
                     _timestamp_after(previous_timestamp), tuple(vision_messages), (), None, asset_ids,
+                    decision,
                 )
 
             decision = parse_memory_command(message)
@@ -389,7 +423,7 @@ class ChatService:
                 if staged_memory is not None and staged_memory.operation == "deleted"
                 else frozenset()
             )
-            retrieved_memory = self.memory.retrieve(
+            retrieved_memory = [] if decision.intent_detected else self.memory.retrieve(
                 message,
                 exclude_memory_ids=excluded_memory_ids,
             )
@@ -433,6 +467,7 @@ class ChatService:
             generation_messages=tuple(generation_messages),
             retrieved_memory=tuple(retrieved_memory),
             staged_memory=staged_memory,
+            memory_decision=decision,
         )
 
     def _persist_chat(
@@ -566,6 +601,9 @@ class ChatService:
                 asset_ids=asset_ids,
                 remote_grant=grant,
             )
+            acknowledgment = _memory_acknowledgment(prepared)
+            if acknowledgment is not None:
+                return self._persist_chat(prepared, acknowledgment)
             image_png = self._image_input(prepared, grant)
             try:
                 generation = (
@@ -612,6 +650,16 @@ class ChatService:
                 data={"conversation_id": prepared.conversation_id},
             )
             if signal.is_set():
+                return
+
+            acknowledgment = _memory_acknowledgment(prepared)
+            if acknowledgment is not None:
+                # In particular, do not stream a success claim before the transaction commits.
+                result = self._persist_chat(prepared, acknowledgment)
+                persisted = True
+                yield ChatStreamEvent(event="text", data={"delta": result.response})
+                yield ChatStreamEvent(event="final", data=self._final_event_data(result))
+                yield ChatStreamEvent(event="done", data={})
                 return
 
             generation: ChatGenerationResult | None = None

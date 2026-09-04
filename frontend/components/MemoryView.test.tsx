@@ -240,6 +240,27 @@ test("sensitivity-only edit sends no value and preserves the search on refetch",
   assert.equal(dom.window.localStorage.length, 0);
 });
 
+test("remote access guidance is visible and selecting access requires an explicit save", async () => {
+  const calls = mockFetch([
+    jsonResponse([memory()]), jsonResponse(memory({ sensitivity: "remote_allowed" })),
+    jsonResponse([memory({ sensitivity: "remote_allowed" })]),
+  ]);
+  await render(<MemoryView />);
+  assert.match(container.textContent ?? "", /Remember my favourite color is black/);
+  assert.match(container.textContent ?? "", /remote Aevon cannot recall them/);
+  const edit = container.querySelector('button[aria-label="Edit ui.theme"]')!;
+  assert.match(edit.textContent ?? "", /Edit/);
+  await click(edit);
+  const dialog = container.querySelector('[role="dialog"]')!;
+  assert.match(dialog.textContent ?? "", /never sent to remote inference/);
+  assert.equal(dialog.querySelectorAll("select")[1].value, "local_only");
+  await setControlValue(dialog.querySelectorAll("select")[1], "remote_allowed");
+  assert.equal(calls.length, 1); // Neither opening the editor nor choosing access writes it.
+  await submit(dialog.querySelector("form")!);
+  assert.equal(calls[1].init?.method, "PATCH");
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { sensitivity: "remote_allowed" });
+});
+
 test("combined value/policy edits send both fields and policy conflicts stay in the editor", async () => {
   const calls = mockFetch([
     jsonResponse([memory()]), jsonResponse({ detail: "Memory changed concurrently" }, 409),

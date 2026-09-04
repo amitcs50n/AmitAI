@@ -154,7 +154,9 @@ function MemoryEditorDialog({
             </select>
           </label>
           <p className="text-xs leading-5 text-[#8c857f]">
-            Remote allowed lets a remote inference provider read this memory when relevant.
+            Local only stays on this device and is never sent to remote inference.
+            Choose Remote allowed and save to let your configured remote provider read this memory when relevant.
+            Changing this back cannot retract information already sent.
           </p>
 
           {error ? (
@@ -368,7 +370,9 @@ export function MemoryView() {
               <h2 className="font-serif text-4xl text-[#eee8e1]">Memory</h2>
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#8c857f]">
-              View and manage explicit structured context. Aevon never captures ordinary conversation automatically.
+              Say “Remember my favourite color is black” to save a memory. Aevon never captures ordinary conversation automatically.
+              New chat memories are local only, so remote Aevon cannot recall them. To allow remote use, edit a memory,
+              choose Remote allowed under Inference access, then save changes.
             </p>
           </div>
           <button
@@ -507,7 +511,7 @@ export function MemoryView() {
                     <div className="flex shrink-0 gap-1">
                       <button
                         aria-label={`Edit ${memory.key}`}
-                        className="rounded-lg p-2 text-[#a89d94] hover:bg-[#251d17] hover:text-[#e3b28a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
+                        className="flex items-center gap-1.5 rounded-lg p-2 text-xs text-[#a89d94] hover:bg-[#251d17] hover:text-[#e3b28a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
                         onClick={() => {
                           setMutationError(null);
                           setEditing(memory);
@@ -515,6 +519,7 @@ export function MemoryView() {
                         type="button"
                       >
                         <Pencil aria-hidden="true" className="h-4 w-4" />
+                        Edit
                       </button>
                       <button
                         aria-label={`Forget ${memory.key}`}

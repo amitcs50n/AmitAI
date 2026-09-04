@@ -168,7 +168,7 @@ def test_all_local_memory_context_is_omitted_without_placeholder(streaming) -> N
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-def test_local_transformers_retains_both_memory_policies_and_raw_commands(streaming) -> None:
+def test_local_transformers_retains_both_memory_policies_and_commands_skip_inference(streaming) -> None:
     calls = []
 
     class Engine:
@@ -187,7 +187,7 @@ def test_local_transformers_retains_both_memory_policies_and_raw_commands(stream
         command = f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}"
         response, events = chat(client, command, streaming)
         assert_success(response, events, streaming)
-        assert calls[-1][-1]["content"] == command
+        assert len(calls) == 1
         response, events = chat(client, "My password: LOCAL_CREDENTIAL_CANARY", streaming)
         assert_success(response, events, streaming)
         assert "LOCAL_CREDENTIAL_CANARY" in json.dumps(calls[-1])
@@ -208,6 +208,7 @@ def test_current_and_historical_memory_commands_and_acks_are_projected(streaming
         memory(client, COMMAND_KEY, "PRIOR_TARGET_VALUE_CANARY", sensitivity="remote_allowed")
         response, events = chat(client, command, streaming)
         result = assert_success(response, events, streaming)
+        assert harness.calls == []
         body = json.dumps(harness.calls)
         for private in (COMMAND_KEY, COMMAND_VALUE, "PRIOR_TARGET_VALUE_CANARY", "REJECTED_CREDENTIAL_CANARY"):
             assert private not in body
@@ -242,9 +243,15 @@ def test_command_retry_and_calculator_followup_cannot_restore_private_context(st
         # must happen first and remain safe on every tool and repair invocation.
         app.state.generator = lambda _: ChatGenerationResult(response="ACK_PRIVATE_CANARY " + "x" * 22000)
         seeded = client.post("/api/chat", json={"message": "Remember ambiguous " + "y" * 21000}).json()
+        with app.state.database.session_factory() as session, session.begin():
+            session.get(Message, seeded["message_id"]).content = "ACK_PRIVATE_CANARY " + "x" * 22000
         app.state.generator = harness.generator
-        command = f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}. Answer in exactly 3 words."
+        command = f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}"
         response, events = chat(client, command, streaming, seeded["conversation_id"])
+        assert_success(response, events, streaming)
+        assert harness.calls == []
+        response, events = chat(client, "Calculate 17*83. Answer in exactly 3 words.",
+                                streaming, seeded["conversation_id"])
         result = assert_success(response, events, streaming)
         assert result["response"] == "Memory update noted"
         assert result["metadata"]["validator"]["retry_count"] == 1
@@ -331,6 +338,14 @@ def test_retained_credentials_block_and_existing_state_remains_unchanged(streami
         prompt = (f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}" if source == "staged_mutation"
                   else "Tell me about my project")
         response, events = chat(client, prompt, streaming, seed["conversation_id"])
+        if source == "staged_mutation":
+            # Local commands need no disclosure: existing private history stays local.
+            assert_success(response, events, streaming)
+            assert harness.calls == []
+            assert any(item["key"] == COMMAND_KEY for item in client.get("/api/memory").json())
+            before_chat = durable_snapshot(app)
+            before_memory = client.get("/api/memory").json()
+            response, events = chat(client, "Tell me about my project", streaming, seed["conversation_id"])
         assert_blocked(response, events, streaming)
         assert harness.calls == []
         assert durable_snapshot(app) == before_chat
@@ -378,7 +393,7 @@ def test_every_later_invocation_is_guarded_and_rolls_back(streaming, later_reque
     app = create_test_app("sqlite+pysqlite:///:memory:", generator=harness.generator)
     with TestClient(app) as client:
         before = durable_snapshot(app)
-        prompt = f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}. Answer in exactly 3 words."
+        prompt = "Calculate 17*83. Answer in exactly 3 words."
         response, events = chat(client, prompt, streaming)
         assert_blocked(response, events, streaming)
         assert len(harness.calls) == 1  # Only the earlier, safe request crossed the boundary.
@@ -514,14 +529,8 @@ def test_credential_memory_command_is_not_applied_in_either_scope(remote, stream
         with app.state.database.session_factory() as session:
             assert session.scalar(select(func.count()).select_from(MemorySlot)) == 0
             assert session.scalar(select(func.count()).select_from(MemoryRevision)) == 0
-        if remote:
-            messages = harness.calls[0]["messages"]
-            assert messages[-1]["content"] == "The local memory command was not applied. Acknowledge briefly."
-            assert "openai_api_key" not in json.dumps(messages)
-            assert "MEMORY_COMMAND_PAIR_CANARY" not in json.dumps(messages)
-        else:
-            assert local_calls[0][-1]["content"] == command
-            assert "not_applied" in json.dumps(local_calls[0])
+        assert harness.calls == [] and local_calls == []
+        assert "No memory was changed" in result["response"]
         assert result["metadata"]["memory"] == []
         assert "CANARY" not in response.text and "CANARY" not in caplog.text
         # Ordinary local conversation text is not rewritten by storage rejection.
@@ -600,7 +609,7 @@ def test_direct_service_privacy_failure_has_no_transaction_or_raw_exception() ->
     with TestClient(app), app.state.database.session_factory() as session:
         with pytest.raises(ChatPrivacyError, match=f"^{ERROR}$") as caught:
             ChatService(session, generator=harness.generator).chat(
-                conversation_id=None, message=f"Remember project {COMMAND_KEY}: {COMMAND_VALUE}",
+                conversation_id=None, message="Tell me about my project",
             )
         assert not session.in_transaction()
         assert caught.value.__cause__ is None and caught.value.__suppress_context__

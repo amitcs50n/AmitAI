@@ -308,7 +308,7 @@ def test_image_memory_command_values_never_cross(tmp_path, streaming):
     app = make_app(tmp_path, harness.generator)
     with TestClient(app) as client:
         asset = upload(client).json()
-        final_response(
+        result = final_response(
             client.post(
                 "/api/chat/stream" if streaming else "/api/chat",
                 json={
@@ -319,8 +319,10 @@ def test_image_memory_command_values_never_cross(tmp_path, streaming):
             ),
             streaming,
         )
-        assert b"MEMORY_COMMAND_CANARY" not in harness.requests[0].content
-        assert b"MEMORY_COMMAND_V1" not in harness.requests[0].content
+        assert harness.requests == []
+        assert "No memory was changed" in result["response"]
+        assert "text-only" in result["response"]
+        assert client.get("/api/memory").json() == []
 
 
 @pytest.mark.parametrize("streaming", [False, True])

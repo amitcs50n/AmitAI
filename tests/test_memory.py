@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from backend.chat_service import (
-    ChatGenerationDelta,
     ChatGenerationResult,
     ChatService,
     ChatStreamEvent,
@@ -274,7 +273,7 @@ def test_memory_api_never_accepts_client_owner_id(tmp_path: Path) -> None:
 def test_explicit_chat_remember_retrieves_across_new_conversation_with_provenance(
     tmp_path: Path,
 ) -> None:
-    generator = RecordingGenerator(["I will remember that.", "You prefer dark mode."])
+    generator = RecordingGenerator(["You prefer dark mode."])
     application = create_app(
         _database_url(tmp_path / "memory-chat.sqlite3"),
         generator=generator,
@@ -321,7 +320,8 @@ def test_explicit_chat_remember_retrieves_across_new_conversation_with_provenanc
         )
         assert "MEMORY_CONTEXT_V1" not in json.dumps(second_detail)
 
-    recall_history = generator.histories[1]
+    assert len(generator.histories) == 1
+    recall_history = generator.histories[0]
     assert recall_history[0].role == "system"
     assert recall_history[0].content.startswith("MEMORY_CONTEXT_V1")
     assert '"key":"ui.theme"' in recall_history[0].content
@@ -336,7 +336,7 @@ def test_correction_stales_old_revision_and_forget_prevents_future_retrieval(
     tmp_path: Path,
 ) -> None:
     generator = RecordingGenerator(
-        ["Stored.", "Updated.", "Forgotten.", "I have no relevant memory."]
+        ["I have no relevant memory."]
     )
     application = create_app(
         _database_url(tmp_path / "memory-correction.sqlite3"),
@@ -371,7 +371,8 @@ def test_correction_stales_old_revision_and_forget_prevents_future_retrieval(
         ).json()
         assert future["metadata"]["memory"] == []
 
-    forget_history = generator.histories[2]
+    assert len(generator.histories) == 1
+    forget_history = generator.histories[0]
     assert all(
         not item.content.startswith("MEMORY_CONTEXT_V1")
         for item in forget_history
@@ -392,7 +393,7 @@ def test_forget_scrubs_legacy_memory_values_from_all_message_metadata(
     tmp_path: Path,
 ) -> None:
     forgotten_value = "legacy ultraviolet preference"
-    generator = RecordingGenerator(["Stored.", "Recalled.", "Forgotten."])
+    generator = RecordingGenerator(["Recalled."])
     application = create_app(
         _database_url(tmp_path / "memory-metadata-redaction.sqlite3"),
         generator=generator,
@@ -433,10 +434,7 @@ def test_forget_scrubs_legacy_memory_values_from_all_message_metadata(
         assert "value" not in forget_metadata[0]
         assert forgotten_value not in json.dumps(forgotten["metadata"]["memory"])
 
-    assert all(
-        not item.content.startswith("MEMORY_CONTEXT_V1")
-        for item in generator.histories[2]
-    )
+    assert len(generator.histories) == 1  # Only the ordinary recall uses inference.
 
     with application.state.database.session_factory() as session:
         metadata_rows = list(session.scalars(select(MessageMetadata)))
@@ -483,11 +481,9 @@ def test_ordinary_actually_and_ambiguous_commands_never_mutate_memory(
         "MEMORY_COMMAND_V1" not in item.content
         for item in generator.histories[0]
     )
-    for history in generator.histories[1:]:
-        command_context = next(
-            item for item in history if item.content.startswith("MEMORY_COMMAND_V1")
-        )
-        assert '"status":"not_applied"' in command_context.content
+    assert len(generator.histories) == 1
+    assert "No memory was changed" in ambiguous_update["response"]
+    assert "No memory was changed" in ambiguous_forget["response"]
 
 
 def test_ordinary_statement_is_not_automatically_captured(tmp_path: Path) -> None:
@@ -512,7 +508,11 @@ class FailingGenerator:
         raise RuntimeError("private failure")
 
 
-def test_staged_memory_write_is_absent_after_generation_failure(tmp_path: Path) -> None:
+def test_staged_memory_write_is_absent_after_mutation_failure(tmp_path: Path, monkeypatch) -> None:
+    def fail_apply(*_args, **_kwargs):
+        raise RuntimeError("private failure")
+
+    monkeypatch.setattr(MemoryService, "apply", fail_apply)
     application = create_app(
         _database_url(tmp_path / "memory-failed.sqlite3"),
         generator=FailingGenerator(),
@@ -538,26 +538,15 @@ def test_staged_memory_write_is_absent_after_streaming_cancellation(
     )
     database.create_schema()
 
-    class PartialGenerator:
-        def stream_response(self, _messages, *, cancel_event):
-            yield ChatGenerationDelta(delta="I will remember")
-            if cancel_event.is_set():
-                return
-            yield ChatGenerationResult(response="I will remember")
-
     try:
         with database.session_factory() as session:
             cancel_event = threading.Event()
-            stream = ChatService(session, generator=PartialGenerator()).stream_chat(
+            stream = ChatService(session, generator=FailingGenerator()).stream_chat(
                 conversation_id=None,
                 message="Remember preference ui.theme: dark",
                 cancel_event=cancel_event,
             )
             assert next(stream).event == "start"
-            assert next(stream) == ChatStreamEvent(
-                event="text",
-                data={"delta": "I will remember"},
-            )
             cancel_event.set()
             list(stream)
 
@@ -676,7 +665,6 @@ def test_provider_visible_memory_projection_excludes_internal_metadata(
     memory_value = "PROJECT_MEMORY_VALUE_CANARY_112233"
     engine = SequenceEngine(
         [
-            GenerationOutput("I will remember that.", 10, 5),
             GenerationOutput("That project context is remembered.", 12, 6),
         ]
     )
@@ -708,7 +696,8 @@ def test_provider_visible_memory_projection_excludes_internal_metadata(
             f"/api/conversations/{recalled['conversation_id']}"
         ).json()
 
-    provider_messages = engine.calls[1]
+    assert len(engine.calls) == 1
+    provider_messages = engine.calls[0]
     memory_message = next(
         message
         for message in provider_messages

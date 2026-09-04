@@ -485,7 +485,7 @@ def test_streaming_crosses_provider_boundary_and_persists_final_local_text(
     ]
 
 
-def test_failed_remote_inference_persists_neither_chat_nor_staged_memory(
+def test_failed_remote_inference_persists_neither_chat_nor_memory(
     tmp_path: Path,
 ) -> None:
     provider = RecordingProvider(failure=InferenceProviderError("Remote inference failed"))
@@ -494,7 +494,7 @@ def test_failed_remote_inference_persists_neither_chat_nor_staged_memory(
     with TestClient(application, raise_server_exceptions=False) as client:
         response = client.post(
             "/api/chat",
-            json={"message": "Remember preference ui.theme = dark"},
+            json={"message": "What UI theme do I prefer?"},
         )
         conversations = client.get("/api/conversations").json()
         memories = client.get("/api/memory").json()

@@ -395,7 +395,7 @@ def test_empty_explicit_remote_configuration_does_not_fall_back_to_environment(m
 
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("followup", ["initial", "retry", "tool"])
-def test_dns_failure_rolls_back_chat_and_staged_memory_on_every_invocation(streaming, followup):
+def test_dns_failure_rolls_back_chat_on_every_inference_invocation(streaming, followup):
     dns_calls = []
 
     def resolver(_host, _port):
@@ -408,7 +408,7 @@ def test_dns_failure_rolls_back_chat_and_staged_memory_on_every_invocation(strea
     app = create_test_app("sqlite+pysqlite:///:memory:", generator=harness.generator)
     with TestClient(app) as client:
         before = durable_snapshot(app)
-        prompt = "Remember project transport.note: safe preference. Answer in exactly 3 words."
+        prompt = "Calculate 17*83. Answer in exactly 3 words."
         response, events = chat(client, prompt, streaming)
         if streaming:
             assert response.status_code == 200

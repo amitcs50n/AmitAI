@@ -157,7 +157,9 @@ def test_vision_memory_commands_are_read_only_and_memory_context_is_not_retrieve
         )
         assert result["metadata"]["memory"] == []
         assert "PRIVATE_MEMORY_CANARY" not in str(engine.calls)
-        assert "Memory commands are not applied on image turns" in str(engine.calls)
+        assert engine.calls == []
+        assert "No memory was changed" in result["response"]
+        assert "text-only" in result["response"]
         with app.state.database.session_factory() as session:
             assert session.scalar(select(func.count()).select_from(MemorySlot)) == 1
 

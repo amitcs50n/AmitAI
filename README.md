@@ -529,7 +529,25 @@ referenced image after the separate consent check. Image editing/generation rema
 
 Memory V1 stores explicit, structured memories for the server-owned local principal
 `local-default`. Automatic capture is off: ordinary conversation never mutates durable memory.
-The chat parser accepts exactly one of these narrow command forms (case-insensitive):
+The chat parser accepts one explicit personal fact (case-insensitive):
+
+```text
+Remember that my favourite color is black.
+Remember my dog's name is Bruno.
+Forget my favourite color.
+Actually, update my favourite color to blue.
+```
+
+Natural forms are `Remember [that] my <field> is <value>`, `Update my <field> to <value>`,
+and `Forget my <field>`. `Actually,` may prefix update/forget. Fields contain up to eight
+English words, with possessives allowed. They become stable underscore keys (`dog_name`);
+`favorite`/`favourite` and `color`/`colour` normalize to `favourite_color`. Fields beginning
+with `favourite` use category `preference`; other personal fields use `profile`. Values
+can contain Unicode. Natural commands are single-line, single-fact requests; ambiguous
+compound/conditional forms return a local clarification without a write. This is a bounded
+grammar, not general language understanding. Use the Memory editor or the existing structured
+grammar for other categories, exact identifiers, punctuation-heavy values, or unsupported wording.
+Existing structured forms remain supported:
 
 ```text
 Remember <category> <key>: <value>
@@ -611,12 +629,20 @@ value. A valid explicit forget is staged before retrieval, so its target is neit
 that request's model context nor reported as retrieved. The delete transaction also strips a
 matching raw `value` from legacy structured metadata rows created by earlier Memory V1 builds.
 
-Chat memory mutation is staged during the short preparation read, but it is applied only after
-successful generation inside the final conversation transaction, after the real user message
-exists. The assistant metadata reports `stored`, `updated`, or `deleted` only for the mutation that
-committed; generation failure, exhausted validation, disconnect/cancellation, optimistic conflict,
-or transaction rollback leaves memory and conversation rows unchanged. Model generation and tool
-execution remain outside SQL transactions.
+Chat memory mutation is staged during the short preparation read and applied with the user message
+and deterministic local acknowledgment in the existing final conversation transaction. These commands
+do not invoke a model, tools, or mechanical repair. Even streaming emits acknowledgment text only after
+commit; a failed mutation/commit cannot claim success. Cancellation before the write leaves no rows;
+disconnecting after a committed acknowledgment does not undo it. Invalid commands and missing targets
+receive a deterministic no-change response. Image turns still cannot read/write memory and explicit
+memory commands with an image receive a text-only request clarification locally.
+
+New memories remain local-only. Their acknowledgment explains that remote Aevon cannot recall them.
+To opt in, open **Memory**, edit the chosen memory, select **Inference access → Remote allowed**,
+then **Save changes**. This uses the existing revision-checked API; no mode switch promotes memories.
+Changing access back to Local only excludes it from future memory projections but cannot retract
+information already sent to a provider. Forget redacts memory revisions, not ordinary chat history.
+Normal model generation and tool execution remain outside SQL transactions.
 
 #### Runtime tools and calculator
 
@@ -838,11 +864,9 @@ and remote-allowed memory. Remote inference receives only `remote_allowed` recor
 existing relevance-selected set, with no replacement retrieval after filtering. An all-local set
 produces no remote memory block, key list, count, or placeholder.
 
-Explicit current remember/update/forget commands are processed locally. Remote inference gets
-only a deterministic generic operation/status acknowledgment request, never the command's raw
-category, key, value, or identifiers. Detected but unapplied commands get a generic not-applied
-request. Remote command acknowledgments receive neither the secondary memory-command system
-block nor retrieved memories (including previously opted-in targets). Historical memory commands
+Explicit current remember/update/forget commands and their acknowledgments are processed locally,
+with zero inference requests, including invalid commands and previously opted-in targets.
+Historical memory commands
 and their immediately paired assistant acknowledgments are projected to generic text before
 history budgeting; stored history and the conversation API remain untouched.
 
@@ -868,7 +892,7 @@ No environment scanning, matched-text logging, silent redaction, or local-model 
 Memory storage applies this same policy to the **key and value together**, regardless of memory
 sensitivity. Credential-shaped creates, value edits, and sensitivity-only edits of legacy bad
 records return a generic HTTP 422 without echoing submitted values. Such chat memory commands
-are not applied and receive only the existing generic not-applied projection remotely. Legacy
+are not applied and receive a deterministic local no-change response without inference. Legacy
 records that bypassed storage validation are independently checked by the outbound guard.
 Ordinary local-model conversation text is not blocked by the remote disclosure policy.
 

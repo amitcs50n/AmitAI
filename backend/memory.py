@@ -43,6 +43,43 @@ _FORGET_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _COMMAND_LEADS = ("remember", "update", "forget")
+_NATURAL_COMMANDS = (
+    ("remember", re.compile(r"remember\s+(?:that\s+)?my\s+(.+?)\s+is\s+(.+)", re.IGNORECASE)),
+    ("update", re.compile(r"update\s+my\s+(.+?)\s+to\s+(.+)", re.IGNORECASE)),
+    ("forget", re.compile(r"forget\s+my\s+(.+)", re.IGNORECASE)),
+)
+_NATURAL_FIELD = re.compile(r"[a-z]+(?:'s)?(?:\s+[a-z]+(?:'s)?){0,7}\Z")
+_FIELD_RESERVED = frozenset({"and", "or", "is", "to", "not", "if", *_COMMAND_LEADS})
+
+
+def _natural_memory_command(text: str) -> ParsedMemoryCommand | None:
+    """One explicit personal fact, not inference or extraction from conversation."""
+    if "\n" in text or "\r" in text:
+        return None
+    text = text.removesuffix(".")
+    for operation, pattern in _NATURAL_COMMANDS:
+        match = pattern.fullmatch(text)
+        if match is None:
+            continue
+        field = match[1].replace("\u2019", "'").casefold().strip()
+        if not _NATURAL_FIELD.fullmatch(field) or _FIELD_RESERVED.intersection(field.split()):
+            return None
+        words = field.replace("'s", "").split()
+        words = [{"favorite": "favourite", "colour": "color"}.get(word, word) for word in words]
+        key = normalize_memory_key("_".join(words))
+        category = "preference" if words[0] == "favourite" else "profile"
+        value = None if operation == "forget" else match[2].strip()
+        if value is not None:
+            # Ambiguous compound/conditional requests need clarification, not a partial write.
+            if re.search(r"[.!?;]\s+\S|\b(?:and|then|also|but)\s+(?:my|remember|update|forget)\b|\bif\b",
+                         value, re.IGNORECASE):
+                return None
+            value = validate_memory_content(key, value)
+        return ParsedMemoryCommand(cast(Literal["remember", "update", "forget"], operation),
+                                   category, key, value)
+    return None
+
+
 _STOPWORDS = frozenset(
     {
         "a",
@@ -216,6 +253,13 @@ def parse_memory_command(message: str) -> MemoryCommandDecision:
                 intent_detected=True,
                 reason=str(exc),
             )
+
+    try:
+        natural = _natural_memory_command(command_text)
+        if natural is not None:
+            return MemoryCommandDecision(intent_detected=True, command=natural)
+    except MemoryValidationError as exc:
+        return MemoryCommandDecision(intent_detected=True, reason=str(exc))
 
     first_word = command_text.casefold().split(maxsplit=1)[0] if command_text else ""
     if first_word in _COMMAND_LEADS:
