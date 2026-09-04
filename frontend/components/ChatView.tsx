@@ -59,7 +59,8 @@ export function ChatView({
   const retryHasImage = !!pendingMessage?.assets?.length;
   const retryRemote = retryHasImage && vision?.scope === "remote";
   const retryConsent = !!pendingMessage && retryConsentId === pendingMessage.id;
-  const retryBlocked = sending || (retryHasImage && (!vision || (retryRemote && (!vision.enabled || !retryConsent))));
+  const visionAvailable = vision?.enabled && (vision.scope === "local" || vision.scope === "remote");
+  const retryBlocked = sending || (retryHasImage && (!visionAvailable || pendingMessage!.assets!.length > 1 || (retryRemote && !retryConsent)));
   const visibleMessages = [
     ...messages,
     ...(pendingMessage ? [pendingMessage] : []),
@@ -125,6 +126,7 @@ export function ChatView({
               {sendError || stopped ? (
                 <div className="ml-16 flex flex-wrap items-center gap-3 rounded-xl border border-[#754735]/60 bg-[#261812]/70 px-4 py-3 text-sm text-[#e0cfc4]">
                   <span>{stopped ? "Generation stopped. You can retry this message." : sendError}</span>
+                  {retryHasImage && !visionAvailable ? <p role="status">Vision is unavailable for this image. <button disabled={sending} onClick={onReloadCapabilities} type="button">Retry capabilities</button></p> : null}
                   {retryRemote ? <RemoteVisionConsent checked={retryConsent} disabled={sending} onChange={(checked) => setRetryConsentId(checked ? pendingMessage!.id : null)} /> : null}
                   <button
                     className="inline-flex items-center gap-1.5 text-[#dca778] hover:text-[#efbf93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"

@@ -12,6 +12,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import timedelta
 from threading import Event
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -712,11 +713,14 @@ def test_remote_stream_causality_and_cancellation_no_terminal(tmp_path, monkeypa
 def test_capabilities_minimal_mock_local_remote_and_authenticated(tmp_path):
     harness = Harness()
     local, _ = vision_generator(VisionEngine())
-    for index, (generator, expected) in enumerate(
+    for index, (generator, expected, mode) in enumerate(
         [
-            (None, {"enabled": False, "scope": None}),
-            (local, {"enabled": True, "scope": "local"}),
-            (harness.generator, {"enabled": True, "scope": "remote"}),
+            (None, {"enabled": False, "scope": None}, "mock"),
+            (local, {"enabled": True, "scope": "local"}, "local"),
+            (harness.generator, {"enabled": True, "scope": "remote"}, "remote"),
+            (SimpleNamespace(supports_vision=False, vision_scope="local"), {"enabled": False, "scope": "local"}, "local"),
+            (SimpleNamespace(supports_vision=False, vision_scope="remote"), {"enabled": False, "scope": "remote"}, "remote"),
+            (SimpleNamespace(), {"enabled": False, "scope": None}, "unknown"),
         ]
     ):
         directory = tmp_path / str(index)
@@ -724,7 +728,7 @@ def test_capabilities_minimal_mock_local_remote_and_authenticated(tmp_path):
         app = make_app(directory, generator)
         with TestClient(app) as client:
             response = client.get("/api/capabilities")
-            assert response.json() == {"vision": expected}
+            assert response.json() == {"vision": expected, "inference": {"mode": mode}}
             assert response.headers["cache-control"] == "no-store"
         protected = TestClient(LocalApiAuthMiddleware(app, token="cd" * 32))
         assert protected.get("/api/capabilities").status_code == 401

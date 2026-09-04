@@ -27,7 +27,10 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
     this.status = status;
-    this.backendReached = backendReached;
+    this.backendReached = backendReached && !(
+      (status === 503 && message === "Local API proxy is not configured") ||
+      (status === 502 && message === "Local AmitAI backend is unavailable")
+    );
   }
 }
 
@@ -36,7 +39,29 @@ export async function getCapabilities(): Promise<Capabilities> {
   if (typeof result?.vision?.enabled !== "boolean" || ![null, "local", "remote"].includes(result.vision.scope)) {
     throw new ApiError("Vision capabilities are unavailable", null, true);
   }
-  return { vision: { enabled: result.vision.enabled, scope: result.vision.scope } };
+  const mode = result.inference?.mode;
+  return {
+    vision: { enabled: result.vision.enabled, scope: result.vision.scope },
+    inference: { mode: mode === "mock" || mode === "local" || mode === "remote" ? mode : "unknown" },
+  };
+}
+
+export function chatErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.message) {
+      case "Remote inference blocked by local privacy policy":
+        return "Remote inference was blocked by your local privacy policy. Review the message and memory sharing settings before retrying.";
+      case "Remote vision disclosure is not enabled":
+        return "Remote image sharing is not enabled. Check the server configuration and consent before retrying.";
+      case "Local API proxy is not configured":
+        return "The local API connection is not configured. Start the secure backend and check the proxy configuration.";
+      case "Local AmitAI backend is unavailable":
+        return "The local Aevon backend is unavailable. Check that it is running, then retry.";
+      case "Memory changed; retry":
+        return "Memory changed during generation. Retry this message.";
+    }
+  }
+  return backendResponded(error) ? "Generation failed. Try again." : "Unable to connect to Aevon.";
 }
 
 async function readError(response: Response): Promise<string> {

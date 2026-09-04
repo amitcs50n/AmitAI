@@ -69,6 +69,11 @@ test("explicit select uploads, previews, attaches and clears without web storage
   assert.equal(container.querySelector("img")?.getAttribute("src"), `/api/assets/${ASSET.id}/content`);
   assert.match(container.textContent ?? "", /photo\.png[\s\S]*Stored locally/);
   assert.match(container.textContent ?? "", /One image per message/);
+  assert.equal(input.disabled, true);
+  assert.equal((container.querySelector('[aria-label="Attach image"]') as HTMLButtonElement).disabled, true);
+  // A synthetic second selection must also be rejected by the handler.
+  await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+  assert.equal(calls.length, 1);
   assert.doesNotMatch(container.textContent ?? "", /analysis is not enabled/);
 
   const textarea = container.querySelector("textarea")!;
@@ -81,6 +86,7 @@ test("explicit select uploads, previews, attaches and clears without web storage
   await act(async () => (container.querySelector('button[type="submit"]') as HTMLButtonElement).click());
   assert.deepEqual(sent, { text: "What is shown?", ids: [ASSET.id] });
   assert.equal(container.querySelector("img"), null);
+  assert.equal((container.querySelector('input[type="file"]') as HTMLInputElement).disabled, false);
   assert.equal(localStorage.length, 0);
   assert.equal(sessionStorage.length, 0);
 });
@@ -183,3 +189,40 @@ test("local vision sends without a remote consent control", async () => {
   await settle();
   assert.equal(container.querySelector('input[type="checkbox"]'), null);
 });
+
+for (const vision of [null, { enabled: false, scope: "local" as const }, { enabled: false, scope: "remote" as const }, { enabled: true, scope: null }]) {
+  test(`unavailable vision blocks send and pending retry (${JSON.stringify(vision)})`, async () => {
+    globalThis.fetch = (async () => Response.json(ASSET, { status: 201 })) as typeof fetch;
+    let sends = 0;
+    let reloads = 0;
+    await act(async () => root.render(<Composer vision={vision} enterToSend onSend={() => { sends++; }} />));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["png"], "photo.png", { type: "image/png" })] });
+    await act(async () => input.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    await settle();
+    const textarea = container.querySelector("textarea")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Describe");
+      textarea.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      (container.querySelector('input[type="checkbox"]') as HTMLInputElement | null)?.click();
+    });
+    assert.equal((container.querySelector('button[type="submit"]') as HTMLButtonElement).disabled, true);
+    await act(async () => container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(sends, 0);
+    const props = {
+      messages: [], pendingMessage: { id: "pending", conversation_id: "c", role: "user", content: "Describe", metadata: null, created_at: "2026-09-04T00:00:00Z", assets: [ASSET] },
+      streamingMessage: null, loading: false, sending: false, loadError: null, sendError: "Generation failed",
+      preferences: DEFAULT_PREFERENCES, onSend: async () => undefined, onRetryLoad: () => undefined,
+      onRetrySend: () => { sends++; }, onReloadCapabilities: () => { reloads++; },
+    };
+    await act(async () => root.render(<ChatView {...props} vision={vision} />));
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Retry")!;
+    assert.equal(retry.disabled, true);
+    await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry capabilities")!.click());
+    assert.equal(reloads, 1);
+    await act(async () => root.render(<ChatView {...props} vision={{ enabled: true, scope: "local" }} />));
+    assert.equal(retry.disabled, false);
+    await act(async () => retry.click());
+    assert.equal(sends, 1);
+  });
+}

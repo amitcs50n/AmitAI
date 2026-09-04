@@ -315,8 +315,12 @@ def create_app(
         generator = request.app.state.generator
         scope = getattr(generator, "vision_scope", None)
         enabled = getattr(generator, "supports_vision", False) is True
+        mode = "mock" if generator is None else scope if scope in {"local", "remote"} else "unknown"
         return JSONResponse(
-            {"vision": {"enabled": enabled, "scope": scope if scope in {"local", "remote"} else None}},
+            {
+                "vision": {"enabled": enabled, "scope": scope if scope in {"local", "remote"} else None},
+                "inference": {"mode": mode},
+            },
             headers={"Cache-Control": "no-store"},
         )
 

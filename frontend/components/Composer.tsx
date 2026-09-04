@@ -30,7 +30,8 @@ export function Composer({ disabled = false, onStop, enterToSend, onSend, vision
   const [consentAssetId, setConsentAssetId] = useState<string | null>(null);
   const remote = vision?.scope === "remote";
   const consent = assets.length === 1 && consentAssetId === assets[0].id;
-  const imageBlocked = assets.length > 0 && (!vision || assets.length > 1 || (remote && (!vision.enabled || !consent)));
+  const visionAvailable = vision?.enabled && (vision.scope === "local" || vision.scope === "remote");
+  const imageBlocked = assets.length > 0 && (!visionAvailable || assets.length > 1 || (remote && !consent));
 
   useEffect(() => {
     mounted.current = true;
@@ -49,7 +50,7 @@ export function Composer({ disabled = false, onStop, enterToSend, onSend, vision
   }
 
   async function selectImage(file: File | undefined) {
-    if (!file || busy.current || disabled || staged.current.length >= 4) return;
+    if (!file || busy.current || disabled || staged.current.length >= 1) return;
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || !file.size || file.size > 20 * 1024 * 1024) {
       setUploadError("Choose a PNG, JPEG or WebP image up to 20 MiB.");
       return;
@@ -123,7 +124,7 @@ export function Composer({ disabled = false, onStop, enterToSend, onSend, vision
 
   return (
     <form className="w-full" onSubmit={submit}>
-      <input accept="image/png,image/jpeg,image/webp" aria-label="Select image" className="sr-only" disabled={disabled || uploading || assets.length >= 4} onChange={(event) => {
+      <input accept="image/png,image/jpeg,image/webp" aria-label="Select image" className="sr-only" disabled={disabled || uploading || assets.length >= 1} onChange={(event) => {
         const file = event.target.files?.[0];
         event.target.value = "";
         void selectImage(file);
@@ -134,8 +135,7 @@ export function Composer({ disabled = false, onStop, enterToSend, onSend, vision
           <button aria-label={`Remove ${asset.original_filename}`} className="mt-1 text-xs text-[#dca778] disabled:opacity-50" disabled={disabled || uploading} onClick={() => void removeImage(asset.id)} type="button">Remove</button>
         </div>)}
         <p className="w-full text-xs text-[#948d86]">Stored locally with this chat when sent. One image per message.</p>
-        {!vision ? <p role="status">Vision capabilities unavailable. <button onClick={onReloadCapabilities} type="button">Retry capabilities</button></p> : null}
-        {vision && !vision.enabled ? <p className="text-xs text-[#948d86]">Vision is not enabled for the configured provider.</p> : null}
+        {!visionAvailable ? <p className="text-xs text-[#948d86]" role="status">{vision ? "Vision is not enabled for the configured provider." : "Vision capabilities unavailable."} <button onClick={onReloadCapabilities} type="button">Retry capabilities</button></p> : null}
         {remote && assets.length === 1 ? <RemoteVisionConsent checked={consent} disabled={disabled || uploading} onChange={(checked) => setConsentAssetId(checked ? assets[0].id : null)} /> : null}
       </div> : null}
       {uploading ? <p className="mb-2 text-xs text-[#948d86]" role="status">Updating image attachment…</p> : null}
@@ -144,7 +144,7 @@ export function Composer({ disabled = false, onStop, enterToSend, onSend, vision
         <button
           aria-label="Attach image"
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#bcb1a7] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bd8254]"
-          disabled={disabled || uploading || assets.length >= 4}
+          disabled={disabled || uploading || assets.length >= 1}
           title="Upload PNG, JPEG or WebP locally. Remote vision requires separate consent."
           onClick={() => fileRef.current?.click()}
           type="button"

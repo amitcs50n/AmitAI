@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { JSDOM } from "jsdom";
 import type { Root } from "react-dom/client";
-import type { ChatRequest, ChatResponse, ConversationDetail, Message, UploadedAsset } from "../lib/types.ts";
+import type { ChatRequest, ChatResponse, ConversationDetail, InferenceMode, Message, UploadedAsset } from "../lib/types.ts";
 
 // React's event system must see the DOM before react-dom is imported.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
@@ -73,6 +73,7 @@ let originalFetch: typeof fetch;
 let streams: ControlledStream[];
 let list: ConversationDetail[];
 let remote: boolean;
+let inferenceMode: InferenceMode;
 let getHistory: (id: string) => Promise<Response>;
 let fetchChat: ((init: RequestInit) => Promise<Response>) | null;
 const ASSET: UploadedAsset = {
@@ -91,12 +92,13 @@ beforeEach(() => {
   streams = [];
   list = [];
   remote = false;
+  inferenceMode = "local";
   fetchChat = null;
   getHistory = async (id) => Response.json(detail(id, [message("saved-user", "user", QUESTION), message("saved-assistant", "assistant", ANSWER)]));
   originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const path = String(input);
-    if (path === "/api/capabilities") return Response.json({ vision: { enabled: true, scope: remote ? "remote" : "local" } });
+    if (path === "/api/capabilities") return Response.json({ vision: { enabled: inferenceMode !== "mock", scope: remote ? "remote" : "local" }, inference: { mode: inferenceMode } });
     if (path === "/api/conversations") return Response.json(list);
     if (path.startsWith("/api/conversations/")) return getHistory(path.split("/").at(-1)!);
     if (path === "/api/assets") return Response.json(ASSET, { status: 201 });
@@ -148,6 +150,43 @@ function assertPrivateStorage() {
 async function complete(stream: ControlledStream, response = ANSWER) {
   await act(async () => { stream.text(response); stream.event("final", final(response)); stream.event("done", {}); stream.close(); });
   await settle();
+}
+
+for (const [detail, expected, status] of [
+  ["Remote inference blocked by local privacy policy", /blocked by your local privacy policy/, 422],
+  ["Remote vision disclosure is not enabled", /Remote image sharing is not enabled/, 403],
+  ["Local API proxy is not configured", /local API connection is not configured/, 503],
+  ["Local AmitAI backend is unavailable", /local Aevon backend is unavailable/, 502],
+  ["PRIVATE_INTERNAL_ERROR_CANARY", /Generation failed/, 500],
+] as const) {
+  for (const streaming of [false, true]) test(`safe error UI for ${detail} (stream=${streaming})`, async () => {
+    if (!streaming) fetchChat = async () => Response.json({ detail }, { status });
+    await boot();
+    await send();
+    if (streaming) await act(async () => { streams[0].start(); streams[0].event("error", { detail }); streams[0].close(); });
+    await settle();
+    assert.match(container.textContent!, expected);
+    assert.doesNotMatch(container.textContent!, /PRIVATE_INTERNAL_ERROR_CANARY/);
+    assert.equal(button("Retry").disabled, false);
+    assert.equal(articles().length, 1);
+    if (!streaming && (status === 502 || status === 503)) assert.match(container.textContent!, /Disconnected/);
+  });
+}
+
+for (const [mode, label] of [["mock", "Mock · no model inference"], ["local", "Local inference"], ["remote", "Remote inference"], ["unknown", "Unavailable"]] as const) {
+  test(`Settings shows server inference mode ${mode}`, async () => {
+    inferenceMode = mode;
+    remote = mode === "remote";
+    await boot();
+    await click("Settings");
+    assert.match(container.textContent!, new RegExp(label));
+    assert.match(container.textContent!, /Calculator/);
+    assert.doesNotMatch(container.textContent!, /GitHub|WebNot configured|FilesNot configured|PythonNot configured/);
+    inferenceMode = "unknown";
+    await click("Refresh capabilities");
+    await settle();
+    assert.match(container.textContent!, /Configured inferenceUnavailable/);
+  });
 }
 
 test("real app: pending -> start -> incremental deltas -> final -> done -> persisted history", async () => {

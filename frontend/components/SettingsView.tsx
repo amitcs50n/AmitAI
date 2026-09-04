@@ -1,15 +1,20 @@
 "use client";
 
-import type { ConnectionState, UiPreferences } from "@/lib/types";
+import type { ConnectionState, InferenceMode, UiPreferences, VisionCapability } from "@/lib/types";
 import { SettingRow, SettingsSection, Toggle } from "@/components/SettingsControls";
 
 interface SettingsViewProps {
   connection: ConnectionState;
+  inferenceMode?: InferenceMode;
+  vision?: VisionCapability | null;
+  onReloadCapabilities?: () => void;
   preferences: UiPreferences;
   onChange: (patch: Partial<UiPreferences>) => void;
 }
 
-export function SettingsView({ connection, preferences, onChange }: SettingsViewProps) {
+export function SettingsView({ connection, inferenceMode = "unknown", vision, onReloadCapabilities, preferences, onChange }: SettingsViewProps) {
+  const modeLabel = { mock: "Mock · no model inference", local: "Local inference", remote: "Remote inference", unknown: "Unavailable" }[inferenceMode];
+  const imageLabel = !vision ? "Unavailable" : vision.enabled && vision.scope === "local" ? "Local vision" : vision.enabled && vision.scope === "remote" ? "Remote · consent required" : "Not enabled";
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-10 sm:px-10">
@@ -44,9 +49,11 @@ export function SettingsView({ connection, preferences, onChange }: SettingsView
           />
         </SettingsSection>
 
-        <SettingsSection title="Model" description="The browser uses only the stable AmitAI API contract.">
+        <SettingsSection title="Model" description="Inference is selected in the server configuration. This status does not confirm that model weights are loaded.">
           <SettingRow label="Connection state" value={connection === "connected" ? "Connected" : connection === "connecting" ? "Connecting…" : "Disconnected"} />
-          <SettingRow label="Endpoint" value="/api" />
+          <SettingRow label="Configured inference" value={modeLabel} />
+          <SettingRow label="Image analysis" description="One image per message. Remote analysis requires fresh consent for each send or retry." value={imageLabel} />
+          <button className="mt-3 text-sm text-[#dca778]" onClick={onReloadCapabilities} type="button">Refresh capabilities</button>
         </SettingsSection>
 
         <SettingsSection title="Memory">
@@ -55,10 +62,7 @@ export function SettingsView({ connection, preferences, onChange }: SettingsView
         </SettingsSection>
 
         <SettingsSection title="Tools">
-          <SettingRow label="Web" value="Not configured" />
-          <SettingRow label="Files" value="Not configured" />
-          <SettingRow label="Python" value="Not configured" />
-          <SettingRow label="GitHub" value="Not configured" />
+          <SettingRow label="Calculator" description="The inference runtime can invoke the calculator while answering arithmetic questions." value={inferenceMode === "mock" ? "Not used in mock mode" : inferenceMode === "unknown" ? "Unavailable" : "Runtime tool"} />
         </SettingsSection>
 
         <SettingsSection title="Developer">

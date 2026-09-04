@@ -5,7 +5,11 @@ export interface VisionCapability {
   scope: "local" | "remote" | null;
 }
 
-export interface Capabilities { vision: VisionCapability }
+export type InferenceMode = "mock" | "local" | "remote" | "unknown";
+export interface Capabilities {
+  vision: VisionCapability;
+  inference?: { mode: InferenceMode };
+}
 
 export type AppView = "chat" | "memory" | "settings" | "preferences" | "security";
 

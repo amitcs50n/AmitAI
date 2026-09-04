@@ -5,6 +5,7 @@ import { RotateCcw, X } from "lucide-react";
 
 import {
   backendResponded,
+  chatErrorMessage,
   deleteConversation,
   getConversation,
   listConversations,
@@ -17,6 +18,7 @@ import type {
   ChatMetadata,
   ChatResponse,
   ConnectionState,
+  InferenceMode,
   Conversation,
   ConversationDetail,
   Message,
@@ -106,6 +108,7 @@ export function AmitaiApp() {
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const [failedInput, setFailedInput] = useState<string | null>(null);
   const [vision, setVision] = useState<VisionCapability | null>(null);
+  const [inferenceMode, setInferenceMode] = useState<InferenceMode>("unknown");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [actionAlert, setActionAlert] = useState<ActionAlert | null>(null);
@@ -122,8 +125,13 @@ export function AmitaiApp() {
   const loadCapabilities = useCallback(async () => {
     try {
       const capabilities = await getCapabilities();
-      if (mountedRef.current) setVision(capabilities.vision);
-    } catch { if (mountedRef.current) setVision(null); }
+      if (mountedRef.current) {
+        setVision(capabilities.vision);
+        setInferenceMode(capabilities.inference?.mode ?? "unknown");
+      }
+    } catch {
+      if (mountedRef.current) { setVision(null); setInferenceMode("unknown"); }
+    }
   }, []);
 
   const loadConversation = useCallback(async (id: string) => {
@@ -403,7 +411,7 @@ export function AmitaiApp() {
         }
         setFailedInput(message);
         setSendError(
-          backendResponded(error) ? "Generation failed. Try again." : "Unable to connect to Aevon.",
+          chatErrorMessage(error),
         );
       }
     } finally {
@@ -555,7 +563,7 @@ export function AmitaiApp() {
         ) : view === "memory" ? (
           <MemoryView />
         ) : view === "settings" ? (
-          <SettingsView connection={connection} onChange={updatePreferences} preferences={preferences} />
+          <SettingsView connection={connection} inferenceMode={inferenceMode} vision={vision} onReloadCapabilities={() => void loadCapabilities()} onChange={updatePreferences} preferences={preferences} />
         ) : view === "preferences" ? (
           <PreferencesView onChange={updatePreferences} preferences={preferences} />
         ) : (

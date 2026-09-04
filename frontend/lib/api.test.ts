@@ -61,7 +61,7 @@ test("capability client uses the exact safe route and chat carries only boolean 
       : jsonResponse({ conversation_id: "c", message_id: "m", response: "ok", metadata: {} });
   }) as typeof fetch;
   try {
-    assert.deepEqual(await getCapabilities(), { vision: { enabled: true, scope: "remote" } });
+    assert.deepEqual(await getCapabilities(), { vision: { enabled: true, scope: "remote" }, inference: { mode: "unknown" } });
     await sendChat({ conversation_id: null, message: "Look", asset_ids: ["asset-id"], allow_remote_vision: true });
   } finally { globalThis.fetch = originalFetch; }
   assert.equal(requests[0].input, "/api/capabilities");
@@ -76,6 +76,19 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+test("capabilities expose only known inference modes and keep older backends usable", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const mode of ["mock", "local", "remote", "unknown", "PRIVATE_CONFIG_CANARY", null]) {
+      globalThis.fetch = async () => jsonResponse({ vision: { enabled: false, scope: null }, inference: { mode, endpoint: "PRIVATE_ENDPOINT_CANARY" } });
+      assert.deepEqual(await getCapabilities(), {
+        vision: { enabled: false, scope: null },
+        inference: { mode: mode === "mock" || mode === "local" || mode === "remote" ? mode : "unknown" },
+      });
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test("memory list client uses active, search, category, and deleted routes", async () => {
   const originalFetch = globalThis.fetch;
