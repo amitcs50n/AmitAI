@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from threading import Event
 from typing import Protocol
 from uuid import uuid4
@@ -30,6 +32,43 @@ from .remote_transport import (
 from .vision_wire import encode_vision_body
 
 LOGGER = logging.getLogger(__name__)
+# Poll only where threading.Event cannot wait on a lock/socket too. This bounds
+# cancellation observation latency, not model runtime or worker shutdown duration.
+CANCELLATION_POLL_SECONDS = 0.05
+
+
+@contextmanager
+def _interruptible_response(response: httpx.Response, cancelled: Event):
+    """Interrupt this HTTP/1 request's blocked read without closing the shared client."""
+    finished = Event()
+
+    def watch() -> None:
+        while not finished.wait(CANCELLATION_POLL_SECONDS):
+            if not cancelled.is_set():
+                continue
+            try:
+                try:
+                    network = response.extensions.get("network_stream")
+                    connection = network.get_extra_info("socket") if network is not None else None
+                    if connection is not None:
+                        try:
+                            # close() alone need not wake recv blocked in another thread.
+                            connection.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass  # Already closed/disconnected.
+                finally:
+                    response.close()
+            except Exception as exc:  # noqa: BLE001 - never expose request/socket contents.
+                LOGGER.warning("Remote stream cleanup failed failure=%s", type(exc).__name__)
+            return
+
+    watcher = threading.Thread(target=watch, name="aevon-remote-cancel", daemon=True)
+    watcher.start()
+    try:
+        yield
+    finally:
+        finished.set()
+        watcher.join()
 
 
 class InferenceProviderError(RuntimeError):
@@ -138,20 +177,42 @@ class LocalTransformersInferenceProvider:
             yield output
             return
 
-        with self._generation_lock:
-            stream = iter(
-                stream_method(
-                    self._copy_messages(messages),
-                    dict(generation_config),
-                    cancel_event=cancel_event,
-                )
-            )
+        yield from self._serialized_stream(
+            lambda: stream_method(self._copy_messages(messages), dict(generation_config),
+                                  cancel_event=cancel_event),
+            cancel_event,
+        )
+
+    def _serialized_stream(self, factory, cancel_event: Event):
+        while not cancel_event.is_set():
+            if self._generation_lock.acquire(timeout=CANCELLATION_POLL_SECONDS):
+                break
+        else:
+            return
+        stream = None
+        completed = False
+        try:
+            if cancel_event.is_set():
+                return
+            stream = iter(factory())
+            # Explicit iteration lets us signal BEFORE close; yield-from closes its
+            # delegate first, which can deadlock a delegate waiting for cancellation.
+            for item in stream:
+                if cancel_event.is_set():
+                    return
+                yield item
+            completed = True
+        finally:
             try:
-                yield from stream
-            finally:
+                if not completed:
+                    cancel_event.set()
                 close = getattr(stream, "close", None)
                 if callable(close):
                     close()
+            finally:
+                # Includes iterator creation, iteration and close failures. Native
+                # model close joins its worker before we allow the next model call.
+                self._generation_lock.release()
 
     def generate_vision(
         self, request: VisionGenerationRequest, generation_config: Mapping[str, object],
@@ -174,18 +235,11 @@ class LocalTransformersInferenceProvider:
         stream_method = getattr(engine, "generate_detailed_stream", None)
         if not callable(stream_method):
             raise InferenceProviderError("Native vision streaming is unavailable")
-        with self._generation_lock:
-            if cancel_event.is_set():
-                return
-            stream = iter(stream_method(
-                request.model_messages(), dict(generation_config), cancel_event=cancel_event,
-            ))
-            try:
-                yield from stream
-            finally:
-                close = getattr(stream, "close", None)
-                if callable(close):
-                    close()
+        yield from self._serialized_stream(
+            lambda: stream_method(request.model_messages(), dict(generation_config),
+                                  cancel_event=cancel_event),
+            cancel_event,
+        )
 
 
 class LocalVisionSession:
@@ -480,7 +534,7 @@ class RemoteInferenceProvider:
                 f"{self.endpoint}{path}/stream",
                 headers=headers,
                 content=body,
-            ) as response:
+            ) as response, _interruptible_response(response, cancel_event):
                 if response.status_code != 200:
                     failure = (
                         "redirect" if 300 <= response.status_code < 400
@@ -530,8 +584,12 @@ class RemoteInferenceProvider:
                 if trailing is not None:
                     raise InferenceProviderError("Remote inference stream was unterminated")
         except InferenceProviderError:
+            if cancel_event.is_set():
+                return
             raise
         except (httpx.HTTPError, ValueError, TypeError) as exc:
+            if cancel_event.is_set():
+                return
             self._log_failure(request_id, type(exc).__name__)
             raise InferenceProviderError("Remote inference failed") from None
 

@@ -63,6 +63,7 @@ from .schemas import (
     MemoryUpdate,
 )
 from .security import LocalApiAuthMiddleware, security_state
+from .streaming import ClosingStreamingResponse
 
 LOGGER = logging.getLogger(__name__)
 SSE_HEARTBEAT_SECONDS = 15.0
@@ -424,9 +425,17 @@ def create_app(
                         force=True,
                     )
                 finally:
-                    if service_stream is not None:
-                        service_stream.close()
-                    publish(stream_end, force=True)
+                    try:
+                        if service_stream is not None:
+                            service_stream.close()
+                    except Exception as exc:  # noqa: BLE001 - cleanup errors must stay private.
+                        LOGGER.error("Streaming cleanup failed failure=%s", type(exc).__name__)
+                        publish(
+                            ChatStreamEvent(event="error", data={"detail": "Assistant generation failed"}),
+                            force=True,
+                        )
+                    finally:
+                        publish(stream_end, force=True)
 
             try:
                 producer = loop.run_in_executor(executor, produce)
@@ -455,7 +464,7 @@ def create_app(
                 else:
                     producer.add_done_callback(lambda _: gate.release())
 
-        return StreamingResponse(
+        return ClosingStreamingResponse(
             event_source(),
             media_type="text/event-stream",
             headers={

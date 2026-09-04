@@ -23,6 +23,7 @@ from runtime.context import HISTORY_OMISSION_NOTICE, compile_model_messages
 from runtime.media import MAX_VISION_PIXELS, MIN_VISION_PIXELS, VisionGenerationRequest
 from runtime.model import NativeQwenGenerator, _execution_device, vision_chat_template
 from runtime.privacy import InferenceExecutionScope
+from runtime.providers import LocalTransformersInferenceProvider
 from scripts.vision_smoke import synthetic_image
 
 # Exact template published at the pinned checkpoint, metadata only (no weights).
@@ -407,6 +408,60 @@ def test_native_stream_cancellation_has_no_terminal_and_joins(loader, monkeypatc
             assert not loader.model.worker.is_alive()
             if mode == "during":
                 assert loader.model.cancellation_seen
+
+
+@pytest.mark.parametrize("vision", [False, True])
+@pytest.mark.parametrize("stop", ["event", "close"])
+def test_native_provider_cancel_then_generate_repeatedly_reuses_model_and_joins(loader, vision, stop):
+    config = load_runtime_config()
+    provider = LocalTransformersInferenceProvider(config.model, config.generation["seed"])
+    with synthetic_image() as image:
+        messages = [{"role": "user", "content": "Describe"}]
+        def stream(signal):
+            if vision:
+                return provider.stream_vision(VisionGenerationRequest(messages, image), {}, cancel_event=signal)
+            return provider.stream(messages, {}, cancel_event=signal)
+        for _ in range(8):
+            signal = Event()
+            loader.model.release.clear()
+            first = stream(signal)
+            assert next(first) == "Red "
+            if stop == "event":
+                signal.set()
+                loader.model.release.set()  # Let the fake model finish its current forward step.
+                assert list(first) == []
+            else:
+                def next_forward_step(cancelled=signal):
+                    cancelled.wait(2)
+                    loader.model.release.set()
+                unblock = Thread(target=next_forward_step, daemon=True)
+                unblock.start()
+                first.close()
+                unblock.join(2)
+            assert signal.is_set() and loader.model.cancellation_seen
+            assert not loader.model.worker.is_alive()
+            assert not provider._generation_lock.locked()
+            second = list(stream(Event()))
+            assert second[-1].text == "Red square shown."
+            assert not loader.model.worker.is_alive()
+        assert [call[0] for call in loader.calls] == ["config", "processor", "model"]
+
+
+@pytest.mark.parametrize("after_delta", [False, True])
+def test_native_provider_worker_failure_then_second_generation_succeeds(loader, after_delta):
+    config = load_runtime_config()
+    provider = LocalTransformersInferenceProvider(config.model, config.generation["seed"])
+    loader.model.failure = ValueError("synthetic model failure")
+    loader.model.fail_after_delta = after_delta
+    loader.model.release.set()
+    messages = [{"role": "user", "content": "Describe"}]
+    with pytest.raises(ValueError, match="synthetic model failure"):
+        list(provider.stream(messages, {}, cancel_event=Event()))
+    assert not loader.model.worker.is_alive() and not provider._generation_lock.locked()
+    loader.model.failure = None
+    assert list(provider.stream(messages, {}, cancel_event=Event()))[-1].text == "Red square shown."
+    assert not loader.model.worker.is_alive()
+    assert [call[0] for call in loader.calls] == ["config", "processor", "model"]
 
 
 def test_same_native_instance_handles_all_four_modes(loader):

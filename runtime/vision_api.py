@@ -5,10 +5,12 @@ import logging
 from concurrent.futures import TimeoutError as FutureTimeout
 from threading import Event, Thread
 
+import anyio
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from backend.assets import normalize_image
+from backend.streaming import ClosingStreamingResponse
 from evaluation.hf_backend import GenerationOutput
 
 from .media import VisionGenerationRequest, decoded_vision_image
@@ -61,7 +63,9 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
         loop = asyncio.get_running_loop()
         queue = asyncio.Queue(maxsize=8)
         cancelled = Event()
+        finished = asyncio.Event()
         end = object()
+        terminal_error = False
 
         def publish(item):
             if cancelled.is_set():
@@ -84,6 +88,7 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
                 pending.cancel()
 
         def produce():
+            nonlocal terminal_error
             stream = None
             try:
                 with decoded_vision_image(png) as image:
@@ -134,19 +139,29 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
                     )
             except Exception as exc:  # noqa: BLE001 - no body, exception text, paths or tokens
                 LOGGER.warning("Vision inference failed failure=%s", type(exc).__name__)
-                publish(("error", {"detail": "Inference failed"}))
+                terminal_error = True
             finally:
                 if stream is not None:
                     try:
                         stream.close()
                     except Exception as exc:  # noqa: BLE001 - never leak worker cleanup errors
                         LOGGER.warning("Vision cleanup failed failure=%s", type(exc).__name__)
-                publish(end)
+                # A model/iterator error may set cancelled; completion must still
+                # wake a connected consumer independently of cancellable data.
+                def mark_finished():
+                    finished.set()
+                    if queue.empty():
+                        queue.put_nowait(end)
+                loop.call_soon_threadsafe(mark_finished)
 
         worker = Thread(target=produce, name="vision-inference", daemon=True)
         worker.start()
         try:
             while True:
+                if finished.is_set() and queue.empty():
+                    if terminal_error:
+                        yield "error", {"detail": "Inference failed"}
+                    return
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=0.25)
                 except TimeoutError:
@@ -157,6 +172,8 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
                         yield "heartbeat", {}
                     continue
                 if item is end:
+                    if terminal_error:
+                        yield "error", {"detail": "Inference failed"}
                     return
                 yield item
         finally:
@@ -164,6 +181,9 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
             # Do not forcibly kill CUDA or close an image still in use by the worker.
             # Streaming checks cancellation between generation steps. Synchronous
             # inference keeps its image alive until generate_vision actually returns.
+            if streaming:
+                with anyio.CancelScope(shield=True):
+                    await anyio.to_thread.run_sync(worker.join)
 
     @application.post("/v1/vision")
     async def vision(request: Request):
@@ -191,7 +211,7 @@ def register_vision_routes(application: FastAPI, provider, authorize) -> None:
             finally:
                 await stream.aclose()
 
-        return StreamingResponse(
+        return ClosingStreamingResponse(
             body(),
             media_type="text/event-stream",
             headers={

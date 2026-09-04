@@ -7,7 +7,6 @@ import logging
 import os
 import secrets
 import time
-from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
 from typing import Any, Literal
@@ -19,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.security import environment_flag
+from backend.streaming import ClosingStreamingResponse, stream_in_worker
 from evaluation.hf_backend import GenerationOutput
 
 from .config import DEFAULT_RUNTIME_CONFIG_PATH, load_runtime_config
@@ -174,22 +174,22 @@ def create_inference_app(
     ) -> StreamingResponse:
         authorize(authorization)
 
-        def body() -> Iterator[str]:
+        async def body():
             request_id = str(payload.request_id)
             started_at = time.perf_counter()
             cancel_event = Event()
-            provider_stream: Iterator[str | GenerationOutput] | None = None
+            provider_stream = stream_in_worker(
+                lambda: selected_provider.stream(
+                    [message.model_dump() for message in payload.messages],
+                    payload.generation_config,
+                    cancel_event=cancel_event,
+                ),
+                cancel_event,
+            )
             chunks: list[str] = []
             try:
-                provider_stream = iter(
-                    selected_provider.stream(
-                        [message.model_dump() for message in payload.messages],
-                        payload.generation_config,
-                        cancel_event=cancel_event,
-                    )
-                )
                 output: GenerationOutput | None = None
-                for item in provider_stream:
+                async for item in provider_stream:
                     if isinstance(item, str):
                         if output is not None:
                             raise TypeError("Inference provider streamed after final output")
@@ -232,12 +232,9 @@ def create_inference_app(
                 yield _sse("error", {"detail": "Inference failed"})
             finally:
                 cancel_event.set()
-                if provider_stream is not None:
-                    close = getattr(provider_stream, "close", None)
-                    if callable(close):
-                        close()
+                await provider_stream.aclose()
 
-        return StreamingResponse(
+        return ClosingStreamingResponse(
             body(),
             media_type="text/event-stream",
             headers={
