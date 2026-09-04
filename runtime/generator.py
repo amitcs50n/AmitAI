@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -539,6 +540,12 @@ class ProviderChatGenerator:
         }
         if retry_count:
             validator_metadata["first_retry_passed"] = validation["retry_passed"]
+            # Only repair paths carry extra diagnostics; no raw candidate/prompt.
+            validator_metadata["first_validation"] = {
+                key: value for key, value in validation["first_validation"].items()
+                if key != "normalized_response"
+            }
+            validator_metadata["repair_safety"] = validation["repair_safety"]
         return validator_metadata
 
     def generate_response(
@@ -563,7 +570,6 @@ class ProviderChatGenerator:
         if guarded is not None:
             return guarded
         current_prompt = messages[-1].content
-        prior_history = tuple(messages[:-1])
         input_tokens = 0
         output_tokens = 0
         tool_records: list[dict[str, Any]] = []
@@ -585,11 +591,29 @@ class ProviderChatGenerator:
         original_response = generate(model_messages)
 
         def retry(corrective_prompt: str) -> str:
-            retry_messages = (
-                *prior_history,
-                GenerationMessage(role="user", content=corrective_prompt),
-            )
-            return generate(self._model_messages(retry_messages))
+            nonlocal input_tokens, output_tokens
+            successful_results = [
+                {"name": record["name"], "result": record["result"]}
+                for record in tool_records if record.get("success") is True
+            ]
+            if successful_results:
+                corrective_prompt = (
+                    "Previously obtained tool results (reuse; do not recompute):\n"
+                    + json.dumps(successful_results, ensure_ascii=False) + "\n\n"
+                    + corrective_prompt
+                )
+            # Reuse the canonical projection/bounds. A pure format repair never
+            # re-enters the tool loop, even if the model requests another tool.
+            output = generate_once([
+                *model_messages[:-1], {"role": "user", "content": corrective_prompt},
+            ])
+            input_tokens += output.input_tokens
+            output_tokens += output.output_tokens
+            response = output.text.strip()
+            if (is_reserved_tool_candidate(response)
+                    or sanitize_late_tool_protocol(response).strip() != response):
+                raise ChatGenerationError("Assistant generation failed")
+            return response
 
         validation = validate_with_bounded_retries(
             current_prompt,

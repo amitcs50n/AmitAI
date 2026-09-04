@@ -304,7 +304,7 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
         local_calls = [_text_messages(call[0]) for call in local[1].calls]
         remote_calls = [_text_messages(call[0]) for call in remote[1].calls]
         assert local_calls == remote_calls
-        assert len(compiler_inputs) == len(outputs) * 2  # every repair recompiles
+        assert len(compiler_inputs) == 2  # one per provider; repairs reuse canonical context
         assert all(
             item["runtime_system_prompt"] == local[0].config.runtime_system_prompt
             for item in compiler_inputs
@@ -320,7 +320,7 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
 def test_tools_and_retries_keep_memory_and_omission_notice_in_every_provider_path(streaming, vision):
     messages = _messages("Calculate 2+3, then identify yourself. Answer in exactly 3 words.")
     tool = '<tool_call>{"name":"calculator","arguments":{"expression":"2+3"}}</tool_call>'
-    outputs = [tool, "This candidate has too many words.", tool, "Aevon is here."]
+    outputs = [tool, "Aevon is right here.", "Aevon is here."]
     with runtime_pair(outputs) as (local, remote, _harness):
         for generator, engine in (local, remote):
             kwargs = {"remote_grant": RemoteVisionGrant(str(uuid4()), True)} if vision else {}
@@ -332,8 +332,8 @@ def test_tools_and_retries_keep_memory_and_omission_notice_in_every_provider_pat
                 method = generator.generate_vision_response if vision else generator.generate_response
                 result = method(*args, **kwargs)
             assert result.validator["retry_count"] == 1
-            assert len(result.tools) == 2 and all(tool["success"] for tool in result.tools)
-            assert len(engine.calls) == 4
+            assert len(result.tools) == 1 and all(tool["success"] for tool in result.tools)
+            assert len(engine.calls) == 3
             first = _text_messages(engine.calls[0][0])
             for model_messages, _config in engine.calls:
                 compiled = _text_messages(model_messages)
@@ -341,8 +341,8 @@ def test_tools_and_retries_keep_memory_and_omission_notice_in_every_provider_pat
                 assert compiled[0]["content"].count(HISTORY_OMISSION_NOTICE) == 1
                 assert compiled[1]["content"] == messages[0].content
                 assert "OLD_DROPPED_IDENTITY_HISTORY" not in repr(compiled)
-            for index in (1, 3):
-                assert _text_messages(engine.calls[index][0])[-1]["content"].startswith("<tool_result>")
+            assert _text_messages(engine.calls[1][0])[-1]["content"].startswith("<tool_result>")
+            assert '"result": "5"' in _text_messages(engine.calls[2][0])[-1]["content"]
         assert [_text_messages(call[0]) for call in local[1].calls] == [
             _text_messages(call[0]) for call in remote[1].calls
         ]

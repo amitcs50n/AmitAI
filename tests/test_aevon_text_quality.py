@@ -205,7 +205,7 @@ def test_retry_and_tool_followup_keep_minimized_context(streaming):
     assert row["deterministic_pass"]
     assert row["validator"]["retry_count"] == 1
     assert row["response"] == "It is 1411."
-    assert len(observed.calls) == 4
+    assert len(observed.calls) == 3
     for call in observed.calls:
         assert call[0] == observed.calls[0][0]  # tool followups and repairs keep the full prompt
         assert call[0]["content"].startswith(generator.config.runtime_system_prompt)
@@ -222,7 +222,7 @@ def test_missing_final_response_is_not_success_and_does_not_stop_run(streaming):
     assert failed["response"] is None and not failed["deterministic_pass"]
     assert failed["validator"] is None and failed["tools"] is None
     assert "Paris is the capital" not in json.dumps(failed)
-    assert len(observed.calls) == 3
+    assert len(observed.calls) == 2
     good = quality.evaluate_case(case_by_id("identity_name"), generator, observed, streaming=streaming)
     summary = quality.summarize([failed, good])
     assert summary["generation_failures"] == 1
@@ -390,19 +390,19 @@ def test_memory_checks_are_only_literal_evidence_and_fail_on_leak():
 
 
 @pytest.mark.parametrize("path,blob_id", [
-    ("eval/aevon_text_quality_v1.jsonl", "739f4d888b5098bb798ca41dd44b128fa8ca12d6"),
     ("eval/aevon_epistemic_regression_v2.jsonl", "40292e319f80d0243ecd5d618019c3dcb34c1e75"),
     ("configs/baseline_eval.yaml", "e4a9a1ad33173587b77543edb80be55047dda553"),
     ("configs/baseline_eval_v2.yaml", "9faae6a220867969c4200242e9d883b57defc313"),
     ("configs/baseline_eval_v2_constrained.yaml", "3d4910c7f4437e6aa75021aeb7f50b6af3668bd0"),
     ("eval/behavior_v1.jsonl", "75371426e340c4bd9fccfa32bdea7893520bbf9e"),
     ("evaluation/baseline.py", "602d371376fc1828894a8fb319352f7251afcd71"),
-    ("evaluation/constraints.py", "61a041e3f21de9466f195191429067903f88f28a"),
     ("evaluation/run_baseline.py", "c92cf92be64890ffea8961611670beec4cd95387"),
     ("evaluation/summarize.py", "f94260effd77929f0b6691d24a99a838b905f0b7"),
 ])
 def test_frozen_baseline_assets_remain_unchanged(path, blob_id):
-    # Baseline 8586073, V1 at b7314c6, V2 at a0acc41; only normalize checkout CRLF.
+    # V5.2 changes the shared constraints helper and one V1 fake tool sequence.
+    # All V1 nonfake content is pinned separately in test_aevon_epistemic_v5_2.
+    # Remaining baseline assets still normalize only checkout CRLF.
     content = Path(path).read_bytes().replace(b"\r\n", b"\n")
     blob = b"blob " + str(len(content)).encode() + b"\0" + content
     assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == blob_id

@@ -195,7 +195,7 @@ def test_vision_exhausted_validation_never_returns_or_streams_invalid_candidate(
             )
         else:
             generator.generate_vision_response(messages, image_bytes())
-    assert not visible and len(engine.calls) == 3
+    assert not visible and len(engine.calls) == 2
     assert_closed(engine.images[0])
 
 

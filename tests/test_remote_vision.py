@@ -254,7 +254,7 @@ def test_remote_vision_tools_repairs_projection_and_grant_lifetime(
     tmp_path, monkeypatch, streaming
 ):
     tool = '<tool_call>{"name":"calculator","arguments":{"expression":"17*83"}}</tool_call>'
-    harness = Harness([tool, "This has four words", "Product is 1411."])
+    harness = Harness([tool, "The product is 1411.", "Product is 1411."])
     app = make_app(tmp_path, harness.generator)
     original = AssetService.processing_bytes
     grants = []
@@ -808,7 +808,7 @@ def test_remote_failed_validation_existing_conversation_unchanged(tmp_path, stre
         else:
             assert response.status_code == 500
         assert client.get(f"/api/conversations/{conversation['id']}").json() == before
-        assert len(harness.requests) == 3 and counts(app) == (1, 0, 1)
+        assert len(harness.requests) == 2 and counts(app) == (1, 0, 1)
 
 
 def test_remote_partial_failure_has_no_persistence(tmp_path):

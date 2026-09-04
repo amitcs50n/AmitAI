@@ -234,7 +234,7 @@ def test_current_and_historical_memory_commands_and_acks_are_projected(streaming
 @pytest.mark.parametrize("streaming", [False, True])
 def test_command_retry_and_calculator_followup_cannot_restore_private_context(streaming) -> None:
     tool = '<tool_call>{"name":"calculator","arguments":{"expression":"17*83"}}</tool_call>'
-    harness = RemoteHarness([tool, "Too many words here", "Still too many words", "Memory update noted"])
+    harness = RemoteHarness([tool, "Local memory update noted", "Memory update noted"])
     app = create_test_app("sqlite+pysqlite:///:memory:", generator=harness.generator)
     with TestClient(app) as client:
         memory(client, "project.private", PRIVATE)
@@ -247,10 +247,10 @@ def test_command_retry_and_calculator_followup_cannot_restore_private_context(st
         response, events = chat(client, command, streaming, seeded["conversation_id"])
         result = assert_success(response, events, streaming)
         assert result["response"] == "Memory update noted"
-        assert result["metadata"]["validator"]["retry_count"] == 2
+        assert result["metadata"]["validator"]["retry_count"] == 1
         assert result["metadata"]["validator"]["final_validation"]["passed"] is True
         assert result["metadata"]["tools"][0]["success"] is True
-        assert len(harness.calls) == 4
+        assert len(harness.calls) == 3
         for call in harness.calls:
             body = json.dumps(call)
             assert PRIVATE not in body and COMMAND_KEY not in body and COMMAND_VALUE not in body
@@ -669,7 +669,7 @@ def test_remote_filter_never_tops_up_retrieval_budget(value_size) -> None:
 @pytest.mark.parametrize("constrained", [False, True])
 def test_ordinary_tool_and_retry_requests_keep_allowed_memory_but_never_restore_dropped_context(streaming, constrained) -> None:
     tool = '<tool_call>{"name":"calculator","arguments":{"expression":"17*83"}}</tool_call>'
-    outputs = [tool, "Invalid four word answer", "It is 1411"] if constrained else [tool, "It is 1411"]
+    outputs = [tool, "The result is 1411", "It is 1411"] if constrained else [tool, "It is 1411"]
     harness = RemoteHarness(outputs)
     # The explicit scope, not this deliberately misleading label, determines policy.
     harness.provider.provider_name = "local-transformers"

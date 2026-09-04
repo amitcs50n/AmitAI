@@ -10,7 +10,7 @@ SUPPORTED_CONSTRAINT_TYPES = (
     "at_most_bullets",
     "code_only",
 )
-MAX_MECHANICAL_RETRIES = 2
+MAX_MECHANICAL_RETRIES = 1
 
 _WRITTEN_SMALL_NUMBERS = {
     "zero": 0,
@@ -358,7 +358,7 @@ def _build_count_retry_guidance(check: Any) -> str | None:
                 direction,
                 "Count words exactly as whitespace-separated tokens.",
                 edit,
-                "Do not rewrite it from scratch unless unavoidable.",
+                "Do not solve the task again or rewrite it from scratch.",
                 (
                     "Before returning, internally recount using whitespace-separated "
                     f"tokens and ensure the final total is exactly {expected} words."
@@ -375,14 +375,14 @@ def _build_count_retry_guidance(check: Any) -> str | None:
                 f"Edit the previous answer minimally and add exactly {difference} "
                 f"{difference_unit}."
             )
-            preservation = "Preserve the original task and content."
+            preservation = "Split existing content without adding factual claims."
         else:
             direction = f"The answer has {difference} excess {difference_unit}."
             edit = (
                 f"Edit the previous answer minimally and remove exactly {difference} "
                 f"{difference_unit}."
             )
-            preservation = "Preserve the strongest relevant content."
+            preservation = "Merge bullets without dropping factual claims or qualifications."
         return "\n".join(
             [
                 f"The previous answer contains {actual} Markdown list-item bullets.",
@@ -413,7 +413,7 @@ def _build_count_retry_guidance(check: Any) -> str | None:
                     f"Edit the previous answer minimally and remove exactly {difference} "
                     f"{difference_unit} so the final count is no more than {expected}."
                 ),
-                "Preserve the most important content.",
+                "Merge bullets without dropping factual claims or qualifications.",
                 "Do not invent unnecessary services or details.",
                 (
                     "Before returning, internally recount the Markdown list-item bullets "
@@ -456,11 +456,44 @@ def build_retry_prompt(
         f"{previous_response}\n\n"
         "Validation failure:\n"
         f"{measured_failure}\n\n"
-        "Rewrite the answer so it satisfies the original request and the measured constraint."
+        "FORMAT REPAIR of the existing answer; do not solve the task again.\n"
+        "Preserve the factual claims, entities, numbers, dates, polarity, negation, "
+        "comparison direction, uncertainty, qualifications, quoted literal identifiers, "
+        "tool-derived values, and answer meaning from the original response. "
+        "Preserve factual subject/object relationships. Change only what is necessary "
+        "to satisfy the listed mechanical constraints. Do not add new facts, reverse "
+        "relationships, change numbers, invent entities, or strengthen/weaken uncertainty.\n"
+        "Do not call tools or recompute tool results; repair only the final text. "
+        "If the constraints cannot be met without changing meaning, preserve meaning "
+        "even if the mechanical validation still fails."
         f"{directional_guidance}"
-        "Preserve the original content, tone, and task requirements as much as possible.\n"
         "Output only the corrected answer."
     )
+
+
+def validate_repair_literals(original: str, repaired: str) -> dict[str, Any]:
+    """Reject obvious literal mutations, without claiming semantic equivalence."""
+    def literals(text: str) -> tuple[set[str], set[str]]:
+        # List numbering is presentation, not an answer value. No normalization
+        # of actual numbers/identifiers: ambiguous rewrites fail conservatively.
+        text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
+        numbers = set(re.findall(r"(?<![\w.])[+-]?\d+(?:[.,:/-]\d+)*(?!\w)", text))
+        identifiers = set(re.findall(r"(?<!`)`([A-Za-z_][A-Za-z0-9_.:-]*)`(?!`)", text))
+        return numbers, identifiers
+
+    old_numbers, old_identifiers = literals(original)
+    new_numbers, new_identifiers = literals(repaired)
+    failures = []
+    if old_numbers != new_numbers:
+        failures.append("repair_changed_numeric_literals")
+    if old_identifiers != new_identifiers:
+        failures.append("repair_changed_quoted_identifiers")
+    old_polarity = re.match(r"\s*(yes|no)\b", original, re.IGNORECASE)
+    new_polarity = re.match(r"\s*(yes|no)\b", repaired, re.IGNORECASE)
+    if (old_polarity and new_polarity
+            and old_polarity[1].casefold() != new_polarity[1].casefold()):
+        failures.append("repair_reversed_leading_polarity")
+    return {"passed": not failures, "failures": failures}
 
 
 def validate_with_bounded_retries(
@@ -518,6 +551,11 @@ def validate_with_bounded_retries(
             raise ValueError("Corrective model retry returned an empty response")
         retry_response = retry_response.strip()
         retry_validation = validate_response(retry_response, constraints)
+        repair_safety = validate_repair_literals(original_response, retry_response)
+        if not repair_safety["passed"]:
+            retry_validation["passed"] = False
+            retry_validation["failures"].extend(repair_safety["failures"])
+        result["repair_safety"] = repair_safety
         retry_attempts.append(
             {
                 "attempt": attempt_number,
@@ -525,6 +563,7 @@ def validate_with_bounded_retries(
                 "prompt": retry_prompt,
                 "response": retry_response,
                 "validation": retry_validation,
+                "repair_safety": repair_safety,
                 "passed": retry_validation["passed"],
             }
         )
@@ -555,7 +594,7 @@ def validate_with_one_retry(
     original_response: str,
     retry: Callable[[str], str],
 ) -> dict[str, Any]:
-    """Compatibility wrapper for the bounded two-retry production policy."""
+    """Compatibility wrapper for the single-repair production policy."""
 
     return validate_with_bounded_retries(
         original_prompt,

@@ -546,5 +546,6 @@ def test_cli_resume_and_completed_error_are_content_free(tmp_path, monkeypatch, 
 def test_case_file_is_byte_logically_unchanged():
     content = quality.DEFAULT_CASES.read_bytes().replace(b"\r\n", b"\n")
     blob = b"blob " + str(len(content)).encode() + b"\0" + content
-    # Pinned to the production benchmark dataset in baseline 8585976.
-    assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == "739f4d888b5098bb798ca41dd44b128fa8ca12d6"
+    # V5.2 removes only the repeated tool call from tools_constrained_final's
+    # fake sequence. All 54 prompts/rubrics/expectations are independently pinned.
+    assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == "258c16b876a4c54be3e56fe46b89551b8386969f"

@@ -542,55 +542,23 @@ def test_first_bounded_repair_passes_and_stops_after_one_retry() -> None:
     assert result.output_tokens == 5
 
 
-def test_second_repair_uses_latest_failure_and_aggregates_all_token_usage() -> None:
-    generator, engine, _ = _generator_with_engine(
-        [
-            GenerationOutput("one two three", 100, 20),
-            GenerationOutput("one two three four", 130, 15),
-            GenerationOutput("one two three four five", 125, 12),
-        ]
-    )
+def test_failed_first_repair_does_not_consume_an_available_successful_second_repair():
+    generator, engine, _ = _generator_with_engine([
+        GenerationOutput("one two three", 100, 20),
+        GenerationOutput("one two three four", 130, 15),
+        GenerationOutput("one two three four five", 125, 12),
+    ])
     history = [
-        GenerationMessage(role="user", content="Earlier question"),
-        GenerationMessage(role="assistant", content="Earlier answer"),
-        GenerationMessage(role="user", content="Write exactly 5 words."),
+        GenerationMessage("user", "Earlier question"),
+        GenerationMessage("assistant", "Earlier answer"),
+        GenerationMessage("user", "Write exactly 5 words."),
     ]
-
-    result = generator.generate_response(history)
-
-    assert len(engine.calls) == 3
-    for retry_call in engine.calls[1:]:
-        _assert_tool_system_message(retry_call[0][0])
-        assert retry_call[0][1:3] == [
-            {"role": "user", "content": "Earlier question"},
-            {"role": "assistant", "content": "Earlier answer"},
-        ]
-        assert len(retry_call[0]) == 4
-    first_retry_prompt = engine.calls[1][0][-1]["content"]
-    second_retry_prompt = engine.calls[2][0][-1]["content"]
-    assert "Previous answer:\none two three" in first_retry_prompt
-    assert "2 words short" in first_retry_prompt
-    assert "add exactly 2 words" in first_retry_prompt
-    assert "Previous answer:\none two three four" in second_retry_prompt
-    assert "1 word short" in second_retry_prompt
-    assert "add exactly 1 word" in second_retry_prompt
-    assert "contains 3 whitespace-separated words" not in second_retry_prompt
-    assert result.response == "one two three four five"
-    assert result.validator["retry_attempted"] is True
-    assert result.validator["first_retry_passed"] is False
-    assert result.validator["retry_passed"] is True
-    assert result.validator["retry_count"] == 2
-    assert result.validator["final_validation"]["passed"] is True
-    assert set(result.validator) == {
-        "retry_attempted",
-        "retry_passed",
-        "retry_count",
-        "parsed_constraints",
-        "final_validation",
-        "first_retry_passed",
-    }
-    assert result.input_tokens == 355
-    assert result.output_tokens == 47
+    with pytest.raises(ChatGenerationError, match="Assistant generation failed"):
+        generator.generate_response(history)
+    assert len(engine.calls) == 2
+    assert engine.calls[1][0][:-1] == engine.calls[0][0][:-1]
+    assert "Previous answer:\none two three" in engine.calls[1][0][-1]["content"]
+    assert "2 words short" in engine.calls[1][0][-1]["content"]
 
 
 def test_tool_protocol_precedes_mechanical_validation_of_final_answer() -> None:
@@ -629,7 +597,7 @@ def test_tool_protocol_precedes_mechanical_validation_of_final_answer() -> None:
     assert "<tool_call>" not in engine.calls[2][0][-1]["content"]
 
 
-def test_mechanical_repair_shares_the_request_tool_attempt_budget() -> None:
+def test_mechanical_repair_cannot_reenter_the_tool_loop() -> None:
     call = _tool_call("calculator", {"expression": "17 * 83"})
     generator, engine, _ = _generator_with_engine(
         [
@@ -646,7 +614,7 @@ def test_mechanical_repair_shares_the_request_tool_attempt_budget() -> None:
             [GenerationMessage(role="user", content="Answer in exactly 3 words.")]
         )
 
-    assert len(engine.calls) == 5
+    assert len(engine.calls) == 3
 
 
 def test_exhausted_exact_word_repairs_fail_instead_of_returning_final_candidate() -> None:
@@ -668,7 +636,7 @@ def test_exhausted_exact_word_repairs_fail_instead_of_returning_final_candidate(
             ]
         )
 
-    assert len(engine.calls) == 3
+    assert len(engine.calls) == 2
 
 
 def test_latency_covers_the_complete_original_and_repair_flow() -> None:
@@ -1091,7 +1059,7 @@ def test_runtime_app_rejects_final_validation_failure_without_persistence(
         assert existing_response.json() == {"detail": "Assistant generation failed"}
         assert after == before
 
-    assert len(engine.calls) == 6
+    assert len(engine.calls) == 4
 
 
 def test_unconstrained_runtime_streams_multiple_exact_deltas_with_full_history() -> None:
@@ -1632,7 +1600,7 @@ def test_constrained_runtime_stream_exhaustion_emits_no_failed_candidate() -> No
     with pytest.raises(ChatGenerationError, match="Assistant generation failed"):
         next(stream)
 
-    assert len(engine.calls) == 3
+    assert len(engine.calls) == 2
 
 
 def test_constrained_runtime_disconnect_cancels_buffered_candidate_before_retry() -> None:

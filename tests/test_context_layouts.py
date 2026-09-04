@@ -147,7 +147,7 @@ def test_no_promotion_of_history_lookalikes_and_all_trusted_records_preserved(la
 def test_real_orchestration_preserves_layout_on_tools_retries_local_remote(layout, vision, streaming):
     messages = _messages("Calculate 2+3, then answer in exactly 3 words.")
     tool = '<tool_call>{"name":"calculator","arguments":{"expression":"2+3"}}</tool_call>'
-    outputs = [tool, "This candidate has too many words.", tool, "Five is correct."]
+    outputs = [tool, "The correct answer is five.", "Five is correct."]
     with runtime_pair(outputs) as (local, remote, _harness):
         for generator, engine in (local, remote):
             canonical = generator._model_messages(messages)
@@ -161,8 +161,8 @@ def test_real_orchestration_preserves_layout_on_tools_retries_local_remote(layou
             else:
                 method = generator.generate_vision_response if vision else generator.generate_response
                 result = method(*args, **kwargs)
-            assert result.validator["retry_count"] == 1 and len(result.tools) == 2
-            assert len(engine.calls) == 4
+            assert result.validator["retry_count"] == 1 and len(result.tools) == 1
+            assert len(engine.calls) == 3
             assert _text_messages(engine.calls[0][0]) == expected
             for index, (model_messages, settings) in enumerate(engine.calls):
                 actual = _text_messages(model_messages)
@@ -173,7 +173,7 @@ def test_real_orchestration_preserves_layout_on_tools_retries_local_remote(layou
                 assert prompt.count(messages[0].content) == 1
                 assert prompt.count(OMISSION_SECTION) == 1
                 assert "OLD_DROPPED_IDENTITY_HISTORY" not in prompt
-                if index in (1, 3):
+                if index == 1:
                     assert actual[-2]["role"] == "assistant"
                     assert actual[-1]["content"].startswith("<tool_result>")
                 if layout in ("C", "D"):
