@@ -20,13 +20,15 @@ from backend.vision_grant import RemoteVisionGrant, require_remote_vision_grant
 from evaluation.constraints import (
     MAX_MECHANICAL_RETRIES,
     parse_constraints,
+    validate_response,
     validate_with_bounded_retries,
 )
 from evaluation.hf_backend import GenerationOutput
 
 from .calculator import CalculatorTool
 from .config import RuntimeConfig
-from .context import compile_model_messages
+from .context import CompiledModelContext, compile_model_context
+from .epistemic import epistemic_preflight
 from .media import decoded_vision_image
 from .privacy import InferenceExecutionScope, RemoteDisclosureBlockedError, require_execution_scope
 from .providers import (
@@ -85,6 +87,7 @@ class ProviderChatGenerator:
         provider: InferenceProvider,
         clock: Callable[[], float] = time.perf_counter,
         tool_registry: ToolRegistry | None = None,
+        _text_epistemic_guards: bool = True,
     ) -> None:
         if not config.mechanical_constraints_enabled:
             raise ValueError("Runtime mechanical constraint validation must be enabled")
@@ -93,6 +96,7 @@ class ProviderChatGenerator:
         self._execution_scope = require_execution_scope(provider)
         self._clock = clock
         self._tool_registry = tool_registry or ToolRegistry([CalculatorTool()])
+        self._text_epistemic_guards = _text_epistemic_guards
 
     @property
     def supports_vision(self) -> bool:
@@ -114,6 +118,7 @@ class ProviderChatGenerator:
         return ProviderChatGenerator(
             self.config, provider=RemoteVisionSession(self._provider, image_png, remote_grant),
             clock=self._clock, tool_registry=self._tool_registry,
+            _text_epistemic_guards=False,
         )
 
     def _vision_session(self, image) -> ProviderChatGenerator:
@@ -122,6 +127,7 @@ class ProviderChatGenerator:
         return ProviderChatGenerator(
             self.config, provider=LocalVisionSession(self._provider, image),
             clock=self._clock, tool_registry=self._tool_registry,
+            _text_epistemic_guards=False,
         )
 
     def generate_vision_response(
@@ -487,11 +493,37 @@ class ProviderChatGenerator:
         self,
         messages: Sequence[GenerationMessage],
     ) -> list[dict[str, str]]:
-        return compile_model_messages(
+        return self._compile_context(messages).messages
+
+    def _compile_context(self, messages: Sequence[GenerationMessage]) -> CompiledModelContext:
+        return compile_model_context(
             messages,
             runtime_system_prompt=self.config.runtime_system_prompt,
             tool_instructions=self._tool_registry.instructions(),
             execution_scope=self._execution_scope,
+        )
+
+    def _guard_result(
+        self, context: CompiledModelContext, start: float,
+    ) -> ChatGenerationResult | None:
+        decision = epistemic_preflight(context) if self._text_epistemic_guards else None
+        if decision is None:
+            return None
+        constraints = parse_constraints(context.messages[-1]["content"])
+        validation = validate_response(decision.deterministic_response, constraints)
+        return ChatGenerationResult(
+            response=decision.deterministic_response, model=self._provider.model_name,
+            latency_ms=max(0, int((self._clock() - start) * 1000)),
+            input_tokens=0, output_tokens=0, tools=[], memory=[],
+            validator={
+                "retry_attempted": False, "retry_passed": None, "retry_count": 0,
+                "parsed_constraints": constraints, "final_validation": validation,
+                "epistemic_guardrail": {
+                    "triggered": True, "kind": decision.kind, "reason": decision.reason,
+                    "provider_bypassed": True,
+                    "mechanical_override": not validation["passed"],
+                },
+            },
         )
 
     @staticmethod
@@ -519,11 +551,17 @@ class ProviderChatGenerator:
         self,
         messages: Sequence[GenerationMessage],
         generate_once: Callable[[list[dict[str, str]]], GenerationOutput],
+        *,
+        compiled_context: CompiledModelContext | None = None,
     ) -> ChatGenerationResult:
         if not messages or messages[-1].role != "user":
             raise ValueError("Runtime chat messages must end with the current user turn")
 
         start = self._clock()
+        context = compiled_context if compiled_context is not None else self._compile_context(messages)
+        guarded = self._guard_result(context, start)
+        if guarded is not None:
+            return guarded
         current_prompt = messages[-1].content
         prior_history = tuple(messages[:-1])
         input_tokens = 0
@@ -543,7 +581,7 @@ class ProviderChatGenerator:
             tool_records.extend(loop_output.tools)
             return loop_output.output.text
 
-        model_messages = self._model_messages(messages)
+        model_messages = context.messages
         original_response = generate(model_messages)
 
         def retry(corrective_prompt: str) -> str:
@@ -584,6 +622,19 @@ class ProviderChatGenerator:
         if not messages or messages[-1].role != "user":
             raise ValueError("Runtime chat messages must end with the current user turn")
 
+        if cancel_event.is_set():
+            return
+        start = self._clock()
+        context = self._compile_context(messages)
+        guarded = self._guard_result(context, start)
+        if guarded is not None:
+            if cancel_event.is_set():
+                return
+            yield ChatGenerationDelta(delta=guarded.response)
+            if not cancel_event.is_set():
+                yield guarded
+            return
+
         current_prompt = messages[-1].content
         if parse_constraints(current_prompt):
             def generate_buffered(model_messages: list[dict[str, str]]) -> GenerationOutput:
@@ -610,17 +661,18 @@ class ProviderChatGenerator:
                     raise TypeError("Runtime engine stream ended without final output")
                 return output
 
-            result = self._generate_validated_response(messages, generate_buffered)
+            result = self._generate_validated_response(
+                messages, generate_buffered, compiled_context=context,
+            )
             if cancel_event.is_set():
                 return
             yield ChatGenerationDelta(delta=result.response)
             yield result
             return
 
-        start = self._clock()
         loop_output: _ToolLoopOutput | None = None
         tool_stream = self._stream_tool_loop(
-            self._model_messages(messages),
+            context.messages,
             cancel_event=cancel_event,
         )
         try:

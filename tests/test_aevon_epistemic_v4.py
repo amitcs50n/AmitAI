@@ -103,7 +103,7 @@ def test_context_grader_rejects_wrong_layout_or_missing_content():
     quality.evaluate_case(case, generator, observed)
     for calls in ([observed.calls[0][1:]], [[*observed.calls[0], {"role": "system", "content": "extra"}]]):
         checks = quality.grade(case, None, calls, config=generator.config, context_layout="B")
-        assert not next(check for check in checks if check["name"] == "experimental_layout_matches")["passed"]
+        assert not next(check for check in checks if check["name"] == "experimental_layout_or_bypass")["passed"]
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)

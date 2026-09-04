@@ -80,7 +80,12 @@ def test_v3_truncated_and_retained_fixtures_have_the_correct_signal_and_exact_me
         before = case.model_dump_json()
         row = quality.evaluate_case(case, generator, observed)
         assert row["deterministic_pass"], case.id
-        compiled = observed.calls[0]
+        # V5 may handle this frozen case locally; never invent a provider call.
+        compiled = observed.calls[0] if observed.calls else generator._model_messages(
+            quality.generation_messages(case),
+        )
+        if not observed.calls:
+            assert row["validator"]["epistemic_guardrail"]["provider_bypassed"] is True
         assert compiled[0]["content"].count(HISTORY_OMISSION_NOTICE) == int(bool(case.history_fixture))
         if case.history_fixture:
             raw = quality.generation_messages(case)

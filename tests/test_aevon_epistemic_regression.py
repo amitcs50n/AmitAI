@@ -114,14 +114,16 @@ def test_v2_fake_run_artifacts_and_review_status(tmp_path, streaming):
     "memory_user_correction_control", "history_first_message_count", "history_removed_exchange",
     "history_recent_fact_control",
 ])
-def test_v2_provider_sees_only_supplied_trusted_context_and_retained_history(case_id):
+def test_v2_context_contains_only_supplied_trusted_context_and_retained_history(case_id):
     case = case_by_id(case_id)
     before = case.model_dump_json()
     source = quality.generation_messages(case)
     generator, observed = quality.build_runtime("fake")
     row = quality.evaluate_case(case, generator, observed)
     assert row["deterministic_pass"]
-    compiled = observed.calls[0]
+    compiled = observed.calls[0] if observed.calls else generator._model_messages(source)
+    if not observed.calls:
+        assert row["validator"]["epistemic_guardrail"]["provider_bypassed"] is True
     assert compiled[0]["content"].startswith(generator.config.runtime_system_prompt + "\n\n")
     assert compiled[-1] == {"role": "user", "content": case.messages[-1].content}
     supplied = [{"role": message.role, "content": message.content} for message in source]
@@ -158,6 +160,12 @@ def test_v2_repairs_preserve_prompt_memory_and_do_not_restore_history(case_id, s
     generator, observed = quality.build_runtime("fake")
     row = quality.evaluate_case(case, generator, observed, streaming=streaming)
     assert row["deterministic_pass"]
+    if case_id == "history_first_message_count":
+        # V5 refuses missing-history reconstruction before formatting repair.
+        assert row["validator"]["epistemic_guardrail"]["kind"] == "missing_history"
+        assert row["validator"]["retry_count"] == 0 and not observed.calls
+        assert row["provider_calls"] == 0 and row["tools"] == []
+        return
     assert row["validator"]["retry_count"] == 1
     assert len(observed.calls) == 2
     assert observed.calls[0][:-1] == observed.calls[1][:-1]

@@ -16,7 +16,14 @@ from pathlib import Path
 from threading import Event
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 from backend.chat_service import ChatGenerationDelta, ChatGenerationResult, GenerationMessage
 from backend.memory import MAX_MEMORY_CONTEXT_CHARS, MAX_RETRIEVED_MEMORIES, format_memory_context
@@ -43,6 +50,7 @@ from runtime.config import (
     load_production_runtime_config,
 )
 from runtime.context import MAX_HISTORY_CONTEXT_CHARS, MAX_HISTORY_MESSAGES, compile_model_messages
+from runtime.epistemic import EpistemicGuardKind
 from runtime.generator import ProviderChatGenerator
 from runtime.privacy import InferenceExecutionScope
 from runtime.providers import (
@@ -89,6 +97,16 @@ class Expectations(StrictModel):
     memory_not_contains: list[Text] = Field(default_factory=list)
     context_contains: list[Text] = Field(default_factory=list)
     context_not_contains: list[Text] = Field(default_factory=list)
+    epistemic_guardrail: EpistemicGuardKind | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_expectations(self, handler):
+        # Absent in frozen V1-V4 means no guard expectation was declared then.
+        # Explicit null in V5 asserts provider execution and no guard metadata.
+        result = handler(self)
+        if "epistemic_guardrail" not in self.model_fields_set:
+            result.pop("epistemic_guardrail", None)
+        return result
 
 
 class QualityCase(StrictModel):
@@ -280,6 +298,7 @@ def grade(
     *,
     config: RuntimeConfig,
     context_layout: Layout | None = None,
+    execution_scope: InferenceExecutionScope = InferenceExecutionScope.LOCAL,
 ) -> list[dict[str, Any]]:
     """Small literal checks are evidence, never a substitute for semantic review."""
     checks: list[dict[str, Any]] = []
@@ -290,7 +309,24 @@ def grade(
     def add(name: str, group: str, passed: bool, detail: object = None) -> None:
         checks.append({"name": name, "group": group, "passed": passed, "detail": detail})
 
-    add("generation_completed", "generation", result is not None)
+    add("generation_completed", "generation", result is not None and bool(text.strip()))
+    guard = result.validator.get("epistemic_guardrail") if result is not None else None
+    legacy = "epistemic_guardrail" not in expected.model_fields_set
+    expects_guard = expected.epistemic_guardrail is not None
+    valid_guard = isinstance(guard, dict) and (
+        guard.get("triggered") is True and guard.get("provider_bypassed") is True
+        and guard.get("kind") in get_args(EpistemicGuardKind)
+    )
+    add("epistemic_guard_expectation", "epistemic", result is not None and (
+        (valid_guard and guard["kind"] == expected.epistemic_guardrail) if expects_guard
+        else (legacy or "epistemic_guardrail" not in result.validator)
+    ))
+    bypassed = expects_guard or (legacy and valid_guard)
+    add("provider_execution_contract", "epistemic", result is not None and (
+        valid_guard and not calls and result.tools == []
+        and result.input_tokens == 0 and result.output_tokens == 0
+        if bypassed else bool(calls) and guard is None
+    ))
     add("no_protocol_leakage", "tools", result is not None and not any(
         marker in folded for marker in ("<tool_", "</tool_", "<memory_context", "memory_context_v1")
     ))
@@ -323,22 +359,32 @@ def grade(
     constraints = parse_constraints(case.messages[-1].content)
     if constraints:
         validation = validate_response(text, constraints) if result is not None else None
-        add("mechanical_constraints", "mechanical", validation is not None and validation["passed"],
+        override = bypassed and valid_guard and guard.get("mechanical_override") is True
+        add("mechanical_constraints", "mechanical", validation is not None and (
+            validation["passed"] or override
+        ),
             validation)
 
     initial = calls[0] if calls else []
-    if context_layout is not None:
+    if bypassed or context_layout is not None:
         canonical = compile_model_messages(
             generation_messages(case), runtime_system_prompt=config.runtime_system_prompt,
             tool_instructions=ToolRegistry([CalculatorTool()]).instructions(),
-            execution_scope=InferenceExecutionScope.LOCAL,
+            execution_scope=execution_scope,
         )
-        matches = initial == layout_messages(canonical, context_layout)
-        add("experimental_layout_matches", "context", matches)
-        # Existing order/limit checks describe canonical compilation. Normalize
-        # only after exact equality proves the requested layout reached the provider.
-        # The raw `calls` below still grade content across every tool/retry request.
+    if context_layout is not None:
+        matches = not calls if bypassed else initial == layout_messages(canonical, context_layout)
+        add("experimental_layout_or_bypass", "context", matches,
+            "compiled_locally_provider_bypassed" if bypassed else "provider_visible")
+        # Existing order/limit checks describe canonical compilation. For calls,
+        # exact equality proves layout delivery; bypass checks stay explicitly
+        # local. Raw calls below still check every tool/retry request.
         initial = canonical if matches else []
+    if bypassed:
+        initial = canonical
+    # Explicit provenance; local context checks never imply provider delivery.
+    add("context_source", "context", bool(initial),
+        "compiled_locally_provider_bypassed" if bypassed else "provider_visible")
     add("production_identity_context", "context", bool(initial) and initial[0]["content"].startswith(
         config.runtime_system_prompt + "\n\n"
     ))
@@ -357,8 +403,9 @@ def grade(
     for field, positive in (("context_contains", True), ("context_not_contains", False)):
         for index, phrase in enumerate(getattr(expected, field)):
             # All requests: repairs/tool followups must not restore dropped history.
-            add(f"{field}_{index}", "context", bool(calls) and all(
-                (phrase in "\n".join(item["content"] for item in call)) == positive for call in calls
+            contexts = [initial] if bypassed else calls
+            add(f"{field}_{index}", "context", bool(contexts) and all(
+                (phrase in "\n".join(item["content"] for item in call)) == positive for call in contexts
             ), phrase)
     return checks
 
@@ -392,7 +439,7 @@ def evaluate_case(
         error = "Assistant generation failed; final diagnostics unavailable"
     fake = isinstance(observed.provider, ScriptedProvider)
     checks = grade(case, result, observed.calls, config=generator.config,
-                   context_layout=observed.context_layout)
+                   context_layout=observed.context_layout, execution_scope=observed.execution_scope)
     if streaming:
         checks.append({
             "name": "stream_reconstruction", "group": "streaming",

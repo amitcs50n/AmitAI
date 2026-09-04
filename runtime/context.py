@@ -34,6 +34,24 @@ class _ProjectedMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class CompiledModelContext:
+    """Available provider input plus content-free conversational availability.
+
+    Counts exclude trusted frames and the current user. Latest-turn flags refer
+    to source positions, so privacy projection cannot substitute an older turn.
+    No omitted message, summary, or raw source is retained here.
+    """
+
+    messages: list[dict[str, str]]
+    history_truncated: bool
+    retained_history_count: int
+    retained_user_turn_count: int
+    latest_prior_turn_retained: bool
+    latest_prior_user_turn_retained: bool
+    trusted_context_count: int
+
+
 def _project(
     messages: Sequence[ContextMessage], scope: InferenceExecutionScope
 ) -> list[ContextMessage]:
@@ -79,13 +97,13 @@ def _select_recent_history(
     return selected, truncated
 
 
-def compile_model_messages(
+def compile_model_context(
     messages: Sequence[ContextMessage],
     *,
     runtime_system_prompt: str,
     tool_instructions: str,
     execution_scope: InferenceExecutionScope,
-) -> list[dict[str, str]]:
+) -> CompiledModelContext:
     """Compile the minimum deterministic context shared by every provider."""
 
     if not isinstance(execution_scope, InferenceExecutionScope):
@@ -107,9 +125,19 @@ def compile_model_messages(
     trusted_context = _project(trusted_context, execution_scope)
     # Decide only from projected history: private omissions and orphan cleanup
     # must not manufacture a limit-truncation signal or disclose removed content.
-    recent_history, truncated = _select_recent_history(
-        _project(prior_messages[history_start:], execution_scope)
-    )
+    history = prior_messages[history_start:]
+    projected_history: list[ContextMessage] = []
+    projected_positions: list[int] = []
+    for index, message in enumerate(history):
+        projected = _project([message], execution_scope)
+        if projected:
+            projected_history.extend(projected)
+            projected_positions.append(index)
+    recent_history, truncated = _select_recent_history(projected_history)
+    retained_positions = set(projected_positions[-len(recent_history):]) if recent_history else set()
+    # Only roles/positions are consulted outside the bounded projected content.
+    prior_turns = [i for i, message in enumerate(history) if message.role in ("user", "assistant")]
+    prior_users = [i for i, message in enumerate(history) if message.role == "user"]
     projected_current = _project(messages[-1:], execution_scope)
     if not projected_current:
         raise ValueError("Current user context must not be omitted")
@@ -117,7 +145,7 @@ def compile_model_messages(
     system_content = f"{runtime_system_prompt}\n\n{tool_instructions}"
     if truncated:
         system_content += f"\n\nCONTEXT_AVAILABILITY\n{HISTORY_OMISSION_NOTICE}"
-    return [
+    compiled = [
         {
             "role": "system",
             "content": system_content,
@@ -132,3 +160,26 @@ def compile_model_messages(
         ),
         {"role": current_user.role, "content": current_user.content},
     ]
+    return CompiledModelContext(
+        messages=compiled,
+        history_truncated=truncated,
+        retained_history_count=sum(m.role in ("user", "assistant") for m in recent_history),
+        retained_user_turn_count=sum(m.role == "user" for m in recent_history),
+        latest_prior_turn_retained=bool(prior_turns and prior_turns[-1] in retained_positions),
+        latest_prior_user_turn_retained=bool(prior_users and prior_users[-1] in retained_positions),
+        trusted_context_count=len(trusted_context),
+    )
+
+
+def compile_model_messages(
+    messages: Sequence[ContextMessage],
+    *,
+    runtime_system_prompt: str,
+    tool_instructions: str,
+    execution_scope: InferenceExecutionScope,
+) -> list[dict[str, str]]:
+    """Compatibility wrapper: preserve the V4 production message list exactly."""
+    return compile_model_context(
+        messages, runtime_system_prompt=runtime_system_prompt,
+        tool_instructions=tool_instructions, execution_scope=execution_scope,
+    ).messages

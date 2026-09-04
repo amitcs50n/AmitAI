@@ -27,7 +27,7 @@ from runtime.context import (
     HISTORY_OMISSION_NOTICE,
     MAX_HISTORY_CONTEXT_CHARS,
     MAX_HISTORY_MESSAGES,
-    compile_model_messages,
+    compile_model_context,
 )
 from runtime.generator import TransformersChatGenerator
 from tests.test_assets import image_bytes
@@ -254,9 +254,9 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
 
     def record_compilation(source, **kwargs):
         compiler_inputs.append(kwargs)
-        return compile_model_messages(source, **kwargs)
+        return compile_model_context(source, **kwargs)
 
-    monkeypatch.setattr("runtime.generator.compile_model_messages", record_compilation)
+    monkeypatch.setattr("runtime.generator.compile_model_context", record_compilation)
     with runtime_pair(outputs) as (local, remote, harness):
         for generator, engine in (local, remote):
             kwargs = {"remote_grant": RemoteVisionGrant(str(uuid4()), True)} if vision else {}
