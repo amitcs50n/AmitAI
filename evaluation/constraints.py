@@ -496,6 +496,59 @@ def validate_repair_literals(original: str, repaired: str) -> dict[str, Any]:
     return {"passed": not failures, "failures": failures}
 
 
+def _removable_articles(text: str, constraints: list[dict[str, Any]]) -> set[int]:
+    # Bare articles only. Quotes/code and ambiguous quote boundaries fail closed.
+    if any(c["type"] == "code_only" for c in constraints) or any(c in text for c in "“”‘’"):
+        return set()
+    spans = _paired_quote_spans(text)
+    if spans is None:
+        return set()
+    return {
+        index for index, token in enumerate(re.finditer(r"\S+", text))
+        if token[0].casefold() in {"a", "an", "the"}
+        and token[0] != "A"  # Ambiguous single-letter identifier, not a safe deletion.
+        and not any(start < token.start() and token.end() <= end for start, end in spans)
+    }
+
+
+def validate_exact_word_repair(
+    original: str, repaired: str, constraints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Trust only token order/case and bare article deletion, not a model rewrite."""
+    if not any(c["type"] == "exact_words" for c in constraints):
+        return {"passed": True, "failures": []}
+    removable = _removable_articles(original, constraints)
+    new_tokens = [token.casefold() for token in repaired.split()]
+    cursor = 0
+    for index, token in enumerate(original.split()):
+        if cursor < len(new_tokens) and token.casefold() == new_tokens[cursor]:
+            cursor += 1
+        elif index not in removable:
+            break
+    else:
+        if cursor == len(new_tokens):
+            return {"passed": True, "failures": []}
+    return {"passed": False, "failures": ["repair_changed_exact_word_tokens"]}
+
+
+def _delete_articles_to_exact_words(
+    original: str, constraints: list[dict[str, Any]],
+) -> str | None:
+    counts = {c["count"] for c in constraints if c["type"] == "exact_words"}
+    if len(counts) != 1:
+        return None
+    expected = counts.pop()
+    tokens = original.split()
+    excess = len(tokens) - expected
+    if expected <= 0 or excess <= 0:
+        return None
+    removable = sorted(_removable_articles(original, constraints))
+    if len(removable) < excess:
+        return None
+    removed = set(removable[:excess])
+    return " ".join(token for index, token in enumerate(tokens) if index not in removed)
+
+
 def validate_with_bounded_retries(
     original_prompt: str,
     original_response: str,
@@ -552,6 +605,9 @@ def validate_with_bounded_retries(
         retry_response = retry_response.strip()
         retry_validation = validate_response(retry_response, constraints)
         repair_safety = validate_repair_literals(original_response, retry_response)
+        exact_safety = validate_exact_word_repair(original_response, retry_response, constraints)
+        repair_safety["failures"].extend(exact_safety["failures"])
+        repair_safety["passed"] = not repair_safety["failures"]
         if not repair_safety["passed"]:
             retry_validation["passed"] = False
             retry_validation["failures"].extend(repair_safety["failures"])
@@ -581,6 +637,23 @@ def validate_with_bounded_retries(
                 second_validation=retry_validation,
                 retry_passed=retry_validation["passed"],
             )
+        if not repair_safety["passed"] and original_response.strip():
+            safe_edit = _delete_articles_to_exact_words(original_response, constraints)
+            if (safe_edit is not None
+                    and validate_response(safe_edit, constraints)["passed"]
+                    and validate_repair_literals(original_response, safe_edit)["passed"]):
+                result.update(
+                    final_response=safe_edit,
+                    final_validation=validate_response(safe_edit, constraints),
+                    deterministic_repair_used=True,
+                )
+            else:
+                result.update(
+                    final_response=original_response,
+                    final_validation=first_validation,
+                    semantic_fallback_used=True,
+                )
+            break
         if retry_validation["passed"]:
             break
         latest_response = retry_response

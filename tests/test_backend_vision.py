@@ -357,7 +357,7 @@ def test_advertised_native_vision_load_failure_never_falls_back_to_stub(tmp_path
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_successful_vision_generation_and_retry_always_outside_sql_transaction(tmp_path, streaming):
-    engine = VisionEngine(["Invalid answer with four words", "Red square shown."])
+    engine = VisionEngine(["The red square shown.", "Red square shown."])
     generator, _ = vision_generator(engine)
     app = make_app(tmp_path, generator)
     with TestClient(app) as client:

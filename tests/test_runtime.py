@@ -279,7 +279,7 @@ def test_every_mechanical_retry_reuses_the_same_minimized_history() -> None:
     prompt = "Answer in exactly 3 words."
     generator, engine, _ = _generator_with_engine(
         [
-            GenerationOutput("Only two", 10, 2),
+            GenerationOutput("The One two three", 10, 2),
             GenerationOutput("One two three", 12, 3),
         ]
     )
@@ -321,7 +321,7 @@ def test_buffered_streaming_retry_reuses_the_same_minimized_history() -> None:
     prompt = "Answer in exactly 3 words."
     engine = StreamingSequenceEngine(
         [
-            ["Only", " two", GenerationOutput("Only two", 10, 2)],
+            ["The One", " two three", GenerationOutput("The One two three", 10, 2)],
             ["One two", " three", GenerationOutput("One two three", 12, 3)],
         ]
     )
@@ -517,7 +517,7 @@ def test_unsafe_calculator_payload_is_sanitized_from_runtime_metadata() -> None:
 def test_first_bounded_repair_passes_and_stops_after_one_retry() -> None:
     generator, engine, _ = _generator_with_engine(
         [
-            GenerationOutput("Only two", 10, 2),
+            GenerationOutput("The One two three", 10, 2),
             GenerationOutput("One two three", 12, 3),
         ]
     )
@@ -531,7 +531,7 @@ def test_first_bounded_repair_passes_and_stops_after_one_retry() -> None:
     assert len(engine.calls[1][0]) == 2
     assert engine.calls[1][0][-1]["role"] == "user"
     assert "Original user request:\nAnswer in exactly 3 words." in engine.calls[1][0][-1]["content"]
-    assert "Previous answer:\nOnly two" in engine.calls[1][0][-1]["content"]
+    assert "Previous answer:\nThe One two three" in engine.calls[1][0][-1]["content"]
     assert result.response == "One two three"
     assert result.validator["retry_attempted"] is True
     assert result.validator["retry_passed"] is True
@@ -545,7 +545,7 @@ def test_first_bounded_repair_passes_and_stops_after_one_retry() -> None:
 def test_failed_first_repair_does_not_consume_an_available_successful_second_repair():
     generator, engine, _ = _generator_with_engine([
         GenerationOutput("one two three", 100, 20),
-        GenerationOutput("one two three four", 130, 15),
+        GenerationOutput("one two three", 130, 15),
         GenerationOutput("one two three four five", 125, 12),
     ])
     history = [
@@ -567,7 +567,7 @@ def test_tool_protocol_precedes_mechanical_validation_of_final_answer() -> None:
         [
             GenerationOutput(call, 10, 10),
             GenerationOutput("The result is 1411", 12, 4),
-            GenerationOutput("Result equals 1411", 14, 3),
+            GenerationOutput("Result is 1411", 14, 3),
         ]
     )
 
@@ -581,7 +581,7 @@ def test_tool_protocol_precedes_mechanical_validation_of_final_answer() -> None:
     )
 
     assert len(engine.calls) == 3
-    assert result.response == "Result equals 1411"
+    assert result.response == "Result is 1411"
     assert result.validator["retry_count"] == 1
     assert result.validator["final_validation"]["passed"] is True
     assert result.tools == [
@@ -621,8 +621,8 @@ def test_exhausted_exact_word_repairs_fail_instead_of_returning_final_candidate(
     generator, engine, _ = _generator_with_engine(
         [
             GenerationOutput("Paris is the capital", 10, 4),
-            GenerationOutput("France has Paris capital", 12, 4),
-            GenerationOutput("Paris remains the capital", 14, 4),
+            GenerationOutput("Paris is the capital", 12, 4),
+            GenerationOutput("Paris is the capital", 14, 4),
         ]
     )
 
@@ -642,7 +642,7 @@ def test_exhausted_exact_word_repairs_fail_instead_of_returning_final_candidate(
 def test_latency_covers_the_complete_original_and_repair_flow() -> None:
     engine = SequenceEngine(
         [
-            GenerationOutput("Only two", 10, 2),
+            GenerationOutput("The One two three", 10, 2),
             GenerationOutput("One two three", 12, 3),
         ]
     )
@@ -883,7 +883,7 @@ def test_runtime_app_runs_bounded_repair_and_persists_only_final_chat_messages(
 ) -> None:
     engine = SequenceEngine(
         [
-            GenerationOutput("Only two", input_tokens=10, output_tokens=2),
+            GenerationOutput("The One two three", input_tokens=10, output_tokens=2),
             GenerationOutput("One two three", input_tokens=12, output_tokens=3),
         ]
     )
@@ -1014,8 +1014,8 @@ def test_runtime_app_rejects_final_validation_failure_without_persistence(
 ) -> None:
     failed_attempts = [
         GenerationOutput("Paris is the capital", input_tokens=10, output_tokens=4),
-        GenerationOutput("France has Paris capital", input_tokens=12, output_tokens=4),
-        GenerationOutput("Paris remains the capital", input_tokens=14, output_tokens=4),
+        GenerationOutput("Paris is the capital", input_tokens=12, output_tokens=4),
+        GenerationOutput("Paris is the capital", input_tokens=14, output_tokens=4),
     ]
     engine = SequenceEngine([*failed_attempts, *failed_attempts])
 
@@ -1485,7 +1485,7 @@ def test_malformed_late_reserved_prefix_is_suppressed_without_rewind() -> None:
 
 
 def test_constrained_runtime_stream_hides_failed_candidate_and_emits_only_validated_final() -> None:
-    failed_candidate = "LEAKED FAILED CANDIDATE TEXT"
+    failed_candidate = "The One two three"
     generator, engine, _ = _generator_with_engine(
         [
             GenerationOutput(failed_candidate, input_tokens=10, output_tokens=3),
@@ -1530,8 +1530,8 @@ def test_constrained_tool_stream_validates_only_final_natural_answer() -> None:
                 GenerationOutput("The result is 1411", input_tokens=12, output_tokens=4),
             ],
             [
-                "Result equals 1411",
-                GenerationOutput("Result equals 1411", input_tokens=14, output_tokens=3),
+                "Result is 1411",
+                GenerationOutput("Result is 1411", input_tokens=14, output_tokens=3),
             ],
         ]
     )
@@ -1558,8 +1558,8 @@ def test_constrained_tool_stream_validates_only_final_natural_answer() -> None:
     final = next(
         item for item in stream_items if isinstance(item, ChatGenerationResult)
     )
-    assert deltas == ["Result equals 1411"]
-    assert final.response == "Result equals 1411"
+    assert deltas == ["Result is 1411"]
+    assert final.response == "Result is 1411"
     assert call not in repr(stream_items)
     assert "The result is 1411" not in repr(stream_items)
     assert final.tools[0]["result"] == "1411"
@@ -1570,8 +1570,8 @@ def test_constrained_tool_stream_validates_only_final_natural_answer() -> None:
 def test_constrained_runtime_stream_exhaustion_emits_no_failed_candidate() -> None:
     failed_candidates = [
         "Paris is the capital",
-        "France has Paris capital",
-        "Paris remains the capital",
+        "Paris is the capital",
+        "Paris is the capital",
     ]
     engine = StreamingSequenceEngine(
         [

@@ -391,8 +391,10 @@ def test_one_failed_repair_stops_without_consuming_a_second_candidate(prompt, or
     assert "Previous answer:\n" + original in calls[0]
     assert result["first_validation"]["passed"] is False
     assert result["retry_passed"] is False
-    assert result["second_validation"] == result["final_validation"]
-    assert result["retry_response"] == result["final_response"] == first
+    fallback = result.get("semantic_fallback_used", False)
+    assert result["final_validation"] == (result["first_validation"] if fallback else result["second_validation"])
+    assert result["retry_response"] == first
+    assert result["final_response"] == (original if fallback else first)
     assert result["final_validation"]["passed"] is False
     assert next(responses) == unused
 
@@ -443,22 +445,22 @@ def test_failing_response_is_fixed_by_the_first_retry_with_complete_prompt() -> 
 
     result = validate_with_one_retry(
         "Answer in exactly 3 words.",
-        "Only two",
+        "The One two three",
         retry,
     )
 
     assert len(retry_prompts) == 1
     retry_prompt = retry_prompts[0]
     assert "Original user request:\nAnswer in exactly 3 words." in retry_prompt
-    assert "Previous answer:\nOnly two" in retry_prompt
+    assert "Previous answer:\nThe One two three" in retry_prompt
     assert (
-        "Validation failure:\nExpected exactly 3 words, but the answer contained 2 words."
+        "Validation failure:\nExpected exactly 3 words, but the answer contained 4 words."
         in retry_prompt
     )
-    assert "contains 2 whitespace-separated words" in retry_prompt
+    assert "contains 4 whitespace-separated words" in retry_prompt
     assert "required total is exactly 3 words" in retry_prompt
-    assert "1 word short" in retry_prompt
-    assert "add exactly 1 word" in retry_prompt
+    assert "1 word too long" in retry_prompt
+    assert "remove exactly 1 word" in retry_prompt
     assert "Count words exactly as whitespace-separated tokens" in retry_prompt
     assert "Edit the previous answer minimally" in retry_prompt
     assert "Do not solve the task again or rewrite it from scratch" in retry_prompt
@@ -466,12 +468,12 @@ def test_failing_response_is_fixed_by_the_first_retry_with_complete_prompt() -> 
     assert "Preserve the factual claims, entities, numbers" in retry_prompt
     assert retry_prompt.endswith("Output only the corrected answer.")
     assert result["original_user_prompt"] == "Answer in exactly 3 words."
-    assert result["original_response"] == "Only two"
+    assert result["original_response"] == "The One two three"
     assert result["parsed_constraints"] == [{"type": "exact_words", "count": 3}]
-    assert result["first_validation"]["checks"][0]["actual"] == 2
+    assert result["first_validation"]["checks"][0]["actual"] == 4
     assert result["retry_happened"] is True
     assert result["retry_reason"] == (
-        "Expected exactly 3 words, but the answer contained 2 words."
+        "Expected exactly 3 words, but the answer contained 4 words."
     )
     assert result["retry_prompt"] == retry_prompt
     assert result["retry_response"] == "One two three"
@@ -639,7 +641,9 @@ def test_multiple_failures_are_combined_into_one_first_retry_prompt() -> None:
     assert len(retry_prompts) == 1
     assert "Expected exactly 4 words" in retry_prompts[0]
     assert "Expected exactly 2 bullets" in retry_prompts[0]
-    assert result["retry_passed"] is True
+    assert result["retry_passed"] is False
+    assert result["semantic_fallback_used"] is True
+    assert result["final_response"] == "- one"
 
 
 def test_build_retry_prompt_requires_a_measured_failure() -> None:
@@ -650,7 +654,7 @@ def test_build_retry_prompt_requires_a_measured_failure() -> None:
 def test_generate_constrained_case_preserves_attempt_metadata() -> None:
     class SequenceGenerator:
         def __init__(self) -> None:
-            self.responses = iter(["Only two", "One two three"])
+            self.responses = iter(["The One two three", "One two three"])
             self.calls = []
 
         def generate(self, messages, generation_config):
@@ -668,9 +672,9 @@ def test_generate_constrained_case_preserves_attempt_metadata() -> None:
 
     assert len(generator.calls) == 2
     assert generator.calls[0][0][-1]["content"] == case["prompt"]
-    assert "Previous answer:\nOnly two" in generator.calls[1][0][-1]["content"]
+    assert "Previous answer:\nThe One two three" in generator.calls[1][0][-1]["content"]
     assert result["original_user_prompt"] == case["prompt"]
-    assert result["original_response"] == "Only two"
+    assert result["original_response"] == "The One two three"
     assert result["response"] == result["final_response"] == "One two three"
     assert result["retry_count"] == 1
     assert len(result["retry_attempts"]) == 1
@@ -688,7 +692,7 @@ def test_generate_constrained_case_preserves_attempt_metadata() -> None:
         validate_reviews_against_responses([review], [result])
 
 
-def test_generate_constrained_case_keeps_a_failed_retry_as_final() -> None:
+def test_generate_constrained_case_preserves_original_after_unsafe_retry() -> None:
     class SequenceGenerator:
         def __init__(self) -> None:
             self.responses = iter(["Only two", "Still two", "Again two"])
@@ -713,13 +717,14 @@ def test_generate_constrained_case_keeps_a_failed_retry_as_final() -> None:
     assert result["retry_count"] == 1
     assert len(result["retry_attempts"]) == 1
     assert result["retry_attempts"][0]["validation"] == result["second_validation"]
-    assert result["response"] == result["final_response"] == "Still two"
+    assert result["response"] == result["final_response"] == "Only two"
+    assert result["semantic_fallback_used"] is True
     assert result["final_validation"]["passed"] is False
     assert (
         validate_response(result["final_response"], result["parsed_constraints"])
         == result["final_validation"]
     )
-    assert review["response"] == "Still two"
+    assert review["response"] == "Only two"
     assert review["second_validation"] == result["second_validation"]
     assert review["final_validation"] == result["final_validation"]
     validate_reviews_against_responses([review], [result])
@@ -803,7 +808,8 @@ def test_run_uses_constraint_validation_without_loading_a_real_model(
     assert response["retry_count"] == 1
     assert len(response["retry_attempts"]) == 1
     assert response["final_validation"]["passed"] is False
-    assert response["response"] == response["final_response"] == "Still two"
+    assert response["response"] == response["final_response"] == "Only two"
+    assert response["semantic_fallback_used"] is True
     assert (
         manifest["mechanical_constraints"]["max_retries"]
         == MAX_MECHANICAL_RETRIES

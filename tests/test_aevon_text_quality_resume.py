@@ -546,6 +546,6 @@ def test_cli_resume_and_completed_error_are_content_free(tmp_path, monkeypatch, 
 def test_case_file_is_byte_logically_unchanged():
     content = quality.DEFAULT_CASES.read_bytes().replace(b"\r\n", b"\n")
     blob = b"blob " + str(len(content)).encode() + b"\0" + content
-    # V5.2 removes only the repeated tool call from tools_constrained_final's
-    # fake sequence. All 54 prompts/rubrics/expectations are independently pinned.
-    assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == "258c16b876a4c54be3e56fe46b89551b8386969f"
+    # V5.2.1 uses article-only repair in the calculator formatting fake sequence.
+    # All 54 prompts/rubrics/expectations remain independently pinned.
+    assert hashlib.sha1(blob, usedforsecurity=False).hexdigest() == "e90b1f1758934d16b537338e1b0b8f34441cc06d"

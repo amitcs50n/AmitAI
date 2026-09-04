@@ -248,7 +248,7 @@ def test_production_identity_compilation_provider_retry_and_vision_parity(
     outputs = (
         ["Aevon is here."]
         if not retry
-        else ["This candidate has too many words.", "Aevon is here."]
+        else ["The Aevon is here.", "Aevon is here."]
     )
     compiler_inputs = []
 

@@ -59,7 +59,7 @@ def test_killer_cases_unique_small_and_v1_citation_derived():
     assert len(old) == 54 and not {c.id for c in old} & {c.id for c in cases}
     assert all(c.scenario == "natural" and c.expectations.epistemic_guardrail is None for c in cases)
     assert cases[4].messages == next(c for c in old if c.id == "uncertainty_citation").messages
-    assert cases[5].fake_responses == ["The capital is Paris.", "Paris is capital."]
+    assert cases[5].fake_responses == ["The capital is Paris.", "capital is Paris."]
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -116,10 +116,10 @@ def test_capital_repair_provider_uses_original_proposition_and_preservation_inst
                 assert "reverse relationships" in prompt
             return super().generate(messages, generation_config)
 
-    provider = InstructionSensitiveProvider(["The capital is Paris.", "Paris is capital."])
+    provider = InstructionSensitiveProvider(["The capital is Paris.", "capital is Paris."])
     generator = ProviderChatGenerator(load_production_runtime_config(), provider=provider)
     result = run_response(generator, [Message("user", CAPITAL)], streaming)
-    assert result.response == "Paris is capital."
+    assert result.response == "capital is Paris."
     assert len(provider.calls) == 2
     assert result.input_tokens == 20 and result.output_tokens == 10
     assert result.validator["first_validation"]["passed"] is False
@@ -139,9 +139,11 @@ def test_killer_expectations_reject_known_relationship_corruption(bad):
     # Deliberately a SUITE check, not a Paris-specific runtime heuristic.
     case = quality.load_cases(CASES)[5]
     generator, observed = quality.build_runtime("fake")
-    case.fake_responses[-1] = bad
+    # Passing-count initial answers still receive no semantic repair/judge.
+    # Repair-time corruption is covered separately by the V5.2.1 regressions.
+    case.fake_responses[:] = [bad]
     row = quality.evaluate_case(case, generator, observed)
-    assert row["provider_calls"] == 2
+    assert row["provider_calls"] == 1
     assert not row["deterministic_pass"]
     assert any(not check["passed"] and check["name"].startswith("not_contains")
                for check in row["checks"])
@@ -198,8 +200,11 @@ def test_failed_literal_repair_is_recorded_as_failure_despite_passing_word_count
     )
     assert result["retry_count"] == 1
     assert result["final_validation"]["checks"][0]["passed"] is True
-    assert result["final_validation"]["passed"] is result["retry_passed"] is False
-    assert result["repair_safety"]["failures"] == ["repair_changed_numeric_literals"]
+    assert result["final_validation"]["passed"] is True
+    assert result["retry_passed"] is False
+    assert result["final_response"] == "result is 1411."
+    assert result["deterministic_repair_used"] is True
+    assert "repair_changed_numeric_literals" in result["repair_safety"]["failures"]
     assert result["retry_attempts"][0]["repair_safety"] == result["repair_safety"]
 
 
@@ -217,9 +222,11 @@ def test_tool_result_not_reexecuted_or_silently_changed(streaming, repaired, mon
 
     monkeypatch.setattr(generator._tool_registry, "execute", counted)
     messages = [Message("user", "What is 17 * 83? Use the calculator. Answer in exactly 3 words.")]
-    if repaired == "Result is 1411.":
+    if repaired != TOOL:
         result = run_response(generator, messages, streaming)
-        assert result.response == repaired and result.tools[0]["result"] == "1411"
+        assert result.response == (repaired if repaired == "Result is 1411." else "result is 1411.")
+        assert result.tools[0]["result"] == "1411"
+        assert result.validator.get("deterministic_repair_used", False) is (repaired != "Result is 1411.")
         assert result.input_tokens == 30 and result.output_tokens == 15
     else:
         with pytest.raises(ChatGenerationError, match="Assistant generation failed"):

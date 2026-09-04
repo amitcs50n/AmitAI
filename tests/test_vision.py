@@ -155,7 +155,7 @@ def test_vision_genuinely_streams_before_engine_is_allowed_to_finish():
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_vision_retry_reuses_image_and_minimized_history_then_succeeds(streaming):
-    engine = VisionEngine(["This is an invalid four plus words answer", "Red square shown."])
+    engine = VisionEngine(["The red square shown.", "Red square shown."])
     generator, _ = vision_generator(engine)
     history = [GenerationMessage("user", "OLD_PRIVATE_CANARY" * 3000)]
     history += [

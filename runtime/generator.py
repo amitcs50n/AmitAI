@@ -546,6 +546,9 @@ class ProviderChatGenerator:
                 if key != "normalized_response"
             }
             validator_metadata["repair_safety"] = validation["repair_safety"]
+            for flag in ("semantic_fallback_used", "deterministic_repair_used"):
+                if validation.get(flag) is True:
+                    validator_metadata[flag] = True
         return validator_metadata
 
     def generate_response(
@@ -622,7 +625,8 @@ class ProviderChatGenerator:
             max_retries=MAX_MECHANICAL_RETRIES,
             retry_original_prompt=model_messages[-1]["content"],
         )
-        if validation["final_validation"]["passed"] is not True:
+        if (validation["final_validation"]["passed"] is not True
+                and validation.get("semantic_fallback_used") is not True):
             raise ChatGenerationError("Assistant generation failed")
 
         latency_ms = max(0, int((self._clock() - start) * 1000))

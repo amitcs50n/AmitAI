@@ -156,7 +156,7 @@ def test_v2_repairs_preserve_prompt_memory_and_do_not_restore_history(case_id, s
     final = case.fake_responses[0]
     case.messages[-1].content += f" Answer in exactly {len(final.split())} words."
     case.expectations.mechanical = True
-    case.fake_responses = ["Too short.", final]
+    case.fake_responses = ["The " + final, final]  # Safe article-only formatting fixture.
     generator, observed = quality.build_runtime("fake")
     row = quality.evaluate_case(case, generator, observed, streaming=streaming)
     assert row["deterministic_pass"]

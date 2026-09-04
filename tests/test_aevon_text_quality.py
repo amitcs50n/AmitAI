@@ -204,7 +204,7 @@ def test_retry_and_tool_followup_keep_minimized_context(streaming):
     row = quality.evaluate_case(case, generator, observed, streaming=streaming)
     assert row["deterministic_pass"]
     assert row["validator"]["retry_count"] == 1
-    assert row["response"] == "It is 1411."
+    assert row["response"] == "answer is 1411."
     assert len(observed.calls) == 3
     for call in observed.calls:
         assert call[0] == observed.calls[0][0]  # tool followups and repairs keep the full prompt

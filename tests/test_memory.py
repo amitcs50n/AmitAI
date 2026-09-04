@@ -850,7 +850,7 @@ def test_memory_context_survives_mechanical_retry_and_only_final_answer_persists
 ) -> None:
     engine = SequenceEngine(
         [
-            GenerationOutput("Only two", 10, 2),
+            GenerationOutput("The One two three", 10, 2),
             GenerationOutput("One two three", 12, 3),
         ]
     )
