@@ -131,7 +131,7 @@ def test_unsupported_env_name_and_untrusted_candidates(history):
 @pytest.mark.parametrize("prompt,history", [
     ("Our config says DISPATCH_DATABASE_URL. " + ENV_PROMPT, []),
     (ENV_PROMPT, [remembered("DISPATCH_DATABASE_URL")]),
-    (ENV_PROMPT, [Message("user", "Our config reads DISPATCH_DATABASE_URL")]),
+    (ENV_PROMPT, [Message("user", "Our dispatch config reads DISPATCH_DATABASE_URL")]),
     (ENV_PROMPT, [remembered("PGHOST", "dispatch.env_var")]),
     ("Our environment variable is PGHOST. " + ENV_PROMPT, []),
     ("Our config says PORT. " + ENV_PROMPT, []),
@@ -140,6 +140,113 @@ def test_unsupported_env_name_and_untrusted_candidates(history):
 ])
 def test_authoritative_candidate_allows_model_reasoning(prompt, history):
     assert decide(prompt, history) is None
+
+
+UNRELATED_ENV_HISTORY = [
+    [Message("user", "Our Redis cache uses REDIS_URL.")],
+    [remembered("REDIS_URL", "cache.env_var"), remembered()],
+    [Message("user", "Our frontend uses NEXT_PUBLIC_API_URL.")],
+    [Message("user", "Which database?"),
+     Message("assistant", "I think the dispatch service might use DATABASE_URL."), remembered()],
+    [Message("user", "PATH and JAVA_HOME are configured.")],
+    [Message("user", "Set DATABASE_URL for another service.")],
+    [Message("user", "DATABASE_URL is a common convention.")],
+    [remembered("NEXT_PUBLIC_API_URL", "frontend.api_env"), remembered()],
+    [remembered("DISPATCH_DATABASE_URL", "env_var")],
+    [Message("user", "DISPATCH_DATABASE_URL is a common convention.")],
+    [Message("user", "Our config reads DISPATCH_DATABASE_URL.")],
+    [Message("user", "Dispatch uses PostgreSQL. Our Redis cache uses REDIS_URL.")],
+    [remembered("REDIS_URL", "cache.database_env")],
+    [remembered("DISPATCH_DATABASE_URL", "redispatch.env_var")],
+    [Message("user", "Redispatch uses DISPATCH_DATABASE_URL.")],
+    [remembered("Dispatch uses DATABASE_URL.", "cache.env_var")],
+]
+
+
+@pytest.mark.parametrize("history", UNRELATED_ENV_HISTORY)
+def test_unrelated_env_evidence_cannot_authorize_dispatch(history):
+    decision = decide(ENV_PROMPT, history)
+    assert decision.kind == "unknown_internal_env_var"
+    assert decision == decide(ENV_PROMPT, [remembered()])
+
+
+@pytest.mark.parametrize("history", [
+    [Message("user", "The dispatch database env var is DISPATCH_DATABASE_URL.")],
+    [Message("user", "Dispatch uses DISPATCH_DATABASE_URL.")],
+    [Message("user", 'In dispatch config, os.environ["DISPATCH_DATABASE_URL"] is used.')],
+    [Message("user", 'In the dispatch config, getenv("DISPATCH_DATABASE_URL") is used.')],
+    [remembered("DISPATCH_DATABASE_URL", "dispatch.env_var")],
+    [remembered("DISPATCH_DATABASE_URL", "dispatch.database_env")],
+    [remembered("DATABASE_URL", "Dispatch.Database_Env")],
+    [remembered("Dispatch uses DISPATCH_DATABASE_URL.", "env_var")],
+])
+def test_related_env_evidence_allows_normal_reasoning(history):
+    assert decide(ENV_PROMPT, history) is None
+
+
+@pytest.mark.parametrize("prompt", [
+    "Our config says DISPATCH_DATABASE_URL. Which environment variable does our dispatch service use?",
+    'The dispatch service reads os.environ["DISPATCH_DATABASE_URL"]. What\'s the exact env-var name?',
+    "Our dispatch config uses DISPATCH_DATABASE_URL. What exact env var does the dispatch service use?",
+])
+def test_current_user_explicit_scoped_evidence_remains_allowed(prompt):
+    assert decide(prompt) is None
+
+
+@pytest.mark.parametrize("evidence", [
+    "Our Redis cache uses REDIS_URL.",
+    "Our frontend uses NEXT_PUBLIC_API_URL.",
+    "Set PATH and JAVA_HOME correctly.",
+    "Our Redis config says REDIS_URL.",
+])
+def test_current_prompt_unrelated_evidence_is_not_bound_by_the_question(evidence):
+    assert decide(evidence + " " + ENV_PROMPT).kind == "unknown_internal_env_var"
+
+
+@pytest.mark.parametrize("evidence,guarded", [
+    ("Dispatch uses DISPATCH_DATABASE_URL.", True),
+    ("Billing uses BILLING_DATABASE_URL.", False),
+])
+def test_scope_is_extracted_from_the_query_not_hardcoded(evidence, guarded):
+    prompt = "What exact env var does our billing service use for its database connection?"
+    decision = decide(prompt, [Message("user", evidence)])
+    assert (decision is not None) is guarded
+
+
+def test_component_target_can_bind_when_the_query_has_no_named_service():
+    prompt = "What exact env var does this project use for the DB connection?"
+    assert decide(prompt, [remembered("DATABASE_URL", "database.env_var")]) is None
+    assert decide(prompt, [remembered("REDIS_URL", "cache.env_var")]).kind == "unknown_internal_env_var"
+
+
+@pytest.mark.parametrize("prompt", [
+    "What does PATH do?", "What is JAVA_HOME?",
+    "What environment variable should I use for my app?",
+    "Suggest an env-var name for my dispatch service.",
+    "Give me an example PostgreSQL connection env var.",
+])
+def test_general_env_knowledge_remains_unguarded(prompt):
+    assert decide(prompt) is None
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("history", UNRELATED_ENV_HISTORY[:5])
+def test_unrelated_env_evidence_bypasses_provider_and_tools(streaming, history, monkeypatch):
+    generator = forbidden_generator()
+    monkeypatch.setattr(generator._tool_registry, "execute", lambda *a, **k: pytest.fail("Tool executed"))
+    messages = [*history, Message("user", ENV_PROMPT)]
+    if streaming:
+        events = list(generator.stream_response(messages, cancel_event=Event()))
+        result = events[-1]
+        assert "".join(event.delta for event in events[:-1]) == result.response
+    else:
+        result = generator.generate_response(messages)
+    assert result.input_tokens == result.output_tokens == 0 and result.tools == []
+    assert result.validator["epistemic_guardrail"] == {
+        "triggered": True, "kind": "unknown_internal_env_var",
+        "reason": "internal_env_name_unavailable", "provider_bypassed": True,
+        "mechanical_override": False,
+    }
 
 
 def test_context_metadata_has_roles_positions_and_no_omitted_content():

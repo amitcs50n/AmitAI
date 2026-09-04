@@ -11,7 +11,7 @@ from backend.chat_service import ChatGenerationDelta, ChatGenerationResult
 from evaluation import aevon_text_quality as quality
 from evaluation.text_quality_storage import RunArtifactError
 from runtime.context import HISTORY_OMISSION_NOTICE
-from tests.test_epistemic_guardrails import ENV_PROMPT, RemoteHarness
+from tests.test_epistemic_guardrails import ENV_PROMPT, UNRELATED_ENV_HISTORY, RemoteHarness
 
 V5_CASES = quality.DEFAULT_CASES.with_name("aevon_epistemic_guardrails_v5.jsonl")
 
@@ -30,9 +30,9 @@ def offline(monkeypatch):
 
 def test_v5_small_explicit_diagnostic_suite():
     cases = quality.load_cases(V5_CASES)
-    assert len(cases) == len({case.id for case in cases}) == 18
+    assert len(cases) == len({case.id for case in cases}) == 22
     assert all("epistemic_guardrail" in case.expectations.model_fields_set for case in cases)
-    assert sum(case.expectations.epistemic_guardrail is not None for case in cases) == 9
+    assert sum(case.expectations.epistemic_guardrail is not None for case in cases) == 11
     assert {case.expectations.epistemic_guardrail for case in cases} == {
         None, "missing_history", "ambiguous_reference", "unknown_internal_env_var",
     }
@@ -50,7 +50,7 @@ def test_v5_fake_suite_exact_bypass_and_control_calls(tmp_path, streaming):
     output = quality.run(cases_path=V5_CASES, output_dir=tmp_path / "v5", streaming=streaming)
     rows = [json.loads(line) for line in (output / "results.jsonl").read_bytes().splitlines()]
     summary = json.loads((output / "summary.json").read_bytes())
-    assert summary["total_cases"] == summary["deterministic"]["passed"] == 18
+    assert summary["total_cases"] == summary["deterministic"]["passed"] == 22
     assert summary["generation_failures"] == summary["tool_failures"] == 0
     for row in rows:
         expected = row["expectations"]["epistemic_guardrail"]
@@ -148,7 +148,8 @@ def test_v5_resume_preserves_guard_rows_and_rejects_changed_code(tmp_path, monke
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-def test_real_remote_provider_object_guarded_before_dns_or_http(streaming):
+@pytest.mark.parametrize("history", [[], *UNRELATED_ENV_HISTORY[:2]])
+def test_real_remote_provider_object_guarded_before_dns_or_http(streaming, history):
     # The actual provider is composed with mock transport; the offline fixture
     # independently forbids even HTTP client entry. No environment credentials.
     def forbidden(*args):
@@ -158,7 +159,7 @@ def test_real_remote_provider_object_guarded_before_dns_or_http(streaming):
     try:
         from backend.chat_service import GenerationMessage
 
-        messages = [GenerationMessage("user", ENV_PROMPT)]
+        messages = [*history, GenerationMessage("user", ENV_PROMPT)]
         if streaming:
             events = list(harness.generator.stream_response(messages, cancel_event=Event()))
             assert isinstance(events[0], ChatGenerationDelta)

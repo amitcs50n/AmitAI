@@ -3,6 +3,11 @@
 CPU implementation based on `75702d68148248cec7efb4451fa78edad150641e`.
 Real-model validation follows code review; fake outputs are not quality evidence.
 
+V5.1 tightens only env-var evidence scope, starting from
+`13eb4379910121f558098ef5cebf1c84cb80e33b`. The original two history/reference
+guards, compiler, generator, evaluator, metadata, privacy and vision paths are
+unchanged.
+
 ## Evidence and investigation
 
 The ticket reports that V1 completed 54/54 real BF16 cases without generation
@@ -71,7 +76,7 @@ normalizes whitespace/case for matching and returns a frozen decision with
 | --- | --- | --- |
 | `missing_history` | A recognized recall request for this conversation's first/opening/earliest message with observed truncation or no retained prior user; a turn-content request before the oldest/visible/retained window with observed truncation; or a recognized previous-turn recall request whose requested prior user/conversational position is unavailable. | Complete first-message history; a retained immediately previous user despite older truncation; semantic remembered facts such as the database; requests to compose an opening; ordering inside queues/algorithms. |
 | `ambiguous_reference` | No retained conversational turns and a complete short request matching supported actions on `this/that/it/these/those/them`, optionally with a simple weekday/today/tomorrow date; `Should I take it tomorrow?`; short meaning/identity queries including an unexplained error. | Any retained conversational history; inline object, quoted text, code, URL, or extra explanatory clause; ambiguous multiple referents, left to the model. Memory system frames alone do not establish the target. |
-| `unknown_internal_env_var` | A what/which request for an exact/actual/used/read/configuring environment-variable name scoped to the user's app/project/service, with no supplied identifier candidate. Requests for suggestions/recommendations/examples are excluded. | General technical knowledge such as PATH; other identifier types; a candidate supplied by current/retained user text or a trusted memory value. |
+| `unknown_internal_env_var` | A what/which request for an exact/actual/used/read/configuring environment-variable name scoped to the user's app/project/service, with no identifier candidate bound to the queried target. Requests for suggestions/recommendations/examples are excluded. | General technical knowledge such as PATH; other identifier types; relevant current/retained user evidence or a trusted memory value scoped to the target. |
 
 Supported deictic actions are shift, move, reschedule, cancel, rewrite, revise,
 summarize, explain, translate, and delete. The grammar full-matches the short
@@ -88,9 +93,49 @@ cannot authorize an identifier. `PostgreSQL`/`POSTGRESQL` alone do not qualify.
 Malformed memory payloads do not become evidence. Existing memory retrieval,
 ranking, storage, sensitivity and formatting are unchanged.
 
-Candidate presence allows normal reasoning; it does not certify the candidate
-as correct, current, relevant, or consistent. Conflicts, negation and ambiguous
-project associations remain model responsibilities. This is not a general
+V5.1 fixes the original scope bug: V5 accepted any retained user candidate or
+trusted-memory candidate, so an unrelated `REDIS_URL` could permit the model to
+invent a dispatch variable. Candidate recognition itself is unchanged; a small
+lexical binding now follows recognition:
+
+1. Extract exact normalized target words from the current env-var question's
+   sentence/clause. A named service/project/configuration such as `dispatch`
+   takes precedence over shared component terms such as `database`. If there is
+   no name, use the small component set database/cache/frontend/backend, treating
+   `DB` as `database`. A generic current question may use the one named scope
+   explicitly supplied elsewhere in that same current prompt. No prior or
+   assistant message participates in target extraction.
+2. Prior user evidence needs a candidate and an independent target word in the
+   same sentence/clause. Sentence boundaries followed by whitespace and newlines
+   separate evidence, so a dispatch sentence cannot lend scope to a separate
+   Redis sentence. Strip candidate expressions before matching target words:
+   `DISPATCH_DATABASE_URL` alone is not independent dispatch association.
+   Matching is case-insensitive whole-token equality, including separator-based
+   memory-key tokens; no fuzzy matching or entity model is used.
+3. Trusted-memory keys bind scope and values supply identifiers.
+   `dispatch.env_var` and `dispatch.database_env` qualify; `cache.env_var` and
+   `frontend.api_env` do not qualify for a dispatch query. A generic key composed
+   only of env/config/name/key/value/note words can qualify only when its value
+   explicitly associates a candidate with the target in prose. Thus generic
+   `env_var = DISPATCH_DATABASE_URL` does not qualify, while
+   `env_var = Dispatch uses DISPATCH_DATABASE_URL.` can. An unrelated specific
+   key cannot be overridden by words in its value.
+4. Current-prompt evidence follows the same binding rule, with a narrow exception
+   for a simple unscoped assertion such as `Our config says DISPATCH_DATABASE_URL.`
+   next to the query. Only the existing short config/code/env assertion forms,
+   with no additional scope words, qualify for that exception. It does not apply
+   to prior history. Explicit Redis/frontend statements in the current prompt
+   still cannot authorize dispatch.
+
+Target words, matched evidence and memory values exist only as local temporary
+values inside the detector. They are neither returned nor logged nor added to
+validator metadata. Assistant guesses remain excluded. Unknown or unrecognized
+associations conservatively retain the guard.
+
+Lexically bound evidence allows normal reasoning; it does not certify a
+candidate as correct, current, or consistent. Compound clauses, negation, shared
+names, and nuanced project associations remain limitations of this small
+matcher; it is not an entity-resolution engine. This is not a general
 implementation-detail checker. Unusual identifiers or bare lowercase names
 without an explicit code/memory association may fall outside recognition.
 
@@ -154,9 +199,11 @@ consent still fail before transport.
 
 ## Evaluation and validation
 
-V5's 18 cases declare `expectations.epistemic_guardrail`: one of the three kinds,
+V5.1's 22 cases declare `expectations.epistemic_guardrail`: one of the three kinds,
 or explicit `null` to require normal provider execution and absent metadata.
-There are nine guarded cases and nine controls. A guarded expectation checks a
+The original 18 cases are unchanged; two unrelated-evidence guards and two
+related-evidence controls are appended. There are eleven guarded cases and eleven
+controls. A guarded expectation checks a
 final response, matching kind, zero calls/tokens/tools, no protocol leakage, and
 exact stream reconstruction when streaming. Context checks compile independently
 and label their source `compiled_locally_provider_bypassed`. Ordinary cases keep

@@ -79,6 +79,41 @@ _ACTUAL_ENV = re.compile(r"\b(?:exact|actual|actually|reads?|uses?|configures?)\
 _PROPOSED_ENV = re.compile(r"\b(?:should|could|recommend|suggest|example|hypothetical)\b")
 _ENV_NAME = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 _BARE_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{1,63}")
+_NAMED_ENV = re.compile(
+    r"(?:\b(?:variable|env[ -]var)\s+(?:is\s+|named\s+)?|"
+    r"\bconfig(?:uration)?\s+(?:says|reads|specifies|uses)\s+)"
+    r"[`\"']?[A-Z][A-Z0-9]{1,63}\b",
+)
+_LOOKUP_ENV = re.compile(
+    r"\b(?:environ|getenv)\s*[\[(]\s*[\"'][A-Za-z_][A-Za-z0-9_]*[\"']",
+)
+_ENV_CANDIDATES = (_ENV_NAME, _NAMED_ENV, _LOOKUP_ENV)
+_CLAUSE_BOUNDARY = re.compile(r"(?<=[.!?;])\s+|\n+")
+_NAMED_TARGET = re.compile(
+    r"\b([a-z][a-z0-9-]*)\s+(?:service|app|application|project|component|server|system|"
+    r"deployment|config(?:uration)?|database|db|cache)\b|"
+    r"\bdoes (?:our |my |the )?([a-z][a-z0-9-]*) (?:actually )?(?:use|read)\b",
+)
+_COMPONENT_TARGETS = frozenset({"database", "cache", "frontend", "backend"})
+_GENERIC_TARGET_WORDS = frozenset({
+    "our", "my", "the", "this", "that", "a", "an", "its", "your", "which", "what",
+    "exact", "actual", "internal", "current", "environment", "env", "variable", "var",
+    "name", "connection", "config", "configuration", "service", "app", "application",
+    "project", "component", "server", "system", "deployment", "database", "cache",
+    "frontend", "backend",
+})
+_GENERIC_MEMORY_KEY_WORDS = frozenset({
+    "env", "var", "environment", "variable", "name", "config", "configuration",
+    "setting", "key", "value", "note",
+})
+_CURRENT_CONFIG = re.compile(
+    r"^(?:our|my|the) (?:config(?:uration)?|code|environment[ -]variable|env[ -]var) "
+    r"(?:says|reads|uses|specifies|is)\b",
+)
+_CURRENT_CONFIG_WORDS = frozenset({
+    "our", "my", "the", "config", "configuration", "code", "environment", "variable",
+    "env", "var", "says", "reads", "uses", "specifies", "is", "os",
+})
 
 
 def _opening_requested(text: str) -> bool:
@@ -109,21 +144,63 @@ def _previous_requested(text: str) -> bool:
 def _has_env_candidate(text: str) -> bool:
     # Accept supplied identifiers, not their truth. The provider still reasons
     # about conflicting/negated candidates. Bare names need a config association.
-    return bool(_ENV_NAME.search(text) or re.search(
-        r"(?:\b(?:variable|env[ -]var)\s+(?:is\s+|named\s+)?|"
-        r"\bconfig(?:uration)?\s+(?:says|reads|specifies|uses)\s+)"
-        r"[`\"']?[A-Z][A-Z0-9]{1,63}\b", text,
-    ) or re.search(
-        r"\b(?:environ|getenv)\s*[\[(]\s*[\"'][A-Za-z_][A-Za-z0-9_]*[\"']", text,
-    ))
+    return any(pattern.search(text) for pattern in _ENV_CANDIDATES)
 
 
-def _trusted_memory_has_candidate(context: CompiledModelContext) -> bool:
+def _binding_text(text: str) -> str:
+    # An identifier's spelling is not independent evidence of its owner.
+    for pattern in _ENV_CANDIDATES:
+        text = pattern.sub(" ", text)
+    return text.casefold()
+
+
+def _scope_tokens(text: str) -> set[str]:
+    return {"database" if word == "db" else word
+            for word in re.findall(r"[a-z][a-z0-9]*", text.casefold())}
+
+
+def _named_targets(text: str) -> set[str]:
+    return {token for match in _NAMED_TARGET.finditer(_binding_text(text))
+            for token in _scope_tokens(match[1] or match[2])
+            if token not in _GENERIC_TARGET_WORDS}
+
+
+def _env_query_targets(prompt: str) -> set[str]:
+    # Use the question, not an unrelated evidence sentence in the same request.
+    query = " ".join(clause for clause in _CLAUSE_BOUNDARY.split(prompt)
+                     if _ENV_QUERY.search(clause.casefold()))
+    named = _named_targets(query)
+    if named:
+        return named  # Dispatch takes precedence over a shared word like database.
+    components = _scope_tokens(_binding_text(query)) & _COMPONENT_TARGETS
+    if components:
+        return components
+    # A generic current question can refer to its one explicitly supplied scope.
+    supplied = _named_targets(prompt)
+    return supplied if len(supplied) == 1 else set()
+
+
+def _bound_user_candidate(text: str, targets: set[str], *, current: bool = False) -> bool:
+    for clause in _CLAUSE_BOUNDARY.split(text):
+        if not _has_env_candidate(clause):
+            continue
+        words = _scope_tokens(_binding_text(clause))
+        if targets & words:
+            return True
+        # Preserve "Our config says X. Which variable does our dispatch service
+        # use?" only within the current prompt, with no other named scope.
+        if (current and _CURRENT_CONFIG.search(clause.strip().casefold())
+                and words <= _CURRENT_CONFIG_WORDS):
+            return True
+    return False
+
+
+def _trusted_memory_has_candidate(context: CompiledModelContext, targets: set[str]) -> bool:
     for frame in context.messages[1:1 + context.trusted_context_count]:
         content = frame["content"]
         if not content.startswith("MEMORY_CONTEXT_V1\n"):
             continue
-        # Parse values only: frame labels and keys are not project identifiers.
+        # Keys bind scope; only values can supply the actual identifier.
         start, end = content.find("<memory_context>"), content.rfind("</memory_context>")
         if start < 0 or end < start:
             continue
@@ -137,9 +214,15 @@ def _trusted_memory_has_candidate(context: CompiledModelContext) -> bool:
         for item in items:
             value = item.get("value") if isinstance(item, dict) else None
             key = item.get("key", "") if isinstance(item, dict) else ""
-            if isinstance(value, str) and (
+            if not isinstance(value, str) or not isinstance(key, str):
+                continue
+            key_words = _scope_tokens(key)
+            bound = bool(targets & key_words)
+            if key_words and key_words <= _GENERIC_MEMORY_KEY_WORDS:
+                bound = _bound_user_candidate(value, targets)
+            if bound and (
                 _has_env_candidate(value) or (
-                    isinstance(key, str) and re.search(r"\benv(?:[_. -]|$)|environment", key)
+                    re.search(r"\benv(?:[_. -]|$)|environment", key.casefold())
                     and _BARE_ENV_NAME.fullmatch(value.strip())
                 )
             ):
@@ -172,10 +255,13 @@ def epistemic_preflight(context: CompiledModelContext) -> EpistemicGuardDecision
 
     if (_ENV.search(text) and _PROJECT.search(text) and _ENV_QUERY.search(text)
             and _ACTUAL_ENV.search(text) and not _PROPOSED_ENV.search(text)):
-        # Retained user messages and trusted memory values are potential evidence.
-        # Assistant guesses, runtime instructions and memory command frames are not.
-        if any(_has_env_candidate(message["content"]) for message in context.messages
-               if message["role"] == "user") or _trusted_memory_has_candidate(context):
+        # Request-local lexical scope is never persisted or logged. Assistant
+        # guesses, runtime instructions and memory commands remain non-evidence.
+        targets = _env_query_targets(prompt)
+        if (_bound_user_candidate(prompt, targets, current=True)
+                or any(_bound_user_candidate(message["content"], targets)
+                       for message in context.messages[:-1] if message["role"] == "user")
+                or _trusted_memory_has_candidate(context, targets)):
             return None
         return EpistemicGuardDecision(
             "unknown_internal_env_var",
