@@ -1162,6 +1162,57 @@ content when the local control plane selected it. RunPod or its infrastructure m
 prompts and outputs. This architecture keeps durable/private application state local and makes the
 compute provider replaceable; it does not make remote inference confidential.
 
+#### One-command session startup (post-V1 convenience)
+
+After the existing V1 installation, run these commands from the repository root:
+
+**RunPod** (the validated CUDA image, cached model on `/workspace/hf`, and HTTP port 8000
+enabled in the pod settings):
+
+```bash
+bash scripts/runpod/start.sh
+```
+
+The script reuses `AEVON_RUNPOD_VENV`, the activated venv, the repository `.venv`, or
+`/workspace/venv`, in that order. If no venv exists, it creates one with the pod image's
+system packages and installs the runtime dependencies. For an existing venv missing dependencies,
+use `bash scripts/runpod/start.sh --setup` once. Normal starts do not install packages.
+Model loading is offline: `HF_HOME=/workspace/hf`, both cache variables point to
+`/workspace/hf/hub`, both Hugging Face/Transformers offline flags are set, and `TMPDIR=/tmp`.
+Missing weights fail loading; the launcher never downloads weights or deletes `/workspace/hf`.
+
+It generates a fresh session token using `runtime.inference_token`, starts one Uvicorn worker,
+checks `/health`, calls authenticated `/preload` over **127.0.0.1**, then polls `/ready`.
+Only after `ready` does it print **READY**, the public URL, and the inference token. The URL
+comes from `RUNPOD_POD_ID`; if unavailable, append
+`--public-url https://YOUR-POD-8000.proxy.runpod.net`. The default readiness deadline is
+900 seconds; override with `--timeout SECONDS`. Public routing must already be configured
+in RunPod; the script does not create a pod or change its networking.
+
+**Windows** (existing `.venv`, secure runtime/key setup, and `npm ci` completed in `frontend`):
+
+```powershell
+.\scripts\windows\start.cmd
+```
+
+Paste the printed RunPod URL and token into the prompts (token entry is hidden), then enter
+the normal database unlock passphrase. The launcher checks authenticated remote readiness,
+sets the exact remote URL/allowed origin and session token, removes `AMITAI_ENCRYPT_EXISTING_DB`
+from the backend environment, and calls the normal encrypted `runtime.serve` entry point.
+It starts the frontend with `AMITAI_API_ORIGIN=http://127.0.0.1:8000` and opens
+`http://127.0.0.1:3000` once available. The `.cmd` wrapper needs no PowerShell execution-policy
+change. Neither launcher saves the inference token to a file; the frontend never receives it.
+Avoid redirecting the RunPod launcher's terminal output because it intentionally prints the token.
+
+Keep both launcher terminals open. **Ctrl+C** stops their owned services; Windows also stops
+the frontend's workers. A second RunPod launcher or occupied service port is refused without
+killing an existing process. PID/log locations are printed; logs use private temporary files.
+On failed preload, inspect the log and rerun explicitly; there is no automatic load retry.
+RunPod shutdown waits for an active model load to finish, so it may take time. If Windows UI
+startup fails, its terminal reports the log location; stop with Ctrl+C before retrying.
+These helpers do not alter the V1 runtime or eliminate first-time installation, model caching,
+database key setup, or the unlock prompt. The manual equivalent follows.
+
 Generate a fresh credential for each inference/pod session:
 
 ```bash

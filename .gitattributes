@@ -1,0 +1,2 @@
+scripts/runpod/*.sh text eol=lf
+scripts/windows/*.cmd text eol=crlf
