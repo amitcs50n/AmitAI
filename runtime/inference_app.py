@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import secrets
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event
 from typing import Any, Literal
 from uuid import UUID
 
+import anyio
 from fastapi import FastAPI, Header, HTTPException, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.security import environment_flag
@@ -93,8 +97,29 @@ def create_inference_app(
     )
     if selected_token is not None:
         selected_token = validate_inference_token(selected_token)
+
+    preload_executor: ThreadPoolExecutor | None = None
+    preload_future: Future[None] | None = None
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        nonlocal preload_executor, preload_future
+        # Executor construction starts no thread and loads no model.
+        preload_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aevon-preload")
+        try:
+            yield
+        finally:
+            executor = preload_executor
+            preload_executor = None
+            # A client disconnect must not cancel a shared load. Shutdown owns the join;
+            # there is no timeout that abandons a loader still allocating model tensors.
+            with anyio.CancelScope(shield=True):
+                await asyncio.to_thread(executor.shutdown, wait=True, cancel_futures=True)
+            preload_future = None
+
     application = FastAPI(
         title="AmitAI Stateless Inference",
+        lifespan=lifespan,
         docs_url="/docs" if enable_dev_docs else None,
         redoc_url="/redoc" if enable_dev_docs else None,
         openapi_url="/openapi.json" if enable_dev_docs else None,
@@ -121,8 +146,47 @@ def create_inference_app(
             )
 
     @application.get("/health")
-    def health() -> dict[str, str]:
+    async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    def local_provider() -> LocalTransformersInferenceProvider:
+        # Injected/custom providers must not be reported ready based on a capability flag.
+        if not isinstance(selected_provider, LocalTransformersInferenceProvider):
+            raise HTTPException(status_code=503, detail="Model readiness is unavailable")
+        return selected_provider
+
+    @application.get("/ready")
+    async def ready(authorization: str | None = Header(default=None)) -> JSONResponse:
+        authorize(authorization)
+        state = local_provider().initialization_state
+        return JSONResponse(
+            {"state": state}, status_code=200 if state == "ready" else 503,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def run_preload(provider: LocalTransformersInferenceProvider) -> None:
+        try:
+            provider.preload()
+        except BaseException:  # noqa: BLE001 - keep failures out of background tracebacks/futures.
+            LOGGER.error("Model preload failed")
+
+    @application.post("/preload")
+    async def preload(authorization: str | None = Header(default=None)) -> JSONResponse:
+        nonlocal preload_future
+        authorize(authorization)
+        provider = local_provider()
+        if preload_executor is None:
+            raise HTTPException(status_code=503, detail="Model preload is unavailable")
+        state = provider.initialization_state
+        if state == "ready":
+            return JSONResponse({"state": "ready"}, headers={"Cache-Control": "no-store"})
+        # No await between checking and submitting: concurrent requests on this event
+        # loop cannot queue repeated loads. The provider lock also covers generation.
+        if state != "loading" and (preload_future is None or preload_future.done()):
+            preload_future = preload_executor.submit(run_preload, provider)
+        return JSONResponse(
+            {"status": "accepted"}, status_code=202, headers={"Cache-Control": "no-store"},
+        )
 
     @application.post("/v1/generate", response_model=InferenceResponse)
     def generate(

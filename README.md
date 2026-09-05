@@ -420,8 +420,9 @@ HF_HOME=/workspace/hf HF_HUB_CACHE=/workspace/hf/hub HF_HUB_OFFLINE=1 python -m 
 ```
 
 **Lazy-load/524 warning:** the standalone native smoke runs in a different process; it does NOT
-warm the later Uvicorn server. To make the server's own model resident before going through
-Cloudflare/RunPod, run this authenticated synthetic request from another GPU-side terminal:
+warm the later Uvicorn server. Follow the [cold-start readiness sequence](#inference-cold-start-readiness)
+to preload that server over loopback and confirm `/ready` before using Cloudflare/RunPod.
+Then, if checking synthetic generation as well, run from another GPU-side terminal:
 
 ```bash
 AMITAI_REMOTE_INFERENCE_URL=http://127.0.0.1:8000 \
@@ -430,8 +431,8 @@ AMITAI_REMOTE_INFERENCE_TOKEN="$AMITAI_INFERENCE_AUTH_TOKEN" \
 python -m scripts.remote_vision_smoke
 ```
 
-This uses the existing authenticated endpoints over loopback, loads no second model, bypasses
-the edge timeout, and adds no unauthenticated warmup route or timeout change. Once it passes,
+This uses the existing authenticated generation endpoints over loopback and reuses the preloaded
+model. Neither preload nor this smoke changes proxy/client timeouts. Once it passes,
 on the **local machine** with the existing remote environment configured, run:
 
 ```bash
@@ -1181,6 +1182,7 @@ does not initialize a database:
 pip install -e '.[runtime]'
 export HF_HOME=/workspace/hf
 export HF_HUB_CACHE=/workspace/hf/hub
+export HF_HUB_OFFLINE=1
 export AMITAI_RUNTIME_CONFIG=configs/baseline_eval_v2_constrained.yaml
 export AMITAI_INFERENCE_AUTH_TOKEN='<fresh-session-token>'
 
@@ -1191,8 +1193,91 @@ uvicorn runtime.inference_app:app \
 ```
 
 Do **not** use `--reload` or multiple Uvicorn workers on the GPU host: either can load another
-roughly 55 GB model copy. Configure the local control plane explicitly with the exact remote
-origin and matching session credential; never commit credentials:
+roughly 55 GB model copy. With the existing pinned checkpoint in `/workspace/hf`, offline loading
+avoids a download and fails if needed cache entries are missing. **Never delete `/workspace/hf`.**
+Complete the following sequence before sending chat through the public endpoint.
+
+#### Inference cold-start readiness
+
+Fresh RunPod sequence: **start the one-worker process above -> check liveness -> explicitly
+preload over pod loopback -> confirm ready -> expose/use the public endpoint.** Keep public
+clients idle until ready; generation endpoints retain their existing lazy behavior and do not
+automatically reject cold requests. A health check alone is insufficient to route model traffic.
+
+| Endpoint | Authentication | Semantics |
+| --- | --- | --- |
+| `GET /health` | None | Cheap liveness, `200 {"status":"ok"}`; never initializes the model. |
+| `GET /ready` | Inference bearer token | Read-only `{"state":"unloaded\|loading\|ready\|failed"}`. HTTP 200 only for `ready`, otherwise 503. Never starts or retries loading. |
+| `POST /preload` | Same inference bearer token | No request body. HTTP `202 {"status":"accepted"}` when loading is scheduled or in progress; poll `/ready`. HTTP `200 {"state":"ready"}` when already loaded. |
+
+Readiness/preload state responses use `Cache-Control: no-store`. Missing server credentials
+retain the inference service's 503 authentication-configuration error; missing/wrong caller
+credentials return 401 when configured. An injected provider without local model-state support
+returns a generic 503 rather than being assumed ready. Only the fixed state is exposed, never
+load exceptions, paths, credentials, prompts, or cache details.
+
+Run this from a **second terminal on the pod**, with the same already-set valid
+`AMITAI_INFERENCE_AUTH_TOKEN` as Uvicorn. It calls loopback directly, ignores proxy environment
+settings, never follows redirects, and does not print the token. The local polling deadline
+does not change transport policy or abort a running loader.
+
+```bash
+cd /workspace/AmitAI
+python - <<'PY'
+import os
+import time
+import httpx
+
+headers = {"Authorization": "Bearer " + os.environ["AMITAI_INFERENCE_AUTH_TOKEN"]}
+try:
+    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=10,
+                      trust_env=False, follow_redirects=False) as client:
+        live = client.get("/health")
+        if live.status_code != 200 or live.json() != {"status": "ok"}:
+            raise SystemExit("Liveness failed; check the inference process")
+        print("Liveness: ok")
+        response = client.post("/preload", headers=headers)
+        if response.status_code not in (200, 202):
+            raise SystemExit("Preload rejected; check inference authentication/configuration")
+        deadline = time.monotonic() + 900
+        previous = None
+        while time.monotonic() < deadline:
+            response = client.get("/ready", headers=headers)
+            state = response.json().get("state")
+            if response.status_code == 200 and state == "ready":
+                print("Model: ready; public inference may now be used")
+                break
+            if response.status_code != 503 or state not in {"unloaded", "loading", "failed"}:
+                raise SystemExit("Readiness unavailable; check inference authentication/configuration")
+            if state == "failed":
+                raise SystemExit("Model load failed; investigate, then explicitly rerun preload")
+            if state != previous:
+                print("Model:", state)
+                previous = state
+            time.sleep(2)
+        else:
+            raise SystemExit("Readiness wait expired; inspect /ready before any further action")
+except (httpx.HTTPError, ValueError):
+    raise SystemExit("Loopback readiness request failed") from None
+PY
+```
+
+Preload is opt-in and initializes the **same provider and cached NativeQwen engine** used by
+text, vision, and their streaming routes. It does not run a synthetic generation or create
+application data. Imports and ordinary startup stay lazy. Repeated preload while ready reuses
+the model; failed initialization reports `failed`, and a later explicit POST (or a later
+generation request, preserving existing lazy retry behavior) can retry. There is no automatic
+preload retry loop. A 202 response means accepted, not ready; the worker may not yet have started.
+
+Client disconnect does not cancel shared preloading. Graceful shutdown waits for its worker;
+model construction cannot be safely interrupted. Generation serialization and cooperative
+Stop behavior remain unchanged. `ready` establishes successful model construction, not a
+completed first forward pass, an idle generation slot, or public network reachability. One real
+A100 cold-start acceptance is still required: verify liveness/readiness during loading, then
+public text/vision streaming and Stop followed by another request in the same server process.
+
+Once ready, configure the local control plane explicitly with the exact remote origin and
+matching session credential; never commit credentials:
 
 ```bash
 export AMITAI_INFERENCE_PROVIDER=remote

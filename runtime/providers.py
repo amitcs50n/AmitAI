@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from threading import Event
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 import httpx
@@ -106,6 +106,7 @@ class DetailedGenerationEngine(Protocol):
 
 
 EngineFactory = Callable[[dict[str, object], int], DetailedGenerationEngine]
+InitializationState = Literal["unloaded", "loading", "ready", "failed"]
 
 
 class LocalTransformersInferenceProvider:
@@ -128,16 +129,42 @@ class LocalTransformersInferenceProvider:
         self.supports_vision = getattr(engine_factory, "supports_vision", False) is True
         self._engine: DetailedGenerationEngine | None = None
         self._initialization_lock = threading.Lock()
+        # Never hold the state lock during loading or while waiting for initialization.
+        self._state_lock = threading.Lock()
+        self._initialization_state: InitializationState = "unloaded"
         self._generation_lock = threading.Lock()
 
+    @property
+    def initialization_state(self) -> InitializationState:
+        """Cheap, read-only state; no model access or exception details."""
+        with self._state_lock:
+            return self._initialization_state
+
+    def preload(self) -> None:
+        """Explicitly load this provider's shared engine without running inference."""
+        self._get_engine()
+
     def _get_engine(self) -> DetailedGenerationEngine:
-        engine = self._engine
+        with self._state_lock:
+            engine = self._engine
         if engine is not None:
             return engine
         with self._initialization_lock:
-            if self._engine is None:
-                self._engine = self._engine_factory(dict(self._model_config), self._seed)
-            return self._engine
+            with self._state_lock:
+                if self._engine is not None:
+                    return self._engine
+                self._initialization_state = "loading"
+            try:
+                engine = self._engine_factory(dict(self._model_config), self._seed)
+            except BaseException:
+                # Do not retain the exception/traceback (it can own partial model tensors).
+                with self._state_lock:
+                    self._initialization_state = "failed"
+                raise
+            with self._state_lock:
+                self._engine = engine
+                self._initialization_state = "ready"
+            return engine
 
     @staticmethod
     def _copy_messages(messages: Sequence[Mapping[str, str]]) -> list[dict[str, str]]:
