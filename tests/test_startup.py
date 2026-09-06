@@ -4,12 +4,14 @@ import contextlib
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -282,59 +284,128 @@ def test_windows_log_requires_localappdata_without_temp_fallback(monkeypatch):
         startup.private_log("cpu-test")
 
 
-WINDOWS_SECURE_MODULES = ("win32api", "win32con", "win32security", "ntsecuritycon", "pywintypes")
+WINDOWS_SECURE_MODULES = (
+    "win32api",
+    "win32con",
+    "win32security",
+    "ntsecuritycon",
+    "pywintypes",
+    "win32job",
+    "win32process",
+    "win32event",
+    "argon2.exceptions",
+    "argon2.low_level",
+    "sqlcipher3.dbapi2",
+)
+REPAIR_COMMAND = r'.venv\Scripts\python.exe -m pip install -e ".[secure-runtime,encrypted-storage]"'
 
 
-def test_windows_secure_runtime_preflight_imports_all_required_modules(monkeypatch):
+@pytest.fixture
+def windows_dependencies(monkeypatch):
+    # Exercise the real codec verifier with a fake driver; no database file or native DLL required.
+    cursor = Mock()
+    cursor.execute.return_value.fetchone.return_value = ("4.12.0",)
+    connection = Mock()
+    connection.cursor.return_value = cursor
+    driver = SimpleNamespace(connect=Mock(return_value=connection), Error=sqlite3.Error)
+    argon2 = SimpleNamespace(
+        hash_secret_raw=Mock(return_value=b"x" * 32),
+        Type=SimpleNamespace(ID=2),
+        ARGON2_VERSION=19,
+    )
+    modules = {name: SimpleNamespace() for name in WINDOWS_SECURE_MODULES}
+    modules["argon2.low_level"] = argon2
+    modules["sqlcipher3.dbapi2"] = driver
     imported = []
-    monkeypatch.setattr(startup.importlib, "import_module", imported.append)
+    real_import = startup.importlib.import_module
+
+    def load(name, *args, **kwargs):
+        if name not in modules:
+            return real_import(name, *args, **kwargs)
+        imported.append(name)
+        module = modules[name]
+        if isinstance(module, Exception):
+            raise module
+        return module
+
+    monkeypatch.setattr(startup.importlib, "import_module", load)
+    return SimpleNamespace(
+        modules=modules,
+        imported=imported,
+        argon2=argon2,
+        driver=driver,
+        cursor=cursor,
+        connection=connection,
+    )
+
+
+def test_windows_secure_runtime_preflight_imports_all_required_modules(windows_dependencies):
     startup.require_windows_secure_runtime()
-    assert imported == list(WINDOWS_SECURE_MODULES)
+    assert windows_dependencies.imported == list(WINDOWS_SECURE_MODULES)
+    windows_dependencies.argon2.hash_secret_raw.assert_called_once()
+    windows_dependencies.driver.connect.assert_called_once_with(":memory:")
+    windows_dependencies.cursor.execute.assert_called_once_with("PRAGMA cipher_version")
+    windows_dependencies.cursor.close.assert_called_once()
+    windows_dependencies.connection.close.assert_called_once()
 
 
 @pytest.mark.parametrize("missing", WINDOWS_SECURE_MODULES)
-@pytest.mark.parametrize("error", [ModuleNotFoundError, ImportError, OSError])
-def test_windows_secure_runtime_preflight_has_safe_repair_message(monkeypatch, missing, error):
-    def broken(name):
-        if name == missing:
-            raise error(CANARY + TOKEN)
-
-    monkeypatch.setattr(startup.importlib, "import_module", broken)
+@pytest.mark.parametrize("error", [ModuleNotFoundError, ImportError, OSError, RuntimeError])
+def test_windows_secure_runtime_preflight_has_safe_repair_message(
+    windows_dependencies, missing, error
+):
+    windows_dependencies.modules[missing] = error(CANARY + TOKEN)
     with pytest.raises(startup.StartupError) as failure:
         startup.require_windows_secure_runtime()
     message = str(failure.value)
-    assert "Windows secure runtime dependencies are missing or unusable" in message
-    assert r'.venv\Scripts\python.exe -m pip install -e ".[secure-runtime]"' in message
+    assert "Windows secure runtime or encrypted-storage dependencies" in message
+    assert REPAIR_COMMAND in message
     assert "--upgrade --force-reinstall pywin32==311" in message
     assert CANARY not in message and TOKEN not in message
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows workflow preflight")
-def test_windows_missing_dependencies_stop_before_workflow(monkeypatch, capsys):
-    def missing(name):
-        raise ImportError(CANARY + TOKEN)
+@pytest.mark.parametrize(
+    "failure", [*WINDOWS_SECURE_MODULES, "argon2-hash", "sqlcipher-connect", "plaintext-driver"]
+)
+def test_windows_missing_dependencies_stop_before_workflow(
+    monkeypatch, capsys, windows_dependencies, failure
+):
+    if failure == "argon2-hash":
+        windows_dependencies.argon2.hash_secret_raw.side_effect = RuntimeError(CANARY + TOKEN)
+    elif failure == "sqlcipher-connect":
+        windows_dependencies.driver.connect.side_effect = sqlite3.DatabaseError(CANARY + TOKEN)
+    elif failure == "plaintext-driver":
+        windows_dependencies.modules["sqlcipher3.dbapi2"] = sqlite3
+    else:
+        windows_dependencies.modules[failure] = ImportError(CANARY + TOKEN)
 
     def forbidden(*args, **kwargs):
         pytest.fail("Workflow ran before dependency preflight")
 
+    monkeypatch.setattr(startup, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(startup, "require_free_ports", forbidden)
     monkeypatch.setattr("builtins.input", forbidden)
-    monkeypatch.setattr(startup.importlib, "import_module", missing)
     monkeypatch.setattr(startup.getpass, "getpass", forbidden)
     monkeypatch.setattr(startup.httpx, "Client", forbidden)
+    monkeypatch.setattr(startup, "resolve_addresses", forbidden)
     monkeypatch.setattr(startup, "private_log", forbidden)
     monkeypatch.setattr(startup.subprocess, "Popen", forbidden)
     monkeypatch.setattr(startup, "WindowsFrontend", forbidden)
+    monkeypatch.setattr(startup.threading, "Thread", forbidden)
     previous = dict(os.environ)
     assert startup.main(["windows"]) == 1
     assert dict(os.environ) == previous
-    message = capsys.readouterr().err
-    assert "Windows secure runtime dependencies" in message
+    output = capsys.readouterr()
+    message = output.out + output.err
+    assert "Windows secure runtime or encrypted-storage dependencies" in message
+    assert REPAIR_COMMAND in message
     assert CANARY not in message and TOKEN not in message
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows launcher")
-def test_windows_uses_normal_unlock_flow_and_restores_environment(monkeypatch, tmp_path):
+def test_windows_uses_normal_unlock_flow_and_restores_environment(
+    monkeypatch, tmp_path, windows_dependencies
+):
     import runtime.serve
 
     opened = threading.Event()
@@ -345,7 +416,14 @@ def test_windows_uses_normal_unlock_flow_and_restores_environment(monkeypatch, t
     monkeypatch.setattr(startup, "require_free_ports", lambda *args: None)
     monkeypatch.setattr(startup.shutil, "which", lambda _: "node.exe")
     monkeypatch.setattr(Path, "is_file", lambda _: True)
-    monkeypatch.setattr("builtins.input", lambda _: "https://EXAMPLE.com/")
+
+    def prompt(_):
+        assert windows_dependencies.imported == list(WINDOWS_SECURE_MODULES)
+        windows_dependencies.argon2.hash_secret_raw.assert_called_once()
+        windows_dependencies.cursor.execute.assert_called_once_with("PRAGMA cipher_version")
+        return "https://EXAMPLE.com/"
+
+    monkeypatch.setattr("builtins.input", prompt)
     monkeypatch.setattr(startup.getpass, "getpass", lambda _: TOKEN)
     monkeypatch.setattr(startup, "resolve_addresses", lambda *_: ["93.184.216.34"])
     real_client = httpx.Client
@@ -456,6 +534,37 @@ subprocess.Popen = no_spawn
 before = dict(os.environ)
 import scripts.startup
 assert dict(os.environ) == before
+"""
+    subprocess.run([sys.executable, "-c", code], cwd=startup.ROOT, check=True, timeout=15)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Windows secure dependencies")
+def test_real_windows_preflight_cannot_load_models_download_or_spawn():
+    code = """
+import importlib.abc, platform, socket, subprocess, sys
+# Cache stdlib OS discovery: Python 3.11 may run `ver` when Argon2 asks platform.machine().
+platform.uname()
+class NoModels(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *args):
+        if fullname.split('.')[0] in {
+            'torch', 'transformers', 'huggingface_hub', 'datasets',
+            'accelerate', 'bitsandbytes', 'unsloth', 'peft', 'trl',
+        }:
+            raise AssertionError('model or download import attempted')
+def forbidden(*args, **kwargs):
+    raise AssertionError('network, prompt or process attempted')
+class NoSpawn(subprocess.Popen):
+    # asyncio subclasses Popen while importing on Windows; reject construction, not definition.
+    __init__ = forbidden
+sys.meta_path.insert(0, NoModels())
+subprocess.Popen = NoSpawn
+socket.socket.connect = forbidden
+socket.create_connection = forbidden
+import builtins, getpass
+builtins.input = getpass.getpass = forbidden
+from scripts.startup import require_windows_secure_runtime
+require_windows_secure_runtime()
+assert 'runtime.serve' not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code], cwd=startup.ROOT, check=True, timeout=15)
 

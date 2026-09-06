@@ -1200,12 +1200,16 @@ in RunPod; the script does not create a pod or change its networking.
 .\scripts\windows\start.cmd
 ```
 
-Before prompting or starting services, the launcher imports `win32api`, `win32con`, `win32security`,
-`ntsecuritycon`, and `pywintypes`. Missing or broken pywin32 dependencies stop startup with a repair
-command. From the repository root, install the existing secure-runtime extra:
+Before asking for the RunPod URL or inference token, making HTTP requests, or starting services,
+the launcher checks Argon2 with a tiny hash using fixed public inputs, imports `win32api`, `win32con`,
+`win32security`, `ntsecuritycon`, `pywintypes`, and the pywin32 job/process/event modules, and loads
+`sqlcipher3.dbapi2`. It uses the existing encrypted-storage verification to check `PRAGMA cipher_version`
+on an in-memory connection, without opening your database. Missing or broken dependencies stop startup
+with a sanitized repair command; plaintext SQLite is never a fallback. From the repository root,
+install both existing extras:
 
 ```bat
-.venv\Scripts\python.exe -m pip install -e ".[secure-runtime]"
+.venv\Scripts\python.exe -m pip install -e ".[secure-runtime,encrypted-storage]"
 ```
 
 If an installed pywin32 still fails to import, repair it with

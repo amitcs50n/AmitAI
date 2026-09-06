@@ -329,12 +329,39 @@ class WindowsFrontend:
 def require_windows_secure_runtime() -> None:
     # Import native modules: find_spec alone cannot detect a broken pywin32 DLL install.
     try:
-        for name in ("win32api", "win32con", "win32security", "ntsecuritycon", "pywintypes"):
+        for name in (
+            "win32api",
+            "win32con",
+            "win32security",
+            "ntsecuritycon",
+            "pywintypes",
+            "win32job",
+            "win32process",
+            "win32event",
+            "argon2.exceptions",
+        ):
             importlib.import_module(name)
-    except (ImportError, OSError):
+        argon2 = importlib.import_module("argon2.low_level")
+        # Tiny probe with public, fixed inputs; never use a passphrase or change runtime KDF settings.
+        argon2.hash_secret_raw(
+            secret=b"aevon-preflight",
+            salt=b"aevon-preflight-salt",
+            time_cost=1,
+            memory_cost=8,
+            parallelism=1,
+            hash_len=32,
+            type=argon2.Type.ID,
+            version=argon2.ARGON2_VERSION,
+        )
+
+        from backend.database import _load_sqlcipher_driver, _verify_sqlcipher_driver
+
+        # Reuse the runtime's in-memory codec check; never open the user's database.
+        _verify_sqlcipher_driver(_load_sqlcipher_driver())
+    except Exception:  # noqa: BLE001 - native dependency failures must not expose exception details.
         raise StartupError(
-            "Windows secure runtime dependencies are missing or unusable. "
-            'From the repository root, run: .venv\\Scripts\\python.exe -m pip install -e ".[secure-runtime]" '
+            "Windows secure runtime or encrypted-storage dependencies are missing or unusable. "
+            'From the repository root, run: .venv\\Scripts\\python.exe -m pip install -e ".[secure-runtime,encrypted-storage]" '
             "If pywin32 is already installed but still cannot import, run: "
             ".venv\\Scripts\\python.exe -m pip install --upgrade --force-reinstall pywin32==311"
         ) from None
