@@ -1174,8 +1174,13 @@ bash scripts/runpod/start.sh
 ```
 
 The script reuses `AEVON_RUNPOD_VENV`, the activated venv, the repository `.venv`, or
-`/workspace/venv`, in that order. If no venv exists, it creates one with the pod image's
-system packages and installs the runtime dependencies. For an existing venv missing dependencies,
+`/root/amitai-venv`, in that order. The fresh default venv uses the pod's local disk, keeping
+dependency installation off the persistent `/workspace` network volume that holds the model cache.
+It never defaults to `/workspace/venv`; set `AEVON_RUNPOD_VENV` to choose another location explicitly.
+An existing selected venv must have an executable `bin/python`. If no venv exists at the selected
+location, it creates one with the pod image's system packages and installs the runtime dependencies.
+The default venv may need setup again when the pod's local disk is replaced.
+For an existing venv missing dependencies,
 use `bash scripts/runpod/start.sh --setup` once. Normal starts do not install packages.
 Model loading is offline: `HF_HOME=/workspace/hf`, both cache variables point to
 `/workspace/hf/hub`, both Hugging Face/Transformers offline flags are set, and `TMPDIR=/tmp`.
@@ -1194,6 +1199,19 @@ in RunPod; the script does not create a pod or change its networking.
 ```powershell
 .\scripts\windows\start.cmd
 ```
+
+Before prompting or starting services, the launcher imports `win32api`, `win32con`, `win32security`,
+`ntsecuritycon`, and `pywintypes`. Missing or broken pywin32 dependencies stop startup with a repair
+command. From the repository root, install the existing secure-runtime extra:
+
+```bat
+.venv\Scripts\python.exe -m pip install -e ".[secure-runtime]"
+```
+
+If an installed pywin32 still fails to import, repair it with
+`.venv\Scripts\python.exe -m pip install --upgrade --force-reinstall pywin32==311`.
+Launcher logs use `%LOCALAPPDATA%\AmitAI\runtime` with the existing owner-only ACL checks;
+there is no insecure log or temp-file fallback.
 
 Paste the printed RunPod URL and token into the prompts (token entry is hidden), then enter
 the normal database unlock passphrase. The launcher checks authenticated remote readiness,

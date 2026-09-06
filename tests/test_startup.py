@@ -241,7 +241,8 @@ def test_frontend_does_not_inherit_inference_or_database_secrets():
     }
 
 
-def test_launcher_log_is_owner_only():
+@pytest.mark.parametrize("attempt", range(2))
+def test_launcher_log_is_owner_only(attempt):
     from runtime.paths import assert_owner_only
 
     path, log = startup.private_log("cpu-test")
@@ -251,10 +252,85 @@ def test_launcher_log_is_owner_only():
         assert_owner_only(path, directory=False)
         assert_owner_only(path.parent, directory=True)
         assert path.read_text() == "CPU-only log check\n"
+        if os.name == "nt":
+            assert path.parent.parent == Path(os.environ["LOCALAPPDATA"]) / "AmitAI/runtime"
     finally:
         log.close()
         path.unlink(missing_ok=True)
         path.parent.rmdir()
+
+
+def test_launcher_log_does_not_bypass_private_path_failure(monkeypatch):
+    from runtime import paths
+
+    def denied(*args):
+        raise paths.PrivatePathError("ACL denied")
+
+    monkeypatch.setattr(paths, "atomic_write_private", denied)
+    monkeypatch.setattr(Path, "open", lambda *a, **kw: pytest.fail("Insecure log fallback"))
+    with pytest.raises(paths.PrivatePathError, match="ACL denied"):
+        startup.private_log("cpu-test")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows secure log location")
+def test_windows_log_requires_localappdata_without_temp_fallback(monkeypatch):
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(
+        startup.tempfile, "gettempdir", lambda: pytest.fail("Insecure temp fallback")
+    )
+    with pytest.raises(startup.StartupError, match="LOCALAPPDATA"):
+        startup.private_log("cpu-test")
+
+
+WINDOWS_SECURE_MODULES = ("win32api", "win32con", "win32security", "ntsecuritycon", "pywintypes")
+
+
+def test_windows_secure_runtime_preflight_imports_all_required_modules(monkeypatch):
+    imported = []
+    monkeypatch.setattr(startup.importlib, "import_module", imported.append)
+    startup.require_windows_secure_runtime()
+    assert imported == list(WINDOWS_SECURE_MODULES)
+
+
+@pytest.mark.parametrize("missing", WINDOWS_SECURE_MODULES)
+@pytest.mark.parametrize("error", [ModuleNotFoundError, ImportError, OSError])
+def test_windows_secure_runtime_preflight_has_safe_repair_message(monkeypatch, missing, error):
+    def broken(name):
+        if name == missing:
+            raise error(CANARY + TOKEN)
+
+    monkeypatch.setattr(startup.importlib, "import_module", broken)
+    with pytest.raises(startup.StartupError) as failure:
+        startup.require_windows_secure_runtime()
+    message = str(failure.value)
+    assert "Windows secure runtime dependencies are missing or unusable" in message
+    assert r'.venv\Scripts\python.exe -m pip install -e ".[secure-runtime]"' in message
+    assert "--upgrade --force-reinstall pywin32==311" in message
+    assert CANARY not in message and TOKEN not in message
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows workflow preflight")
+def test_windows_missing_dependencies_stop_before_workflow(monkeypatch, capsys):
+    def missing(name):
+        raise ImportError(CANARY + TOKEN)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Workflow ran before dependency preflight")
+
+    monkeypatch.setattr(startup, "require_free_ports", forbidden)
+    monkeypatch.setattr("builtins.input", forbidden)
+    monkeypatch.setattr(startup.importlib, "import_module", missing)
+    monkeypatch.setattr(startup.getpass, "getpass", forbidden)
+    monkeypatch.setattr(startup.httpx, "Client", forbidden)
+    monkeypatch.setattr(startup, "private_log", forbidden)
+    monkeypatch.setattr(startup.subprocess, "Popen", forbidden)
+    monkeypatch.setattr(startup, "WindowsFrontend", forbidden)
+    previous = dict(os.environ)
+    assert startup.main(["windows"]) == 1
+    assert dict(os.environ) == previous
+    message = capsys.readouterr().err
+    assert "Windows secure runtime dependencies" in message
+    assert CANARY not in message and TOKEN not in message
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows launcher")
@@ -385,7 +461,10 @@ assert dict(os.environ) == before
 
 
 @pytest.mark.parametrize("setup", [False, True])
-def test_bash_wrapper_reuses_venv_and_offline_cache_without_running_python(tmp_path, setup):
+@pytest.mark.parametrize("selection", ["override", "activated", "repository"])
+def test_bash_wrapper_reuses_venv_and_offline_cache_without_running_python(
+    tmp_path, setup, selection
+):
     bash = (
         str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe")
         if os.name == "nt"
@@ -397,7 +476,7 @@ def test_bash_wrapper_reuses_venv_and_offline_cache_without_running_python(tmp_p
     script = root / "scripts/runpod/start.sh"
     script.parent.mkdir(parents=True)
     script.write_bytes((startup.ROOT / "scripts/runpod/start.sh").read_bytes())
-    venv = root / "existing venv"
+    venv = root / (".venv" if selection == "repository" else "existing venv")
     fake = venv / "bin/python"
     fake.parent.mkdir(parents=True)
     fake.write_text(
@@ -413,9 +492,15 @@ printf '%s\\n' "CALL:$*" "HF_HOME=$HF_HOME" "HF_HUB_CACHE=$HF_HUB_CACHE" \\
     capture = root / "calls.txt"
     env = {
         **os.environ,
-        "AEVON_RUNPOD_VENV": venv.as_posix(),
         "AEVON_TEST_CAPTURE": capture.as_posix(),
     }
+    env.pop("AEVON_RUNPOD_VENV", None)
+    env.pop("VIRTUAL_ENV", None)
+    if selection == "override":
+        env["AEVON_RUNPOD_VENV"] = venv.as_posix()
+        env["VIRTUAL_ENV"] = (root / "unused activated venv").as_posix()
+    elif selection == "activated":
+        env["VIRTUAL_ENV"] = venv.as_posix()
     subprocess.run([bash, "-n", script.as_posix()], check=True, timeout=15)
     subprocess.run(
         [bash, script.as_posix(), *(["--setup"] if setup else []), "--timeout", "7"],
@@ -437,6 +522,94 @@ printf '%s\\n' "CALL:$*" "HF_HOME=$HF_HOME" "HF_HUB_CACHE=$HF_HUB_CACHE" \\
         "TMPDIR=/tmp",
     ]:
         assert setting in output
+
+
+@pytest.mark.parametrize("dependencies_available", [False, True])
+def test_bash_fresh_default_uses_pod_disk_then_reuses_without_installing(
+    tmp_path, dependencies_available
+):
+    bash = (
+        str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe")
+        if os.name == "nt"
+        else shutil.which("bash")
+    )
+    if not bash or not Path(bash).is_file():
+        pytest.skip("Bash is unavailable")
+    root = tmp_path / "checkout with spaces"
+    script = root / "scripts/runpod/start.sh"
+    script.parent.mkdir(parents=True)
+    source = (startup.ROOT / "scripts/runpod/start.sh").read_text()
+    assert "venv=/root/amitai-venv" in source
+    assert "/workspace/venv" not in source
+    # Rebase only the absolute default into a fake filesystem; never write /root or /workspace.
+    script.write_text(
+        source.replace("venv=/root/amitai-venv", 'venv="$AEVON_TEST_DISK/root/amitai-venv"'),
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    bootstrap = fake_bin / "python3"
+    bootstrap.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf 'CREATE:%s\\n' "$*" >> "$AEVON_TEST_CAPTURE"
+[[ "$*" == "-m venv --system-site-packages $AEVON_TEST_DISK/root/amitai-venv" ]] || exit 90
+mkdir -p "$4/bin"
+cp "$AEVON_TEST_PYTHON" "$4/bin/python"
+chmod +x "$4/bin/python"
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_python = fake_bin / "venv-python"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+printf 'CALL:%s\\n' "$*" >> "$AEVON_TEST_CAPTURE"
+if [[ "$1" == -c ]]; then exit "$AEVON_TEST_DEPENDENCY_STATUS"; fi
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    bootstrap.chmod(0o700)
+    fake_python.chmod(0o700)
+    capture = tmp_path / "calls.txt"
+    env = {
+        **os.environ,
+        "AEVON_TEST_DISK": tmp_path.as_posix(),
+        "AEVON_TEST_CAPTURE": capture.as_posix(),
+        "AEVON_TEST_PYTHON": fake_python.as_posix(),
+        "AEVON_TEST_DEPENDENCY_STATUS": "0",
+    }
+    env.pop("AEVON_RUNPOD_VENV", None)
+    env.pop("VIRTUAL_ENV", None)
+    # Set PATH in Bash so Git Bash's Windows path conversion cannot split a drive letter.
+    command = [
+        bash,
+        "-c",
+        'export PATH="$(cd -- "$1" && pwd):$PATH"; exec bash "$2" --timeout 7',
+        "test",
+        fake_bin.as_posix(),
+        script.as_posix(),
+    ]
+    subprocess.run(command, env=env, check=True, capture_output=True, timeout=15)
+    output = capture.read_text()
+    assert f"CREATE:-m venv --system-site-packages {tmp_path.as_posix()}/root/amitai-venv" in output
+    assert output.count("CALL:-m pip install -e .[runtime]") == 1
+    assert "CALL:-m scripts.startup runpod --timeout 7" in output
+    assert not (tmp_path / "workspace").exists()
+
+    capture.write_text("")
+    env["AEVON_TEST_DEPENDENCY_STATUS"] = "0" if dependencies_available else "1"
+    result = subprocess.run(
+        command, env=env, capture_output=True, text=True, timeout=15, check=False
+    )
+    output = capture.read_text()
+    assert "CREATE:" not in output and "pip install" not in output
+    assert ("CALL:-m scripts.startup runpod" in output) is dependencies_available
+    assert result.returncode == (0 if dependencies_available else 1)
+    if not dependencies_available:
+        assert "--setup" in result.stderr
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux lifetime lock")

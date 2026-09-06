@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import getpass
+import importlib
 import io
 import os
 import re
@@ -138,7 +139,14 @@ def private_log(label: str):
 
     # atomic_write_private also creates the parent with the V1 owner-only ACL.
     # tempfile.mkdtemp inherits Windows ACLs that the secure path helper rejects.
-    directory = Path(tempfile.gettempdir()) / f"aevon-{label}-{secrets.token_hex(16)}"
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            raise StartupError("LOCALAPPDATA is required for secure runtime logs")
+        base = Path(local_app_data) / "AmitAI" / "runtime"
+    else:
+        base = Path(tempfile.gettempdir())
+    directory = base / f"aevon-{label}-{secrets.token_hex(16)}"
     path = directory / "server.log"
     atomic_write_private(path, b"")
     return path, path.open("ab", buffering=0)
@@ -318,9 +326,24 @@ class WindowsFrontend:
             self.process = None
 
 
+def require_windows_secure_runtime() -> None:
+    # Import native modules: find_spec alone cannot detect a broken pywin32 DLL install.
+    try:
+        for name in ("win32api", "win32con", "win32security", "ntsecuritycon", "pywintypes"):
+            importlib.import_module(name)
+    except (ImportError, OSError):
+        raise StartupError(
+            "Windows secure runtime dependencies are missing or unusable. "
+            'From the repository root, run: .venv\\Scripts\\python.exe -m pip install -e ".[secure-runtime]" '
+            "If pywin32 is already installed but still cannot import, run: "
+            ".venv\\Scripts\\python.exe -m pip install --upgrade --force-reinstall pywin32==311"
+        ) from None
+
+
 def windows(args) -> None:
     if os.name != "nt":
         raise StartupError("Windows startup requires Windows")
+    require_windows_secure_runtime()
     require_free_ports(8000, 3000)
     node = shutil.which("node")
     next_cli = ROOT / "frontend/node_modules/next/dist/bin/next"

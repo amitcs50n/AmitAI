@@ -12,7 +12,7 @@ if [[ "${1:-}" == --setup ]]; then setup=1; shift; fi
 venv="${AEVON_RUNPOD_VENV:-${VIRTUAL_ENV:-}}"
 if [[ -z "$venv" ]]; then
     if [[ -x "$root/.venv/bin/python" ]]; then venv="$root/.venv"
-    else venv=/workspace/venv; fi
+    else venv=/root/amitai-venv; fi
 fi
 if [[ ! -e "$venv" ]]; then
     # Retain the pod image's CUDA PyTorch/TorchVision installation.
