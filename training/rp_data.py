@@ -16,6 +16,7 @@ from itertools import pairwise
 from typing import Any
 
 from training.data import normalize_example
+from training.rp_review import Signal, linked_indicator, review_signals, sexual_matches
 
 
 class RowError(ValueError):
@@ -192,6 +193,7 @@ class Decision:
     reasons: tuple[str, ...]
     classification: str
     classification_basis: str
+    signals: tuple[Signal, ...] = ()
 
 
 def assess(record: dict, source: dict, filters: dict) -> Decision:
@@ -217,15 +219,15 @@ def assess(record: dict, source: dict, filters: dict) -> Decision:
         reject.append("severe_repetition")
     if PII.search(full):
         review.append("possible_personal_information")
-    sexual = bool(SEXUAL.search(full))
+    sexual = any(sexual_matches(text, SEXUAL) for text in texts)
     if sexual:
-        if MINOR.search(full):
+        if any(linked_indicator(text, SEXUAL, MINOR) for text in texts):
             reject.append("sexual_minor_signal")
-        known_person = any(
-            re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", full, re.IGNORECASE)
+        identity_rules = [REAL_PERSON] + [
+            re.compile(r"(?<!\w)" + re.escape(name) + r"(?!\w)", re.IGNORECASE)
             for name in filters.get("known_real_person_names", [])
-        )
-        if REAL_PERSON.search(full) or known_person:
+        ]
+        if any(linked_indicator(text, SEXUAL, rule) for text in texts for rule in identity_rules):
             reject.append("sexual_real_person_signal")
         if YOUTH.search(full) or not ADULT_DECLARATION.search(full):
             review.append("sexual_ambiguous_age")
@@ -236,12 +238,15 @@ def assess(record: dict, source: dict, filters: dict) -> Decision:
         review.append("possible_user_agency_loss")
     if source["provenance_status"] != "reviewed":
         review.append("source_provenance_review")
+    signals = review_signals(record, filters, SEXUAL)
+    review.extend(signal.code for signal in signals if signal.routing == "review")
     # Neither upstream NSFW tags nor absence of keyword hits is a reliable label.
     return Decision(
         "rejected" if reject else "quarantined" if review else "accepted",
         tuple(sorted(set(reject + review))),
         "unknown",
         "sexual_keyword_signal_unverified" if sexual else "no_reliable_row_label",
+        signals,
     )
 
 

@@ -1,5 +1,5 @@
 schema_version: 1
-pipeline_version: rp_v1.1
+pipeline_version: rp_v2.0
 spec_version: 1.1.0
 category: creative_roleplay
 # Coverage targets, not claims that imported conversations satisfy these rules.

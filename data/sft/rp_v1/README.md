@@ -131,6 +131,60 @@ The manifest pins the files and dataset cards inspected on 2026-09-12:
 
 ## Heuristic limits and next gate
 
+### RP filter/review v2
+
+`rp_v2.0` changes RP preparation only; the core SFT schema remains `1.1.0`.
+`training/rp_review.py` supplies deterministic review signals with one-based message
+locations. These are fallible routing hints, not semantic verdicts. No source text,
+embedded URL contents, model calls or network requests are used by the detector.
+
+- Consent/age/identity review includes explicit stop overrides, coercive intimate
+  contracts, forced intimacy, intoxication in intimate contexts, dependency/power
+  cues, euphemisms and intimate public-persona context. Missing participant ages
+  remain uncertain. Negated stop overrides, ordinary medical care, nonsexual age
+  references and LGBTQ identities are contrastive controls, not danger keywords.
+- Agency review covers attributed user speech, decisions/internal states, forced
+  movement and possible speaker splices. Named targets come from user speaker
+  headers. Conditional choices, ordinary perception and echoes of an immediately
+  preceding user-declared action receive limited exclusions. A single uncertain
+  event can require review; it does not create a new hard rejection rule.
+- Phrase/gesture recurrence is diagnostic-only. Several persistent gesture
+  families, repeated long-term emotional resets, or strongly overlapping adjacent
+  response vocabularies can request review. Lexical synonym normalization is a
+  proxy for some paraphrases; it cannot establish actual plot progression.
+- Card review detects HTML/image markup, creator/model notes, malformed user/char
+  placeholders, legacy delimiters and substantial card-to-reply copying. Initial
+  assistant greetings and short common phrases are excluded from copying checks.
+  Nothing embedded in a card is fetched, executed or automatically cleaned.
+
+`decisions.jsonl`, eligible row metadata and bounded review manifests include
+content-free `review_signals` (`code`, `family`, `messages`, `routing`). Stats include
+per-source/global signal counts and distinct rows per family. Signals also remain
+visible on rows rejected by structural or legacy rules. Family counts include
+diagnostics; only signals with `routing: review` enter reason lists and quarantine.
+
+V2 scopes legacy hard sexual/minor or sexual/real-person co-occurrence to a local
+window within a message, instead of joining unrelated mentions anywhere in the
+conversation. It masks a few explicit nonsexual senses (for example, identity
+education and cocking a weapon/head). Consequently some v1 rejections can become
+quarantines. These are not approvals: sexual-context review and all existing
+provenance gates remain, and no automatic SFW/adult classification is introduced.
+Even proximity is not entity/age verification; distant relationships and subtle
+coercion can be missed. Review unflagged rows as well as flagged ones.
+
+The 72-row local review is a development diagnostic set, not a held-out benchmark.
+Do not infer general precision/recall from it or tune source-specific name/ID rules
+to make every row fire. Portable tests use synthetic paired controls; optional
+local tests verify the exact input hash and inspect observed misses/controls without
+copying upstream conversations into Git. Those tests skip when the local artifact
+is absent and never download it. The comparison controls are in
+`tests/fixtures/rp_review_v2_controls.json`.
+
+Keep **PIPPA primary for inspection**, **Gryphe a rights-blocked research lead**,
+and **openerotica deprioritized** for the first positive RP corpus. Source revisions,
+enablement and pending provenance remain unchanged. Human approval of source
+rights and each selected, cleaned row is still required before any training use.
+
 Clear structural failures, model self-identification at assistant-message openings,
 dataset control tokens, injection phrases, corrupted text, and severe repeated
 replies/phrases are rejected. Email/phone/address/secret-like strings and repeated
@@ -160,8 +214,8 @@ separately authorized milestone.
 ## Tests
 
 ```powershell
-python -m pytest tests/test_rp_dataset.py tests/test_dataset.py tests/test_dataset_plan.py tests/test_sft_batch_01.py tests/test_spec.py
-python -m ruff check training/rp_data.py training/prepare_rp_dataset.py tests/test_rp_dataset.py
+python -m pytest tests/test_rp_review_v2.py tests/test_rp_dataset.py tests/test_dataset.py tests/test_dataset_plan.py tests/test_sft_batch_01.py tests/test_spec.py
+python -m ruff check training/rp_review.py training/rp_data.py training/prepare_rp_dataset.py tests/test_rp_dataset.py tests/test_rp_review_v2.py
 ```
 
 Fixtures are synthetic, non-graphic examples. Tests cover source adapters, shared

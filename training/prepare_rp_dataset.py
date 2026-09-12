@@ -23,6 +23,7 @@ from training.rp_data import (
     normalize_conversation,
     record_metrics,
 )
+from training.rp_review import VERSION as REVIEW_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "configs/rp_v1_sources.yaml"
@@ -289,6 +290,7 @@ def build(
     limits = config["smoke"]
     stats = {
         "pipeline_version": config["pipeline_version"],
+        "review_version": REVIEW_VERSION,
         "status": "complete",
         "training_ready": False,
         "manifest_sha256": fingerprint(config),
@@ -296,7 +298,7 @@ def build(
         "code_sha256": fingerprint(
             {
                 name: hashlib.sha256((ROOT / "training" / name).read_bytes()).hexdigest()
-                for name in ("rp_data.py", "prepare_rp_dataset.py", "data.py")
+                for name in ("rp_data.py", "rp_review.py", "prepare_rp_dataset.py", "data.py")
             }
         ),
         "limits": limits,
@@ -312,6 +314,8 @@ def build(
         "distribution_population": "accepted_only",
         "classification_policy": "unknown unless independently reviewed; no keyword SFW inference",
         "review_candidates": 0,
+        "review_signal_counts": Counter(),
+        "review_signal_family_rows": Counter(),
     }
     seen, sample_counts = {}, Counter()
     with (
@@ -336,6 +340,8 @@ def build(
                 "error": None,
                 "reasons": Counter(),
                 "review_candidates": 0,
+                "review_signal_counts": Counter(),
+                "review_signal_family_rows": Counter(),
             }
             stats["sources"][name] = source_report
             try:
@@ -354,11 +360,21 @@ def build(
                             record = normalize_conversation(raw, source, config)
                             assessment = assess(record, source, config["filters"])
                             status, reasons = assessment.status, list(assessment.reasons)
+                            signal_codes = [signal.code for signal in assessment.signals]
+                            signal_families = sorted(
+                                {signal.family for signal in assessment.signals}
+                            )
+                            for report in (stats, source_report):
+                                report["review_signal_counts"].update(signal_codes)
+                                report["review_signal_family_rows"].update(signal_families)
                             decision.update(
                                 {
                                     "id": record["id"],
                                     "raw_sha256": fingerprint(raw),
                                     "metrics": record_metrics(record),
+                                    "review_signals": [
+                                        signal.as_dict() for signal in assessment.signals
+                                    ],
                                 }
                             )
                             if any(
@@ -394,6 +410,9 @@ def build(
                                 "classification_basis": assessment.classification_basis,
                                 "metrics": decision["metrics"],
                                 "human_review": "pending",
+                                "training_ready": False,
+                                "review_version": REVIEW_VERSION,
+                                "review_signals": decision["review_signals"],
                                 "primary_rules_status": "coverage_targets_not_verified",
                                 "provenance_status": source["provenance_status"],
                                 "declared_license": source["declared_license"],
