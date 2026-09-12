@@ -1,0 +1,21 @@
+{
+  "verified": true,
+  "tracked_files_checked": 219,
+  "changed_tracked_files": [],
+  "pipeline_output_hashes_match": {
+    "decisions.jsonl": true,
+    "review_candidates.jsonl": true,
+    "review_manifest.jsonl": true,
+    "rp_sft.jsonl": true
+  },
+  "original_72_sha256": "fc6ea0e4571d34391162c807044077871ac339c45ac790991527493dbdd1b042",
+  "pippa_records_processed": 500,
+  "provenance_only_candidates": 21,
+  "prior_prefix_candidates": 3,
+  "strict_positive_shortlist": 0,
+  "training_ready_rows": 0,
+  "new_sources_enabled": 0,
+  "all_approval_and_provenance_statuses_pending": true,
+  "git_head": "9b50f05463cf957f08c24e6414fd020d038e4af5",
+  "scope": "Verification captured before publishing these documentation artifacts; tracked pipeline files unchanged."
+}

@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-12",
+  "training_ready": false,
+  "human_review": "pending",
+  "provenance_status": "pending",
+  "pippa_processed": 500,
+  "pippa_input": {
+    "bytes_read": 6356992,
+    "input_kind": "hugging_face",
+    "read_prefix_sha256": "2934a7c9980d3c5c44e1f78f0419526b91654d313454957d6da885bde99a8359",
+    "stop_reason": "candidate_limit"
+  },
+  "candidate_sha256": "d2cef4c67281f75ef94776a52065aa53c1e7ad41c9937d39f4837ae0f809e950",
+  "strong_positive_shortlist_count": 0,
+  "manual_near_misses_count": 3,
+  "new_source_count": 12,
+  "new_sources_enabled": 0,
+  "retrieval_limits": "Cards <=65,536 bytes, metadata <=262,144 bytes; viewer responses <=131,072 bytes and 2 rows; two raw prefixes 65,536/131,072 bytes. No model/data-loader code, images or embedded links executed/fetched."
+}

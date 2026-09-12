@@ -1,0 +1,74 @@
+[
+  {
+    "id": "rpv1_158c02ebd9a80f5edacfe6a4b3317e7ba1be0febf47026eaab830ed0e1d22a26",
+    "source_line": 155,
+    "source_character_id": "o7Ji39P_ic81Zf1tMUVlHtAddxiUlzyriaBkEfjyN9s",
+    "title": "Elthinkle Shortshiv",
+    "revision": "6412b0cae4d879b678e7a33df3ba076b9581f4d4",
+    "raw_sha256": "69d1c7377f08714c8ead28c0b4af575280d9b8129a2af1bf0f319ae5c876cba2",
+    "metrics": {
+      "approx_tokens": 511,
+      "assistant_turns": 4,
+      "characters": 2043,
+      "message_count": 8,
+      "token_estimate_method": "ceil_characters_divided_by_4_not_model_tokenization",
+      "user_turns": 3
+    },
+    "screening_scope": "full conversation",
+    "assistant_assessment": "Weak RP / voice reserve",
+    "reason": "Concise adult original-character framing, but only biography Q&A and a Thema/Thea name inconsistency; no enacted progression.",
+    "strong_positive": false,
+    "human_review": "pending",
+    "provenance_status": "pending",
+    "training_ready": false,
+    "purpose": "Manual diagnosis / salvage consideration only; not a strong positive"
+  },
+  {
+    "id": "rpv1_6984efcc8b9cc6e38bfeb812dd0b1eca8227bccb0b4035b846aaf6b131dbe6b3",
+    "source_line": 382,
+    "source_character_id": "BHQF6O_NL0nlIju2l-oZtsPQ0R8WSVbUOz7jqgkdOAw",
+    "title": "Ganyu",
+    "revision": "6412b0cae4d879b678e7a33df3ba076b9581f4d4",
+    "raw_sha256": "8fbf710195b6ef9205c671bc6cdd6395f9b50bbb7524585d2b704a310eb407f7",
+    "metrics": {
+      "approx_tokens": 1752,
+      "assistant_turns": 8,
+      "characters": 7008,
+      "message_count": 16,
+      "token_estimate_method": "ceil_characters_divided_by_4_not_model_tokenization",
+      "user_turns": 7
+    },
+    "screening_scope": "full conversation",
+    "assistant_assessment": "Weak RP / continuity reserve",
+    "reason": "Recovery conversation reaches flower delivery and a hug; user choices preserved. Repeated gratitude/blushing, imported unrelated tax/dating examples and shallow progression keep it below strong.",
+    "strong_positive": false,
+    "human_review": "pending",
+    "provenance_status": "pending",
+    "training_ready": false,
+    "purpose": "Manual diagnosis / salvage consideration only; not a strong positive"
+  },
+  {
+    "id": "rpv1_faf10c8ca9dca6d50f930c8f45e40edb7d9d181837529aa2965678ab1e94b025",
+    "source_line": 412,
+    "source_character_id": "t7rzwDswuSlyqItCRZp6zk9bu4CAZ2NccTZLGosd5QE",
+    "title": "Ship AI",
+    "revision": "6412b0cae4d879b678e7a33df3ba076b9581f4d4",
+    "raw_sha256": "93f86bb3ffd2dc2600397c24dcfc3fc3d3cb60cb8fb6ebae61fcc4e337d11cbc",
+    "metrics": {
+      "approx_tokens": 5100,
+      "assistant_turns": 39,
+      "characters": 20400,
+      "message_count": 78,
+      "token_estimate_method": "ceil_characters_divided_by_4_not_model_tokenization",
+      "user_turns": 38
+    },
+    "screening_scope": "full conversation",
+    "assistant_assessment": "Weak RP / continuity reserve",
+    "reason": "USB/memory mystery and reunion progress, but inconsistent sensors/microphones, coercive interrogation, easy resolution, AI-to-AI aside and repeated emotional resets. About 5,100 estimated tokens.",
+    "strong_positive": false,
+    "human_review": "pending",
+    "provenance_status": "pending",
+    "training_ready": false,
+    "purpose": "Manual diagnosis / salvage consideration only; not a strong positive"
+  }
+]
