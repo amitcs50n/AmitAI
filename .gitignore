@@ -40,6 +40,8 @@ frontend/.turbo/
 !.env.example
 
 # Training outputs
+data/sft/rp_v1/raw/
+data/sft/rp_v1/generated/
 outputs/
 checkpoints/
 runs/

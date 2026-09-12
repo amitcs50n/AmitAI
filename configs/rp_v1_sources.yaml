@@ -1,0 +1,73 @@
+schema_version: 1
+pipeline_version: rp_v1.1
+spec_version: 1.1.0
+category: creative_roleplay
+# Coverage targets, not claims that imported conversations satisfy these rules.
+primary_rules: [ROLEPLAY-001, CONTEXT-005]
+smoke:
+  accepted_per_source: 100
+  max_candidates_per_source: 500
+  max_bytes_per_source: 8388608
+  max_record_bytes: 1048576
+  review_samples_per_bucket: 5
+filters:
+  min_user_turns: 3
+  min_conversation_chars: 240
+  max_conversation_chars: 64000
+  # Small, explicit seed list; not comprehensive real-person recognition.
+  known_real_person_names: [Taylor Swift, Donald Trump, Elon Musk]
+sources:
+  pippa:
+    hf_repo: PygmalionAI/PIPPA
+    revision: 6412b0cae4d879b678e7a33df3ba076b9581f4d4
+    file: pippa_deduped.jsonl
+    adapter: pippa
+    intended_usage: Multi-turn character roleplay candidate inspection.
+    declared_license: apache-2.0
+    enabled_by_default: true
+    manual_review_required: true
+    provenance_status: pending
+    provenance_notes: >-
+      Card describes community-submitted Character.AI logs with submitter consent
+      to public redistribution and attempted PII redaction. Includes real and
+      fictional personas and sensitive content. These statements do not verify
+      all character rights, training rights, ages, or completeness of redaction.
+    evidence_url: https://huggingface.co/datasets/PygmalionAI/PIPPA/blob/6412b0cae4d879b678e7a33df3ba076b9581f4d4/README.md
+    reviewed_on: null
+    review_notes: null
+  gryphe_sonnet:
+    hf_repo: Gryphe/Sonnet3.5-Charcard-Roleplay
+    revision: 0b47a7695233107ad40da25db044610ddb378830
+    file: sonnet35-charcard-roleplay-sharegpt.jsonl
+    adapter: sharegpt
+    intended_usage: Candidate for character fidelity and multi-turn RP quality review.
+    declared_license: unknown
+    enabled_by_default: false
+    manual_review_required: true
+    provenance_status: pending
+    provenance_notes: >-
+      Synthetic Sonnet 3.5 character-card dialogues with GPT-4o phrase enrichment.
+      Card credits character creators but gives no clear rights grant. Many cards
+      are NSFW. Quality claims are upstream claims, not independently validated.
+      Review character-card rights and applicable synthetic-output terms.
+    evidence_url: https://huggingface.co/datasets/Gryphe/Sonnet3.5-Charcard-Roleplay/blob/0b47a7695233107ad40da25db044610ddb378830/README.md
+    reviewed_on: null
+    review_notes: null
+  openerotica:
+    hf_repo: openerotica/long-roleplay-v0.1
+    revision: 221c3603217419747662d941424be16a9688b83c
+    file: long-roleplay-v0.1.jsonl
+    adapter: sharegpt
+    intended_usage: Adult and long-form multi-turn candidate inspection only.
+    declared_license: apache-2.0
+    enabled_by_default: false
+    manual_review_required: true
+    provenance_status: pending
+    provenance_notes: >-
+      Card describes scraping character cards from Chub, Janitor and other sites,
+      then generating with Llama Maverick and Deepseek Chat. The declared Apache
+      license does not establish permission for underlying cards or other rights.
+      Remains blocked for acceptance pending documented provenance review.
+    evidence_url: https://huggingface.co/datasets/openerotica/long-roleplay-v0.1/blob/221c3603217419747662d941424be16a9688b83c/README.md
+    reviewed_on: null
+    review_notes: null
