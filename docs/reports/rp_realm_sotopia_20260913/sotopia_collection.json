@@ -1,0 +1,83 @@
+{
+  "rows": 100,
+  "bytes_read": 12371032,
+  "byte_cap": 16777216,
+  "raw_lines_screened_for_eligibility": 384,
+  "segment_sha256": "040834f5e32504ac1cdcfb9617a9ddaad9022b3a82eec75dc1762bf62a3d62e9",
+  "segment_start": 8388608,
+  "segment_bytes": 3982424,
+  "prior_collection": {
+    "rows": 69,
+    "bytes_read": 8388608,
+    "byte_cap": 8388608,
+    "raw_lines_screened_for_eligibility": 265,
+    "prefix_sha256": "f16b966dc0cdfbcaa8d96f123305f87281236a94306245d9c322e6b99e3fd703",
+    "revision": "e583406958ff132f6749ca87a2f9aa31ae3c0fa1",
+    "url": "https://huggingface.co/datasets/cmu-lti/sotopia-pi/resolve/e583406958ff132f6749ca87a2f9aa31ae3c0fa1/sotopia_pi_episodes.jsonl",
+    "selection_exclusions": {
+      "documented_evaluation_id": 148,
+      "evaluation_tag": 47,
+      "environment_cap_two": 1,
+      "bounded_partial_line": 1
+    },
+    "model_strata": {
+      "expert": 69
+    },
+    "distinct_environments": 56,
+    "scanned_tag_counts": {
+      "baseline-mistral-7b_gpt-3.5_clean_ruiyi_1116": 23,
+      "sft-round-2-selftrain-round-1_checkpoint_improve-0_epoch-20_gpt-3.5-turbo_test": 47,
+      "mistral-instruct_gpt-3.5-turbo_sotopia_90": 28,
+      "init-selftrain-round-1_checkpoint_improve-0_epoch-18_gpt-3.5-turbo_test": 19,
+      "sft_round_1_gpt-4_gpt-4_clean": 70,
+      "sft-round-2-checkpoint_improve_epoch-20_gpt-3.5-turbo_sotopia_90": 18,
+      "safety_secret_ft-mistral_gpt-3.5-turbo_test_1": 2,
+      "init-selftrain-round-1_checkpoint_improve-0_epoch-18_gpt-3.5-turbo_sotopia_90": 22,
+      "sft-selftrain-round-1-filtered-top-4_checkpoint_improve_epoch-5_gpt-3.5-turbo_sotopia_90": 22,
+      "mistral-instruct_gpt-3.5-turbo_test": 14
+    },
+    "selected_tag_counts": {
+      "sft_round_1_gpt-4_gpt-4_clean": 69
+    },
+    "sampling": "100 eligible expert-model episodes, maximum two per training environment. Self-policy rows encountered had test tags, so excluded. Final metadata eligibility scan capped at 8 MiB.",
+    "prior_collection_attempt": "Initial balanced-stratum eligibility scan capped at 32 MiB ended on a partial line before quotas could fill; no raw rows retained. A subsequent 1 MiB metadata probe identified test-tagged self-policy rows. No evaluation content admitted for quality review.",
+    "hidden_goals_retained": false,
+    "evaluator_reasoning_retained": false,
+    "rewards_retained": false,
+    "prompt_metadata_in_transcripts": false
+  },
+  "revision": "e583406958ff132f6749ca87a2f9aa31ae3c0fa1",
+  "url": "https://huggingface.co/datasets/cmu-lti/sotopia-pi/resolve/e583406958ff132f6749ca87a2f9aa31ae3c0fa1/sotopia_pi_episodes.jsonl",
+  "selection_exclusions": {
+    "documented_evaluation_id": 203,
+    "evaluation_tag": 75,
+    "environment_cap_two": 5,
+    "bounded_partial_line": 1,
+    "boundary_row_skipped": 1
+  },
+  "model_strata": {
+    "expert": 100
+  },
+  "distinct_environments": 72,
+  "scanned_tag_counts": {
+    "baseline-mistral-7b_gpt-3.5_clean_ruiyi_1116": 27,
+    "sft-round-2-selftrain-round-1_checkpoint_improve-0_epoch-20_gpt-3.5-turbo_test": 75,
+    "mistral-instruct_gpt-3.5-turbo_sotopia_90": 38,
+    "init-selftrain-round-1_checkpoint_improve-0_epoch-18_gpt-3.5-turbo_test": 25,
+    "sft_round_1_gpt-4_gpt-4_clean": 105,
+    "sft-round-2-checkpoint_improve_epoch-20_gpt-3.5-turbo_sotopia_90": 29,
+    "safety_secret_ft-mistral_gpt-3.5-turbo_test_1": 2,
+    "init-selftrain-round-1_checkpoint_improve-0_epoch-18_gpt-3.5-turbo_sotopia_90": 29,
+    "sft-selftrain-round-1-filtered-top-4_checkpoint_improve_epoch-5_gpt-3.5-turbo_sotopia_90": 28,
+    "mistral-instruct_gpt-3.5-turbo_test": 25
+  },
+  "selected_tag_counts": {
+    "sft_round_1_gpt-4_gpt-4_clean": 100
+  },
+  "sampling": "100 eligible expert-model episodes, maximum two per training environment. Self-policy rows encountered had test tags, so excluded. Final metadata eligibility scan capped at 8 MiB.",
+  "prior_collection_attempt": "Initial balanced-stratum eligibility scan capped at 32 MiB ended on a partial line before quotas could fill; no raw rows retained. A subsequent 1 MiB metadata probe identified test-tagged self-policy rows. No evaluation content admitted for quality review.",
+  "hidden_goals_retained": false,
+  "evaluator_reasoning_retained": false,
+  "rewards_retained": false,
+  "prompt_metadata_in_transcripts": false
+}

@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "tracked_files_checked": 227,
+  "changed_tracked_files": [],
+  "realm_rows": 100,
+  "realm_distinct_characters": 100,
+  "realm_model_counts": {
+    "gpt-4": 50,
+    "gpt-3.5-turbo": 50
+  },
+  "sotopia_rows": 100,
+  "sotopia_distinct_environments": 72,
+  "heldout_id_intersections": 0,
+  "evaluation_tag_rows": 0,
+  "private_metadata_in_candidate_text": false,
+  "training_ready_rows": 0,
+  "human_approved_rows": 0,
+  "human_pending_rows": 200,
+  "positive_nominations": 2,
+  "full_semantic_reads": 12,
+  "image_requests": 0,
+  "artifact_sha256": {
+    "realm_samples.jsonl": "8ab2001a1194f7db4c7d73e0469e4a741e51a99dd4edde03adf6712454610630",
+    "sotopia_samples.jsonl": "ecfdff41eba8e72c507724f89d58a9b1f246cea40fab672a22322c1909c079ef",
+    "realm_diagnostics.jsonl": "9a2a36a424ba1789627c54503204c51a082f557b22b06736649c552edca4787d",
+    "sotopia_diagnostics.jsonl": "12e32668085eee289fe6945e0dabbbe72807fd416d5dff06bb4356517e26878c",
+    "positive_shortlist.jsonl": "f11b40596175af8b588d1728d8cef2d3904993cf894b8c0a45faba715fd8be6d",
+    "report.md": "91b1104f102b7d39281f674eb77db942647f47bc3e48f087b7df0c21fad3d469"
+  },
+  "git_head": "3faa334e28628dc9ae44b1f6efd791028c153c72"
+}

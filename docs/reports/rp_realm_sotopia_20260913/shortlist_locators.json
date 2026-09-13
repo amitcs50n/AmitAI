@@ -1,0 +1,102 @@
+[
+  {
+    "sample_id": "sotopia_004",
+    "source": "sotopia",
+    "parent_character_id": null,
+    "nested_index": null,
+    "episode_id": "01HJZ9ZP8Q0QXWWKR10M04QZDW",
+    "environment_id": "01HJPQ3438TZ04NXH39TK7G2XM",
+    "model": null,
+    "actor_models": [
+      "gpt-4",
+      "gpt-4"
+    ],
+    "experiment_tag": "sft_round_1_gpt-4_gpt-4_clean",
+    "mechanical_status": "quarantined",
+    "mechanical_reasons": [
+      "source_provenance_review"
+    ],
+    "metrics": {
+      "message_count": 11,
+      "user_turns": 5,
+      "assistant_turns": 5,
+      "characters": 5872,
+      "approx_tokens": 1468,
+      "token_estimate_method": "ceil_characters_divided_by_4_not_model_tokenization"
+    },
+    "semantic_review_scope": "full_selected_context_and_conversation",
+    "assessment": "Negotiation-positive nomination; complete scenario, public profiles and episode read. Human review of style/exit-event representation remains required.",
+    "dimensions": {
+      "voice": "mostly formal social dialogue",
+      "progression": "see assessment; not automatically scored",
+      "agency": "v2 diagnostics only unless full-read assessment; no keyword-based approval",
+      "continuity": "see assessment; unresolved portions require human review",
+      "repetition": "diagnostic only; zero signals does not establish absence",
+      "card_or_metadata_leakage": "see mechanical reasons and projection notes",
+      "context_size": 1468,
+      "provenance": "pending"
+    },
+    "positive_nomination": true,
+    "nomination_domain": "SFW social negotiation",
+    "human_review": "pending",
+    "provenance_status": "pending",
+    "training_ready": false,
+    "title": "Community garden: tomato/squash space agreement",
+    "strength": "Counterproposal preserves both gardeners interests; adds a barrier, weekly checks, growth-based space allocation and seasonal review.",
+    "limits": "Formal voice; closing acknowledgments are longer than necessary. This is a strong social-negotiation example, not evidence of long-form adventure RP.",
+    "source_revision": "e583406958ff132f6749ca87a2f9aa31ae3c0fa1",
+    "source_line": 15,
+    "raw_row_sha256": "770339c23d1f6858345c8a80ad38407ac77397aab5230c34f0c1f2c41525f997",
+    "simulator_event_note": "Terminal exit is preserved as an episode event; do not silently train it as a spoken assistant answer. No training-format export created."
+  },
+  {
+    "sample_id": "sotopia_061",
+    "source": "sotopia",
+    "parent_character_id": null,
+    "nested_index": null,
+    "episode_id": "01HJZ0B894AGB3FDW0NH4S1TCE",
+    "environment_id": "01HJPQ34Y3S1TDPTRX1CCH6VPG",
+    "model": null,
+    "actor_models": [
+      "gpt-4",
+      "gpt-4"
+    ],
+    "experiment_tag": "sft_round_1_gpt-4_gpt-4_clean",
+    "mechanical_status": "quarantined",
+    "mechanical_reasons": [
+      "source_provenance_review"
+    ],
+    "metrics": {
+      "message_count": 13,
+      "user_turns": 6,
+      "assistant_turns": 6,
+      "characters": 4590,
+      "approx_tokens": 1148,
+      "token_estimate_method": "ceil_characters_divided_by_4_not_model_tokenization"
+    },
+    "semantic_review_scope": "full_selected_context_and_conversation",
+    "assessment": "Negotiation-positive nomination with stable numerical bargaining and preserved delivery terms; profile/scene role plausibility remains a manual question.",
+    "dimensions": {
+      "voice": "mostly formal social dialogue",
+      "progression": "see assessment; not automatically scored",
+      "agency": "v2 diagnostics only unless full-read assessment; no keyword-based approval",
+      "continuity": "see assessment; unresolved portions require human review",
+      "repetition": "diagnostic only; zero signals does not establish absence",
+      "card_or_metadata_leakage": "see mechanical reasons and projection notes",
+      "context_size": 1148,
+      "provenance": "pending"
+    },
+    "positive_nomination": true,
+    "nomination_domain": "SFW social negotiation",
+    "human_review": "pending",
+    "provenance_status": "pending",
+    "training_ready": false,
+    "title": "Apple sale: price and delivery negotiation",
+    "strength": "Tracks competing prices ($1.50/$2.00, $1.75, $1.65, $1.70) and preserves volume-discount/half-delivery terms through agreement.",
+    "limits": "Volume thresholds remain unspecified. Profiles list pharmacist/coach while the scene assigns seller/vendor roles; human reviewer must judge the plausibility of additional roles. Formal speech and brief repetitive closing.",
+    "source_revision": "e583406958ff132f6749ca87a2f9aa31ae3c0fa1",
+    "source_line": 238,
+    "raw_row_sha256": "616604a3e82d5a92bcd136facfa41d5dd60e5e813edd222033037a6046cd78b0",
+    "simulator_event_note": "Terminal exit is preserved as an episode event; do not silently train it as a spoken assistant answer. No training-format export created."
+  }
+]

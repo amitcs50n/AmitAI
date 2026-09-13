@@ -1,0 +1,60 @@
+{
+  "realm": {
+    "selected": 100,
+    "status_counts": {
+      "rejected": 4,
+      "quarantined": 96
+    },
+    "reason_counts": {
+      "broken_speaker_order": 1,
+      "source_provenance_review": 100,
+      "minimum_turns": 3
+    },
+    "provenance_only": 96,
+    "full_semantic_reads": 4,
+    "positive_nomination_count": 0,
+    "human_approved": 0,
+    "training_ready": 0,
+    "tokens_min_median_max": [
+      372,
+      699.0,
+      1004
+    ],
+    "signals_by_family": {},
+    "rows_with_absolutely_in_3_or_more_turns": 0,
+    "terminal_exit_rows": 0
+  },
+  "sotopia": {
+    "selected": 100,
+    "status_counts": {
+      "quarantined": 33,
+      "rejected": 67
+    },
+    "reason_counts": {
+      "source_provenance_review": 100,
+      "broken_speaker_order": 67,
+      "user_decision_review": 5,
+      "card_html_review": 2,
+      "intimate_power_imbalance_review": 1,
+      "user_dialogue_review": 1,
+      "forced_user_movement_review": 1
+    },
+    "provenance_only": 32,
+    "full_semantic_reads": 8,
+    "positive_nomination_count": 2,
+    "human_approved": 0,
+    "training_ready": 0,
+    "tokens_min_median_max": [
+      472,
+      1161.0,
+      2580
+    ],
+    "signals_by_family": {
+      "agency": 7,
+      "contamination": 2,
+      "consent_age_identity": 1
+    },
+    "rows_with_absolutely_in_3_or_more_turns": 22,
+    "terminal_exit_rows": 81
+  }
+}

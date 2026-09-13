@@ -1,0 +1,14 @@
+{
+  "rows": 100,
+  "distinct_characters": 100,
+  "split": "en",
+  "model_counts": {
+    "gpt-4": 50,
+    "gpt-3.5-turbo": 50
+  },
+  "response_bytes": 6507582,
+  "revision": "c90229b1916159a24d88428972b2771022d4b52a",
+  "image_requests": 0,
+  "sampling": "100 evenly spaced parent indices across 216 English characters; one chat per parent, 50 GPT-4 and 50 GPT-3.5, hashed topic selection within label.",
+  "retrieval_note": "Parent envelopes contain unselected chats; only selected 100 retained or quality-inspected. Rate-limited single-row requests resumed using 20-parent batches. No image bytes fetched. Responses are cached, not commit-pinned."
+}
