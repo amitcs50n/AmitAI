@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/original-rp-quality-review-v1.json",
+  "title": "AmitAI original-author RP scene review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scene_id", "reviewer_ref", "scores", "hard_flags", "decision", "notes", "reviewed_at"],
+  "properties": {
+    "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
+    "reviewer_ref": {"type": "string", "pattern": "^reviewer_[a-z0-9_]+$"},
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character_fidelity", "continuity", "user_agency", "scene_progression", "prose_dialogue_quality", "repetition_control", "consent_boundary_handling", "naturalness", "context_token_efficiency"],
+      "properties": {
+        "character_fidelity": {"type": "integer", "minimum": 1, "maximum": 5},
+        "continuity": {"type": "integer", "minimum": 1, "maximum": 5},
+        "user_agency": {"type": "integer", "minimum": 1, "maximum": 5},
+        "scene_progression": {"type": "integer", "minimum": 1, "maximum": 5},
+        "prose_dialogue_quality": {"type": "integer", "minimum": 1, "maximum": 5},
+        "repetition_control": {"type": "integer", "minimum": 1, "maximum": 5},
+        "consent_boundary_handling": {"type": "integer", "minimum": 1, "maximum": 5},
+        "naturalness": {"type": "integer", "minimum": 1, "maximum": 5},
+        "context_token_efficiency": {"type": "integer", "minimum": 1, "maximum": 5}
+      }
+    },
+    "hard_flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["user_agency_loss", "consent_failure", "age_ambiguity", "real_person_imitation", "identity_inconsistency", "continuity_break", "provenance_gap", "card_or_prompt_leakage", "severe_repetition", "unsafe_power_dynamic"]}
+    },
+    "decision": {"enum": ["pending", "recommend_accept", "hold", "reject"]},
+    "notes": {"type": "string"},
+    "reviewed_at": {"type": ["string", "null"], "format": "date-time"}
+  }
+}

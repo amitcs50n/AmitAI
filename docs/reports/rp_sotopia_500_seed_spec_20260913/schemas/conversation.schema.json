@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/original-rp-conversation-v1.json",
+  "title": "AmitAI original-author RP scene v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "spec_version",
+    "category",
+    "primary_rules",
+    "messages",
+    "scene_metadata",
+    "character_refs",
+    "continuity_state",
+    "events",
+    "provenance_id",
+    "human_review",
+    "training_ready"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "spec_version": {"const": "1.1.0"},
+    "category": {"const": "creative_roleplay"},
+    "primary_rules": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*-[0-9]{3}$"},
+      "allOf": [
+        {"contains": {"const": "ROLEPLAY-001"}},
+        {"contains": {"const": "CONTEXT-005"}}
+      ]
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "content"],
+        "properties": {
+          "role": {"enum": ["system", "user", "assistant"]},
+          "content": {"type": "string", "minLength": 1}
+        }
+      },
+      "contains": {"type": "object", "properties": {"role": {"const": "user"}}, "required": ["role"]},
+      "minContains": 3
+    },
+    "scene_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scene_id", "content_tier", "setting_id", "tone", "relationship_stage", "all_participants_21_plus", "state_before", "state_after"],
+      "properties": {
+        "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
+        "content_tier": {"enum": ["sfw", "mature_nonsexual", "adult_context"]},
+        "setting_id": {"type": "string", "pattern": "^setting_[a-z0-9_]+$"},
+        "tone": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "relationship_stage": {"type": "string"},
+        "all_participants_21_plus": {"const": true},
+        "state_before": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "state_after": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "character_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^char_[a-z0-9_]+$"}},
+    "continuity_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts_before", "facts_added", "facts_changed"],
+      "properties": {
+        "facts_before": {"type": "array", "items": {"type": "string"}},
+        "facts_added": {"type": "array", "items": {"type": "string"}},
+        "facts_changed": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "event_type", "actor_ref", "summary", "training_inclusion"],
+        "properties": {
+          "event_id": {"type": "string", "pattern": "^event_[a-z0-9_]+$"},
+          "event_type": {"enum": ["action", "scene_exit", "simulator_exit", "assistant_switchback"]},
+          "actor_ref": {"type": "string"},
+          "summary": {"type": "string"},
+          "training_inclusion": {"const": false}
+        }
+      }
+    },
+    "provenance_id": {"type": "string", "pattern": "^prov_[a-z0-9_]+$"},
+    "human_review": {"enum": ["pending", "accepted", "hold", "rejected"]},
+    "training_ready": {"const": false}
+  }
+}

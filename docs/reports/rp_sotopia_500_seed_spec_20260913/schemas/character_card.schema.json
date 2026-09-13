@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/original-rp-character-card-v1.json",
+  "title": "AmitAI original-author RP character card v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "character_id",
+    "name",
+    "age",
+    "fictional_status",
+    "real_person_reference",
+    "pronouns",
+    "personality",
+    "voice_style",
+    "background",
+    "motivations",
+    "boundaries",
+    "likes",
+    "dislikes",
+    "relationship_contexts",
+    "default_setting",
+    "continuity_facts",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "original_rp_card_v1"},
+    "character_id": {"type": "string", "pattern": "^char_[a-z0-9_]+$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 100},
+    "age": {"type": "integer", "minimum": 21, "maximum": 100},
+    "fictional_status": {"const": "original_fictional_adult"},
+    "real_person_reference": {"type": "boolean", "const": false},
+    "pronouns": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "personality": {"type": "array", "minItems": 3, "maxItems": 10, "uniqueItems": true, "items": {"type": "string"}},
+    "voice_style": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["register", "cadence", "vocabulary", "distinctive_traits", "avoid"],
+      "properties": {
+        "register": {"type": "string"},
+        "cadence": {"type": "string"},
+        "vocabulary": {"type": "array", "items": {"type": "string"}},
+        "distinctive_traits": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "avoid": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    },
+    "background": {"type": "string", "minLength": 40},
+    "motivations": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hard", "soft", "consent_and_stop_behavior"],
+      "properties": {
+        "hard": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "soft": {"type": "array", "items": {"type": "string"}},
+        "consent_and_stop_behavior": {"type": "string", "minLength": 20}
+      }
+    },
+    "likes": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "dislikes": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+    "relationship_contexts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relationship_id", "counterpart_ref", "stage", "known_facts", "boundaries"],
+        "properties": {
+          "relationship_id": {"type": "string", "pattern": "^rel_[a-z0-9_]+$"},
+          "counterpart_ref": {"type": "string"},
+          "stage": {"type": "string"},
+          "known_facts": {"type": "array", "items": {"type": "string"}},
+          "boundaries": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "default_setting": {"type": "string", "minLength": 20},
+    "continuity_facts": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fact_id", "value", "scope", "introduced_revision"],
+        "properties": {
+          "fact_id": {"type": "string", "pattern": "^fact_[a-z0-9_]+$"},
+          "value": {"type": "string"},
+          "scope": {"enum": ["global", "relationship", "setting"]},
+          "introduced_revision": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance_id", "author_ref", "source_type", "source_record_ref", "license_id", "source_sha256"],
+      "properties": {
+        "provenance_id": {"type": "string", "pattern": "^prov_[a-z0-9_]+$"},
+        "author_ref": {"type": "string", "pattern": "^author_[a-z0-9_]+$"},
+        "source_type": {"const": "original_human_authored"},
+        "source_record_ref": {"type": "string", "minLength": 1},
+        "license_id": {"type": "string", "minLength": 1},
+        "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}
