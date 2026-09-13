@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/aevon-rp-provenance-v1.json",
+  "title": "Aevon RP seed provenance record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "provenance_id", "item_type", "item_id", "author",
+    "ownership", "permission", "created_at", "versions", "revision_history",
+    "source_hashes", "lineage", "review_links", "human_rights_review", "training_ready"
+  ],
+  "properties": {
+    "schema_version": {"const": "aevon_rp_provenance_v1"},
+    "provenance_id": {"type": "string", "pattern": "^prov_[a-z0-9_]+$"},
+    "item_type": {"enum": ["character_card", "scene", "heldout_case"]},
+    "item_id": {"type": "string", "minLength": 1},
+    "author": {
+      "type": "object", "additionalProperties": false,
+      "required": ["author_id", "identity_reference", "contact_reference"],
+      "properties": {
+        "author_id": {"type": "string", "pattern": "^author_[a-z0-9_]+$"},
+        "identity_reference": {"type": "string", "minLength": 1},
+        "contact_reference": {"type": "string", "minLength": 1}
+      }
+    },
+    "ownership": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declaration_status", "original_work", "no_identifiable_real_person_imitation", "third_party_material", "signed_at", "declaration_sha256"],
+      "properties": {
+        "declaration_status": {"enum": ["pending", "confirmed", "rejected"]},
+        "original_work": {"type": ["boolean", "null"]},
+        "no_identifiable_real_person_imitation": {"type": ["boolean", "null"]},
+        "third_party_material": {"type": "array", "items": {"type": "string"}},
+        "signed_at": {"type": ["string", "null"], "format": "date-time"},
+        "declaration_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "permission": {
+      "type": "object", "additionalProperties": false,
+      "required": ["license_id", "license_text_sha256", "training_use", "modification", "redistribution", "attribution_required"],
+      "properties": {
+        "license_id": {"enum": ["pending", "author_grant_v1", "custom"]},
+        "license_text_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "training_use": {"enum": ["pending", "granted", "denied"]},
+        "modification": {"enum": ["pending", "granted", "denied"]},
+        "redistribution": {"enum": ["pending", "granted", "denied"]},
+        "attribution_required": {"type": ["boolean", "null"]}
+      }
+    },
+    "created_at": {"type": ["string", "null"], "format": "date-time"},
+    "versions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_revision", "character_card_version", "conversation_revision"],
+      "properties": {
+        "source_revision": {"type": ["integer", "null"], "minimum": 1},
+        "character_card_version": {"type": ["string", "null"], "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "conversation_revision": {"type": ["integer", "null"], "minimum": 1}
+      }
+    },
+    "revision_history": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["revision", "timestamp", "author_id", "source_sha256", "change_summary"],
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1},
+          "timestamp": {"type": "string", "format": "date-time"},
+          "author_id": {"type": "string"},
+          "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "change_summary": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "source_hashes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["character_card_sha256", "conversation_sha256", "provenance_sha256"],
+      "properties": {
+        "character_card_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "conversation_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "provenance_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "lineage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin", "parent_ids", "parent_hashes", "teacher_model", "generation_run_id", "prompt_template_sha256"],
+      "properties": {
+        "origin": {"enum": ["human_original", "human_revision", "synthetic_derivative"]},
+        "parent_ids": {"type": "array", "items": {"type": "string"}},
+        "parent_hashes": {"type": "array", "items": {"type": "string", "pattern": "^[a-f0-9]{64}$"}},
+        "teacher_model": {"type": ["string", "null"]},
+        "generation_run_id": {"type": ["string", "null"]},
+        "prompt_template_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "review_links": {
+      "type": "object", "additionalProperties": false,
+      "required": ["quality_review_id", "reviewer_ids", "decisions", "final_quality_status"],
+      "properties": {
+        "quality_review_id": {"type": ["string", "null"]},
+        "reviewer_ids": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"enum": ["accept", "revise", "reject"]}},
+        "final_quality_status": {"enum": ["pending", "accepted_by_reviewers", "revision_required", "rejected"]}
+      }
+    },
+    "human_rights_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reviewer_ids", "reviewed_at", "notes"],
+      "properties": {
+        "status": {"enum": ["pending", "reviewed", "blocked", "rejected"]},
+        "reviewer_ids": {"type": "array", "items": {"type": "string"}},
+        "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+        "notes": {"type": "string"}
+      }
+    },
+    "training_ready": {"const": false}
+  }
+}

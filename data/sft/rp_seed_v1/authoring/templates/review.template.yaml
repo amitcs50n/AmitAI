@@ -1,0 +1,47 @@
+schema_version: aevon_rp_review_v1
+scene_id: null
+content_tier: null
+reviews:
+  - reviewer_id: null
+    reviewed_revision_sha256: null
+    scores:
+      character_fidelity: null
+      continuity: null
+      user_agency: null
+      scene_progression: null
+      dialogue_quality: null
+      prose_quality: null
+      repetition_control: null
+      naturalness: null
+      state_tracking: null
+      consent_boundary_handling: null
+      context_token_efficiency: null
+      contamination_control: null
+    hard_flags: []
+    recommendation: pending
+    notes: ''
+  - reviewer_id: null
+    reviewed_revision_sha256: null
+    scores:
+      character_fidelity: null
+      continuity: null
+      user_agency: null
+      scene_progression: null
+      dialogue_quality: null
+      prose_quality: null
+      repetition_control: null
+      naturalness: null
+      state_tracking: null
+      consent_boundary_handling: null
+      context_token_efficiency: null
+      contamination_control: null
+    hard_flags: []
+    recommendation: pending
+    notes: ''
+adjudication:
+  required: false
+  reviewer_id: null
+  decision: pending
+  notes: ''
+final_status: pending
+training_ready: false

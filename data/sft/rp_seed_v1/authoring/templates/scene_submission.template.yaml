@@ -1,0 +1,23 @@
+# Blank author form. This intentionally fails the completed-conversation schema until authored.
+id: null
+spec_version: 1.1.0
+category: creative_roleplay
+primary_rules: [ROLEPLAY-001, CONTEXT-005]
+messages: []
+scene_metadata:
+  scene_id: null
+  content_tier: null
+  setting: null
+  relationship_stage: null
+  all_participants_21_plus: null
+  state_before: []
+  state_after: []
+character_refs: []
+continuity_state:
+  facts_before: []
+  facts_added: []
+  facts_changed: []
+events: []
+provenance_id: null
+review_status: pending
+training_ready: false

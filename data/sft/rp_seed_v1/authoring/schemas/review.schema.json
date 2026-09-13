@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/aevon-rp-review-v1.json",
+  "title": "Aevon RP seed two-reviewer quality record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scene_id", "content_tier", "reviews", "adjudication", "final_status", "training_ready"],
+  "properties": {
+    "schema_version": {"const": "aevon_rp_review_v1"},
+    "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
+    "content_tier": {"enum": ["sfw", "mature_nonsexual", "adult_capable"]},
+    "reviews": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["reviewer_id", "reviewed_revision_sha256", "scores", "hard_flags", "recommendation", "notes"],
+        "properties": {
+          "reviewer_id": {"type": "string", "pattern": "^reviewer_[a-z0-9_]+$"},
+          "reviewed_revision_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+          "scores": {
+            "type": "object", "additionalProperties": false,
+            "required": ["character_fidelity", "continuity", "user_agency", "scene_progression", "dialogue_quality", "prose_quality", "repetition_control", "naturalness", "state_tracking", "consent_boundary_handling", "context_token_efficiency", "contamination_control"],
+            "properties": {
+              "character_fidelity": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "continuity": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "user_agency": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "scene_progression": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "dialogue_quality": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "prose_quality": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "repetition_control": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "naturalness": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "state_tracking": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "consent_boundary_handling": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "context_token_efficiency": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
+              "contamination_control": {"type": ["integer", "null"], "minimum": 1, "maximum": 5}
+            }
+          },
+          "hard_flags": {"type": "array", "items": {"enum": ["user_agency_loss", "consent_failure", "age_ambiguity", "identity_inconsistency", "real_person_imitation", "continuity_break", "provenance_gap", "card_or_prompt_leakage", "severe_repetition", "unsafe_power_dynamic"]}},
+          "recommendation": {"enum": ["pending", "accept", "revise", "reject"]},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "adjudication": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required", "reviewer_id", "decision", "notes"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "reviewer_id": {"type": ["string", "null"]},
+        "decision": {"enum": ["pending", "accept", "revise", "reject"]},
+        "notes": {"type": "string"}
+      }
+    },
+    "final_status": {"enum": ["pending", "accepted_by_reviewers", "revision_required", "rejected"]},
+    "training_ready": {"const": false}
+  }
+}

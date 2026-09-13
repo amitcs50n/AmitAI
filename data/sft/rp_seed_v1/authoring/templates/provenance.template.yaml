@@ -1,0 +1,50 @@
+schema_version: aevon_rp_provenance_v1
+provenance_id: null
+item_type: null
+item_id: null
+author:
+  author_id: null
+  identity_reference: null
+  contact_reference: null
+ownership:
+  declaration_status: pending
+  original_work: null
+  no_identifiable_real_person_imitation: null
+  third_party_material: []
+  signed_at: null
+  declaration_sha256: null
+permission:
+  license_id: pending
+  license_text_sha256: null
+  training_use: pending
+  modification: pending
+  redistribution: pending
+  attribution_required: null
+created_at: null
+versions:
+  source_revision: null
+  character_card_version: null
+  conversation_revision: null
+revision_history: []
+source_hashes:
+  character_card_sha256: null
+  conversation_sha256: null
+  provenance_sha256: null
+lineage:
+  origin: human_original
+  parent_ids: []
+  parent_hashes: []
+  teacher_model: null
+  generation_run_id: null
+  prompt_template_sha256: null
+review_links:
+  quality_review_id: null
+  reviewer_ids: []
+  decisions: []
+  final_quality_status: pending
+human_rights_review:
+  status: pending
+  reviewer_ids: []
+  reviewed_at: null
+  notes: ''
+training_ready: false
