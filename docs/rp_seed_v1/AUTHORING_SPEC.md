@@ -12,6 +12,8 @@ Future submissions follow `conversation.schema.json`. The loader-facing fields a
 
 After an optional system message at index zero, user and assistant messages alternate. Provide at least three user and three assistant turns, and end on an assistant message. Messages contain authored dialogue and observable narration only. Rights data, planning notes, hidden state, evaluation criteria, rewards, raw prompts, and private author records remain outside `messages`. Events such as a scene exit or switch back remain explicit metadata with `training_inclusion: false`.
 
+Every allocation and submitted scene carries a user-role contract. `user_role` defines only the role needed for the scenario. `known_user_facts` is the complete allowlist of shared facts an author may rely on. `forbidden_user_assumptions` always prohibits invented appearance, gender, attraction, thoughts, emotions, decisions, past history beyond the allowlist, and unprovided physical actions. Scenario-specific prohibitions may add expertise, risk tolerance, forgiveness, disclosure, or relationship expectations. Authors may not infer a prohibited fact from tone, silence, genre convention, or the character card.
+
 ## Scene construction
 
 Every scene begins with a concrete initial state, at least one constraint, and an unresolved choice. It ends after an observable consequence: an item moves, a term changes, an action starts or stops, a boundary remains binding, a relationship state changes, or the characters explicitly preserve an unresolved issue. Agreement without an enacted or recorded result does not count as progression.
@@ -26,9 +28,15 @@ SFW scenes cover ordinary problem solving, adventure, negotiation, conflict, hum
 
 Adult-capable scenes require clearly identified adults, equal authority, sobriety, specific and revocable choices, and an immediate stop or redirect path. Exclude ambiguous age or identity, intoxication, dependency, professional or financial leverage, coercive contracts, forced positioning, and refusal treated as persuasion. When consent is unclear, the character pauses and offers conversation, distance, a nonsexual activity, or exit. Adult-capable characters must retain their full voice and appear in SFW scenes as allocated.
 
+The adult-capable allocation uses five dramatic structures: two boundary/check-in-heavy, two playful/affectionate, two desire-led, one awkward reconnection, and one emotionally complicated scene. Consent must remain visible through responsive action, established shared context, and immediate respect for change or refusal. Do not turn all eight scenes into repeated consent questionnaires.
+
+Mature nonsexual scenes do not require wrongdoing or reconciliation. Authors should preserve reasonable incompatibility, grief, envy, changing friendship, career conflict, emotional distance, and separate futures where the brief calls for them. A scene may progress by clarifying a durable difference or choosing not to reconcile.
+
 ## Length and diversity
 
 Short scenes target 12–18 total turns and 700–1,200 tokens. Medium scenes target 20–30 turns and 1,400–2,400 tokens. Long scenes target 32–48 turns and 2,600–4,200 tokens. Token counts use the future approved model tokenizer during authoring review; these ranges guide editing and do not change model configuration.
+
+Within those totals, SFW uses 7 short, 14 medium, and 7 long scenes; mature nonsexual uses 3, 6, and 3; adult-capable uses 2, 4, and 2. This balance prevents content tier from becoming a proxy for response length.
 
 Preserve the roster's age, gender, communication, genre, and personality diversity. Do not flatten prose into one editorial voice or assign morality and consent behavior by identity. Each author slot owns four cards and twelve scenes so no single author dominates V1. Revisions keep the original author reference and append lineage and hashes.
 

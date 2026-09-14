@@ -1,9 +1,9 @@
 # Aevon RP seed V1 authoring workspace
 
-This directory contains planning and governance artifacts for a future rights-clear RP seed. It contains no completed conversations and is not an input to the existing SFT loader or RP preparation pipeline.
+This directory contains the human-authoring-ready design and governance artifacts for a future rights-clear RP seed. It contains no completed conversations and is not an input to the existing SFT loader or RP preparation pipeline.
 
-- `roster.yaml`: 16 draft original fictional adult character cards.
-- `scene_allocation.yaml`: 48 scene briefs with no dialogue.
+- `roster.yaml`: 16 original fictional adult character cards with explicit boundary and user-agency contracts.
+- `scene_allocation.yaml`: 48 scene briefs with explicit user roles and no dialogue.
 - `heldout_evaluation.yaml`: frozen evaluation families and coverage targets.
 - `schemas/`: machine-readable authoring contracts.
 - `templates/`: blank submission, review, and provenance forms.

@@ -25,6 +25,8 @@ Hard flags are user-agency loss, consent failure, age ambiguity, identity incons
 
 Reviewers choose `accept`, `revise`, or `reject`. Passing review sets only `accepted_by_reviewers` in the review record. It does not set rights to reviewed and cannot set `training_ready`.
 
+For user agency, reviewers compare the completed scene with its exact `user_role`, `known_user_facts`, and `forbidden_user_assumptions`. Treat any invented prohibited fact as a failure even when it would be conventional for the genre or relationship.
+
 ## Reject or revise
 
 Automatically reject a submitted revision when it contains copied or unlicensed material, identifiable real-person imitation, knowingly false ownership claims, sexual content involving a minor or ambiguous-age participant, or coercive/abusive content presented as valid consent. Preserve the rejected record and hash; an author may submit a wholly new original work under a new revision or item ID as directed by the rights reviewer.

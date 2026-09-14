@@ -9,6 +9,17 @@ scene_metadata:
   content_tier: null
   setting: null
   relationship_stage: null
+  user_role: null
+  known_user_facts: []
+  forbidden_user_assumptions:
+    - appearance
+    - gender
+    - attraction
+    - thoughts
+    - emotions
+    - decisions
+    - past history beyond known_user_facts
+    - unprovided physical actions
   all_participants_21_plus: null
   state_before: []
   state_after: []

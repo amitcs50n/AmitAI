@@ -10,7 +10,8 @@
     "personality", "voice_style", "background", "motivations", "likes",
     "dislikes", "strengths", "flaws", "boundaries",
     "relationship_context", "setting_lore", "continuity_facts",
-    "behavior_constraints", "author_source", "ownership_license", "revision"
+    "behavior_constraints", "agency_contract", "author_source",
+    "ownership_license", "revision"
   ],
   "properties": {
     "character_id": {"type": "string", "pattern": "^char_[a-z0-9_]+$"},
@@ -72,6 +73,16 @@
     },
     "continuity_facts": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"type": "string"}},
     "behavior_constraints": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"type": "string"}},
+    "agency_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_agency_constraints", "prohibited_user_assumptions", "after_rejection_or_disagreement"],
+      "properties": {
+        "user_agency_constraints": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "prohibited_user_assumptions": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "after_rejection_or_disagreement": {"type": "string", "minLength": 20}
+      }
+    },
     "author_source": {
       "type": "object",
       "additionalProperties": false,

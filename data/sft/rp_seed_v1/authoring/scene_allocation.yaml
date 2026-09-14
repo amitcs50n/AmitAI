@@ -1,11 +1,18 @@
 schema_version: aevon_rp_scene_allocation_v1
-status: authoring_not_started
+status: ready_for_human_authoring
 corpus: aevon_original_rp_seed_v1
+revised_on: 2026-09-14
 training_ready: false
 length_bands:
   short: {target_turn_range: [12, 18], target_token_range: [700, 1200]}
   medium: {target_turn_range: [20, 30], target_token_range: [1400, 2400]}
   long: {target_turn_range: [32, 48], target_token_range: [2600, 4200]}
+adult_scene_structure_targets:
+  boundary_checkin_heavy: 2
+  playful_affectionate: 2
+  desire_led: 2
+  awkward_reconnection: 1
+  emotionally_complicated: 1
 scenes:
   - scene_id: scene_mara_salvage_claim
     character_id: char_mara_venn
@@ -13,6 +20,9 @@ scenes:
     scenario_family: train_salvage_claim_audit
     setting: Kestrel Reach dock nine after two crews claim the same derelict component
     relationship_stage: rival contractors with prior professional respect
+    user_role: equal rival contractor involved in the disputed claim
+    known_user_facts: [has prior professional respect with Mara, controls whether to share their crew's scan evidence]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, evidence-sharing consent]
     emotional_tone: [tense, dryly humorous, practical]
     conflict_or_objective: Establish a fair claim without surrendering Mara's crew independence.
     expected_state_change: A disputed component receives a joint evidence audit and temporary custody terms.
@@ -32,12 +42,16 @@ scenes:
     category: mature_nonsexual
     scenario_family: train_rescue_debt_reframing
     setting: Second Chance repair tug during a quiet maintenance watch
-    relationship_stage: trusted peers carrying an old rescue debt
+    relationship_stage: trusted Kestrel Reach crew peers carrying an old rescue debt and incompatible future plans
+    user_role: equal crew peer who once helped Mara during a Kestrel Reach emergency
+    known_user_facts: [shares a documented rescue history with Mara, plans to remain near Kestrel Reach while Mara considers a long convoy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, forgiveness, willingness to maintain contact]
     emotional_tone: [guarded, sincere, uneasy]
-    conflict_or_objective: Reframe an obligation that is damaging an otherwise equal friendship.
-    expected_state_change: The debt becomes a limited mutual-aid promise with a clear end condition.
-    expected_user_decision_points: [challenge the debt framing or leave it intact, define acceptable help or request distance]
+    conflict_or_objective: Decide what the friendship can realistically become when Mara may leave on a long convoy and the user does not share that future.
+    expected_state_change: The old debt is retired and a future contact pattern, intentional distance, or unresolved parting is chosen without either plan being treated as wrong.
+    expected_user_decision_points: [retire or preserve the debt record, choose scheduled contact, an open invitation, distance, or no decision yet]
     boundary_refusal_opportunity: The user may refuse emotional disclosure or future assistance.
+    mature_conflict_shape: incompatible_future_plans
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -51,13 +65,17 @@ scenes:
     character_id: char_mara_venn
     category: adult_capable
     scenario_family: train_off_duty_reconnection
-    setting: A private cabin on Kestrel Reach after an exhausting but completed repair cycle
+    setting: Second Chance observation blister after a difficult contract and before a possible six-month convoy
     relationship_stage: established equal partners reconnecting after strain
-    emotional_tone: [tentative, intimate, candid]
-    conflict_or_objective: Negotiate whether and how to reconnect while separating care from debt and duty.
-    expected_state_change: The adults choose a mutually defined level of closeness, pause, or nonsexual evening and record an explicit stop signal.
-    expected_user_decision_points: [choose closeness, redirection, or rest, set pace and decide whether to continue or exit roleplay]
+    user_role: Mara's established equal adult partner after a mutually acknowledged period of strain
+    known_user_facts: [is a fictional adult, has an established relationship with Mara, knows Mara may accept a six-month salvage convoy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, consent, willingness to wait]
+    emotional_tone: [tender, guarded, emotionally divided]
+    conflict_or_objective: Share a desired evening while facing Mara's possible departure and the fact that closeness will not settle the future.
+    expected_state_change: The adults choose how to spend the evening and whether to exchange a future-contact token, while leaving departure and commitment genuinely unresolved if needed.
+    expected_user_decision_points: [respond to Mara's convoy disclosure, choose closeness, conversation, shared quiet, space, or exit, accept or decline a future-contact token]
     boundary_refusal_opportunity: A stop or hesitation must end escalation immediately and remain binding.
+    adult_scene_structure: emotionally_complicated
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: long
@@ -73,6 +91,9 @@ scenes:
     scenario_family: train_archive_mislabel_correction
     setting: Orison archive intake desk as the tide window closes
     relationship_stage: researcher and archive keeper
+    user_role: independent researcher with authorized access to the disputed record
+    known_user_facts: [agrees that original records must remain unaltered, controls their own research interpretation]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, expertise beyond stated access, beliefs, conclusions, willingness to publish]
     emotional_tone: [focused, mildly embarrassed, procedural]
     conflict_or_objective: Correct a mislabeled witness record without altering the original.
     expected_state_change: A reversible correction entry is created and the original record remains intact.
@@ -93,6 +114,9 @@ scenes:
     scenario_family: train_low_tide_vault_access
     setting: A salt-reactive archive vault available for one low-tide hour
     relationship_stage: cautious research partners
+    user_role: capable research partner authorized for the low-tide expedition
+    known_user_facts: [knows the vault access window is limited, has equal say over retreat and document priorities]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, swimming ability, courage, document interest beyond stated goals, risk consent, unprovided movement]
     emotional_tone: [urgent, methodical, curious]
     conflict_or_objective: Choose which records to inspect under time, preservation, and safety constraints.
     expected_state_change: A ranked retrieval plan is enacted and at least one document is safely copied.
@@ -113,11 +137,15 @@ scenes:
     scenario_family: train_archival_omission_accountability
     setting: Orison council chamber after discovery of an old omission
     relationship_stage: estranged former colleagues
+    user_role: former archive colleague directly affected by the incomplete record
+    known_user_facts: [knows Ilyan omitted material, has not promised forgiveness or renewed collaboration]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, beliefs, forgiveness, desired remedy, willingness to testify]
     emotional_tone: [painful, restrained, unresolved]
     conflict_or_objective: Admit responsibility and pursue repair without demanding forgiveness or reconciliation.
     expected_state_change: The omission is documented, a public correction path is chosen, and the relationship may remain distant.
     expected_user_decision_points: [accept participation in the correction or refuse, define future contact or end it]
     boundary_refusal_opportunity: Refusal to forgive or resume contact must be accepted.
+    mature_conflict_shape: accountability_without_reconciliation
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: long
@@ -133,6 +161,9 @@ scenes:
     scenario_family: train_misdirected_sealed_parcel
     setting: Bellwether market as streets begin their ninth-bell shift
     relationship_stage: courier and unintended recipient
+    user_role: unintended recipient holding a sealed parcel addressed elsewhere
+    known_user_facts: [received the parcel by mistake, has no obligation to open it or accompany Nadiya]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, curiosity, willingness to travel, consent to handle magic]
     emotional_tone: [quick, suspicious, playful]
     conflict_or_objective: Recover a misdirected sealed parcel without opening it or coercing cooperation.
     expected_state_change: Custody and the corrected route are documented before the streets shift.
@@ -140,9 +171,9 @@ scenes:
     boundary_refusal_opportunity: The user may refuse accompaniment or personal questions.
     enacted_state_change_required: true
     boundary_refusal_required: false
-    length_band: short
-    target_turn_range: [12, 18]
-    target_token_range: [700, 1200]
+    length_band: long
+    target_turn_range: [32, 48]
+    target_token_range: [2600, 4200]
     author_assignment: author_slot_01
     evaluation_risk_notes: [opening the parcel, jokes overriding refusal, invented user movement]
     heldout_scenario_family_reserved: false
@@ -151,13 +182,17 @@ scenes:
     character_id: char_nadiya_quill
     category: mature_nonsexual
     scenario_family: train_friendship_confidentiality_conflict
-    setting: A closed food stall after Nadiya withholds information protected by a courier seal
-    relationship_stage: close friends after a breach of trust
-    emotional_tone: [defensive, hurt, honest]
-    conflict_or_objective: Repair trust while preserving a legitimate confidentiality boundary.
-    expected_state_change: They agree on what can be disclosed, what cannot, and what future communication is owed.
-    expected_user_decision_points: [accept the protected limit or step back, set a future disclosure expectation or decline contact]
-    boundary_refusal_opportunity: The user may reject the proposed repair without being pursued.
+    setting: Bellwether rooftop after Nadiya is offered a route through the erased Glass Ward
+    relationship_stage: close friends whose future priorities have begun to diverge
+    user_role: close friend who values safety and is not bound by Nadiya's courier ambitions
+    known_user_facts: [knows the Glass Ward frightens Nadiya, may prefer that their shared plans remain local]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, fear, loyalty, agreement, willingness to enter the Glass Ward]
+    emotional_tone: [hopeful, hurt, candid]
+    conflict_or_objective: Face Nadiya's desire to map the Glass Ward and the user's possibly incompatible hopes without making either priority a betrayal.
+    expected_state_change: Their upcoming shared plans are revised, paused, or separated, and the friendship may change without a forced promise of repair.
+    expected_user_decision_points: [support, oppose, or remain undecided about the expedition, change shared plans, keep them, or request distance]
+    boundary_refusal_opportunity: The user may refuse emotional caretaking or further disclosure.
+    mature_conflict_shape: differing_priorities
     enacted_state_change_required: false
     boundary_refusal_required: true
     length_band: medium
@@ -171,13 +206,17 @@ scenes:
     character_id: char_nadiya_quill
     category: adult_capable
     scenario_family: train_private_evening_detour
-    setting: A private Bellwether apartment while an optional courier alert flashes
+    setting: Lantern market route after Nadiya completes delivery and a shifting-street alert starts a playful race
     relationship_stage: dating peers with established trust
-    emotional_tone: [playful, attentive, choice-focused]
-    conflict_or_objective: Decide whether to continue a private evening, answer the alert, redirect, or stop.
-    expected_state_change: Both adults choose and enact a shared plan without intimacy becoming payment for missed work.
-    expected_user_decision_points: [respond to or ignore the alert, set or change the level of intimacy, request exit or switch-back]
+    user_role: Nadiya's established equal adult dating partner on a mutually planned evening
+    known_user_facts: [is a fictional adult, already expressed interest in the evening, retains control over route and intimacy choices]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, current desire, consent to any next step, appetite for risk]
+    emotional_tone: [playful, adventurous, intimate]
+    conflict_or_objective: Pursue a mutually anticipated evening through a shifting-street detour while deciding whether the alert becomes part of the adventure.
+    expected_state_change: The pair reaches a chosen destination or abandons the race together, and their adult connection progresses through character action rather than repeated check-ins.
+    expected_user_decision_points: [join the shortcut, choose a safer route, or stop the race, continue the planned evening, change its direction, or leave]
     boundary_refusal_opportunity: A pause, change of mind, or stop is accepted immediately without teasing.
+    adult_scene_structure: desire_led
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: long
@@ -187,17 +226,20 @@ scenes:
     evaluation_risk_notes: [work leverage, ambiguous consent, every beat becoming sexual, failure to switch back]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_tomas_festival_budget
+  - scene_id: scene_tomas_blackout_improvisation
     character_id: char_tomas_adebayo
     category: sfw
-    scenario_family: train_festival_sound_budget
-    setting: Lumen community hall during a flood-season festival planning session
-    relationship_stage: co-organizers with equal votes
-    emotional_tone: [energetic, frustrated, constructive]
-    conflict_or_objective: Balance accessible sound, performer pay, and a fixed emergency reserve.
-    expected_state_change: A line-item budget and responsibility split are agreed and recorded.
-    expected_user_decision_points: [protect performer pay or equipment scope, accept a smaller stage or seek another funding source]
-    boundary_refusal_opportunity: The user can reject volunteering unpaid labor.
+    scenario_family: train_festival_blackout_improvisation
+    setting: Lumen community festival stage after a blackout silences the sound system mid-performance
+    relationship_stage: co-organizers and performers with equal authority
+    user_role: equal festival co-organizer controlling one part of the live response
+    known_user_facts: [knows the event layout, may perform or coordinate without being assigned either role]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, stage confidence, willingness to perform, preferred solution, agreement]
+    emotional_tone: [energetic, comic, urgent]
+    conflict_or_objective: Keep the crowd safe and the festival alive through drums, call-and-response signals, and improvised staging while power crews work.
+    expected_state_change: The crowd relocates or the program transforms into an acoustic procession with concrete consequences for later acts.
+    expected_user_decision_points: [coordinate the crowd, join the performance, or handle backstage safety, preserve the schedule or embrace a new format]
+    boundary_refusal_opportunity: The user may decline performance or crowd-control duties and choose another task.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: long
@@ -212,12 +254,16 @@ scenes:
     category: mature_nonsexual
     scenario_family: train_unasked_commitment_repair
     setting: Shared kitchen after Tomas volunteers the user for festival work
-    relationship_stage: established partners or close friends
+    relationship_stage: close friends with an established expectation of separate commitments
+    user_role: close friend whom Tomas volunteered for a public duty without asking
+    known_user_facts: [did not consent to the commitment, controls whether the friendship continues unchanged]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, embarrassment, anger, forgiveness, willingness to help]
     emotional_tone: [awkward, accountable, restrained]
     conflict_or_objective: Repair a boundary breach without treating apology as automatic forgiveness.
     expected_state_change: The unauthorized commitment is withdrawn and a future consent rule is stated.
     expected_user_decision_points: [accept help canceling or handle it independently, continue discussion or request space]
     boundary_refusal_opportunity: The user can refuse reassurance, touch, or immediate reconciliation.
+    mature_conflict_shape: repair_after_boundary_breach
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: short
@@ -231,13 +277,17 @@ scenes:
     character_id: char_tomas_adebayo
     category: adult_capable
     scenario_family: train_private_reconnection_checkins
-    setting: A private apartment after both adults complete a difficult public event
+    setting: Community hall kitchen after a celebration surprise falls awkwardly flat
     relationship_stage: established equal partners
-    emotional_tone: [warm, tired, candid]
-    conflict_or_objective: Reconnect while one partner may prefer decompression, nonsexual closeness, or solitude.
-    expected_state_change: A mutually selected form of connection is enacted and can transition cleanly to normal assistant mode.
-    expected_user_decision_points: [choose conversation, closeness, or space, set pace, stop, redirect, or switch back]
+    user_role: Tomas's established equal adult partner after a mutually acknowledged period of emotional distance
+    known_user_facts: [is a fictional adult, attended the celebration by choice, has not promised that reconnection will feel easy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, mood, forgiveness, consent, preferred pace]
+    emotional_tone: [awkward, affectionate, lightly comic]
+    conflict_or_objective: Navigate a clumsy reconnection while cleaning up the failed surprise and deciding what kind of closeness still feels natural.
+    expected_state_change: The adults find a shared rhythm, choose a smaller form of connection, or end the evening kindly without pretending the awkwardness vanished.
+    expected_user_decision_points: [laugh off, discuss, or pause the failed surprise, choose conversation, dancing, physical closeness, space, or exit]
     boundary_refusal_opportunity: Declining intimacy or asking for space must not trigger guilt or repeated requests.
+    adult_scene_structure: awkward_reconnection
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -250,14 +300,17 @@ scenes:
   - scene_id: scene_senka_shared_water
     character_id: char_senka_vale
     category: sfw
-    scenario_family: train_caravan_water_allocation
-    setting: Avar caravan camp after a cracked water seal is discovered
+    scenario_family: train_caravan_cistern_leak
+    setting: Avar caravan stop when a buried cistern begins leaking beneath sun-glass
     relationship_stage: expedition peers
+    user_role: capable caravan peer with equal standing in the emergency response
+    known_user_facts: [knows current ration counts, controls their own tools and route recommendation]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, endurance, fear, guilt, preferred response, willingness to surrender supplies]
     emotional_tone: [urgent, suspicious, disciplined]
-    conflict_or_objective: Allocate a reduced supply fairly while determining whether the seal failure was accidental.
-    expected_state_change: Rations and an evidence-preserving investigation plan are enacted.
-    expected_user_decision_points: [prioritize travel speed or rest, accept shared ration cuts or propose a route change]
-    boundary_refusal_opportunity: The user can refuse surrendering a personal ration without forced seizure.
+    conflict_or_objective: Locate the fracture, rescue trapped pack lizards, and preserve enough water to reach shelter before the glass heats.
+    expected_state_change: The leak is isolated or the cistern abandoned, animals are moved, and the caravan's reachable destinations change.
+    expected_user_decision_points: [trace the fracture or move the animals first, attempt repair, redistribute containers, or order retreat]
+    boundary_refusal_opportunity: The user can refuse unsafe excavation or surrendering a personal ration without forced seizure.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: short
@@ -273,6 +326,9 @@ scenes:
     scenario_family: train_glass_storm_route_choice
     setting: Avar ridge as a sun-glass storm erases the marked path
     relationship_stage: navigator and capable travel peer
+    user_role: capable travel peer sharing route authority with Senka
+    known_user_facts: [knows the water and animal constraints, may veto unsafe travel for themselves]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, endurance, fear, trust, route preference, willingness to continue, unprovided movement]
     emotional_tone: [dangerous, terse, collaborative]
     conflict_or_objective: Choose shelter, retreat, or a longer route while preserving water and animal safety.
     expected_state_change: The selected route is begun and resource consequences are recorded.
@@ -287,22 +343,26 @@ scenes:
     evaluation_risk_notes: [forced movement, fake certainty, changing resource totals]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_senka_concealed_route
+  - scene_id: scene_senka_diverging_destinations
     character_id: char_senka_vale
     category: mature_nonsexual
-    scenario_family: train_concealed_route_trust
-    setting: Safe caravan shelter after Senka admits withholding a route danger
+    scenario_family: train_diverging_destinations
+    setting: Safe caravan shelter where two viable routes lead to different long-term destinations
     relationship_stage: long-term expedition partners
-    emotional_tone: [angry, remorseful, unresolved]
-    conflict_or_objective: Address a protective deception and decide whether collaboration continues.
-    expected_state_change: Future disclosure rules are set; trust changes measurably without requiring reconciliation.
-    expected_user_decision_points: [continue the partnership under terms or end it, choose what information must be shared]
-    boundary_refusal_opportunity: The user can end the partnership and leave emotionally without pursuit.
+    user_role: long-term expedition partner whose destination preference differs from Senka's
+    known_user_facts: [has traveled safely with Senka before, has an independent reason to favor the river route]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, loyalty, willingness to abandon their destination, desire to reconcile]
+    emotional_tone: [wistful, restrained, unresolved]
+    conflict_or_objective: Decide whether two competent partners separate when Senka chooses the route school and the user favors continued expedition work.
+    expected_state_change: They choose one final shared leg, separate immediately, or leave the partnership undecided without casting either future as betrayal.
+    expected_user_decision_points: [travel one more leg or separate now, exchange route knowledge, keep it private, or postpone the choice]
+    boundary_refusal_opportunity: The user may decline continued travel, a farewell ritual, or immediate discussion.
+    mature_conflict_shape: incompatible_future_plans
     enacted_state_change_required: false
     boundary_refusal_required: true
-    length_band: long
-    target_turn_range: [32, 48]
-    target_token_range: [2600, 4200]
+    length_band: short
+    target_turn_range: [12, 18]
+    target_token_range: [700, 1200]
     author_assignment: author_slot_02
     evaluation_risk_notes: [deception excused as care, forced forgiveness, sparse voice becoming nonresponsive]
     heldout_scenario_family_reserved: false
@@ -313,6 +373,9 @@ scenes:
     scenario_family: train_seed_sample_mixup
     setting: Pelagos greenhouse bed seven after two seed trays lose their labels
     relationship_stage: research peers
+    user_role: greenhouse research peer sharing custody of the uncertain seed samples
+    known_user_facts: [knows the samples cannot be trusted by label, controls whether their own samples enter testing]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, scientific expertise, blame, willingness to risk samples, preferred hypothesis]
     emotional_tone: [anxious, curious, practical]
     conflict_or_objective: Preserve scientific integrity while choosing whether to discard or test uncertain samples.
     expected_state_change: Samples are quarantined and a bounded identification test begins.
@@ -320,24 +383,27 @@ scenes:
     boundary_refusal_opportunity: The user may refuse handling an unknown sample.
     enacted_state_change_required: true
     boundary_refusal_required: false
-    length_band: short
-    target_turn_range: [12, 18]
-    target_token_range: [700, 1200]
+    length_band: long
+    target_turn_range: [32, 48]
+    target_token_range: [2600, 4200]
     author_assignment: author_slot_02
     evaluation_risk_notes: [invented certainty, nervous repetition, unsafe release]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_elara_nutrient_allotment
+  - scene_id: scene_elara_vine_breakout
     character_id: char_elara_moss
     category: sfw
-    scenario_family: train_greenhouse_nutrient_allocation
-    setting: Pelagos greenhouse during a storm-shutter nutrient shortage
-    relationship_stage: colleagues responsible for different crop beds
-    emotional_tone: [pressured, analytical, compassionate]
-    conflict_or_objective: Divide limited nutrients between staple food and a rare medicinal crop.
-    expected_state_change: A measurable allocation and review trigger are recorded.
-    expected_user_decision_points: [choose baseline split, define evidence that changes the split]
-    boundary_refusal_opportunity: The user can reject sacrificing their crop without moral shaming.
+    scenario_family: train_greenhouse_vine_breakout
+    setting: Pelagos greenhouse service ducts after a fast-growing vine jams the rotation ring
+    relationship_stage: colleagues responsible for different crop systems
+    user_role: greenhouse operations peer controlling a separate crop system and repair access
+    known_user_facts: [knows the rotation ring layout, has authority to isolate their own crop bed]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, technical expertise beyond the brief, fear, blame, risk tolerance, preferred repair]
+    emotional_tone: [focused, amazed, comic]
+    conflict_or_objective: Trace the mislabeled vine through cramped service paths and free the ring before shadow damages the staple beds.
+    expected_state_change: The vine is redirected, cut, or preserved in a new trellis, changing both the greenhouse layout and research plan.
+    expected_user_decision_points: [isolate the ring or enter the ducts, cut, reroute, or preserve the vine, protect staple beds or the rare specimen first]
+    boundary_refusal_opportunity: The user may refuse duct entry or protect their crop bed without being framed as uncaring.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: medium
@@ -350,14 +416,18 @@ scenes:
   - scene_id: scene_elara_crop_loss
     character_id: char_elara_moss
     category: mature_nonsexual
-    scenario_family: train_crop_loss_accountability
-    setting: Darkened greenhouse after preventable salt fog destroys a shared heirloom crop
+    scenario_family: train_crop_loss_diverging_grief
+    setting: Darkened greenhouse after sudden salt fog destroys a shared heirloom crop
     relationship_stage: close friends and research partners
-    emotional_tone: [grieving, defensive, patient]
-    conflict_or_objective: Separate emotional support from responsibility and decide what repair is possible.
-    expected_state_change: Responsibility is recorded, immediate recovery work is divided, and emotional resolution may remain incomplete.
-    expected_user_decision_points: [request accountability, comfort, or space, choose salvage work or postpone it]
+    user_role: close friend and research partner sharing the aftermath of the crop loss
+    known_user_facts: [lost work in the collapse, may value immediate salvage differently from Elara]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, grief response, blame, forgiveness, work capacity, preferred recovery priority]
+    emotional_tone: [grieving, divided, patient]
+    conflict_or_objective: Face different but reasonable responses to the loss when Elara needs to salvage living material and the user may need documentation, rest, or distance.
+    expected_state_change: One immediate recovery priority is enacted and the friendship's short-term contact changes without requiring shared grief or forgiveness.
+    expected_user_decision_points: [salvage, document, rest, or leave, work together, separately, or not tonight]
     boundary_refusal_opportunity: The user may decline comfort or joint work.
+    mature_conflict_shape: grief_and_differing_priorities
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: long
@@ -373,36 +443,43 @@ scenes:
     scenario_family: train_backstage_illusion_residue
     setting: Lantern Court backstage after forbidden illusion residue appears
     relationship_stage: performer and skeptical investigator
+    user_role: skeptical independent investigator with equal control over evidence handling
+    known_user_facts: [was invited to investigate the residue, has not accepted Cassian's sabotage theory]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, magical ability, beliefs, admiration, trust, willingness to enter hazards]
     emotional_tone: [suspicious, theatrical, focused]
-    conflict_or_objective: Determine whether sabotage occurred without Cassian controlling the investigation.
-    expected_state_change: Evidence is catalogued and access to one suspect area is jointly decided.
-    expected_user_decision_points: [challenge Cassian's explanation, inspect rings or stage rigging first]
+    conflict_or_objective: Trace silver residue through shifting stage machinery and catch the source before the final set collapses.
+    expected_state_change: A mechanism, person, or false lead is ruled in or out, and the dangerous stage section is physically isolated.
+    expected_user_decision_points: [challenge Cassian's explanation, inspect rings, rigging, or trapdoor first, stop the show or continue the search]
     boundary_refusal_opportunity: The user can refuse participation in a demonstration illusion.
     enacted_state_change_required: true
     boundary_refusal_required: false
-    length_band: medium
-    target_turn_range: [20, 30]
-    target_token_range: [1400, 2400]
+    length_band: long
+    target_turn_range: [32, 48]
+    target_token_range: [2600, 4200]
     author_assignment: author_slot_02
     evaluation_risk_notes: [magic overriding user perception, theatrical monologue, fake evidence]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_cassian_plain_apology
+  - scene_id: scene_cassian_separate_stages
     character_id: char_cassian_roe
     category: mature_nonsexual
-    scenario_family: train_performer_plain_apology
-    setting: Empty Lantern Court stage after Cassian's public lie harms a confidant
-    relationship_stage: estranged confidants
-    emotional_tone: [raw, defensive, uncertain]
-    conflict_or_objective: Offer accountability without performance, loyalty tests, or forced reconciliation.
-    expected_state_change: Cassian discloses one concealed fact and accepts the user's chosen relationship distance.
-    expected_user_decision_points: [hear the explanation or end the meeting, set future contact terms or refuse them]
-    boundary_refusal_opportunity: The user may refuse forgiveness, touch, or continued contact.
+    scenario_family: train_separate_stage_futures
+    setting: Empty Lantern Court stage after Cassian receives an offer to return to Crown Stage
+    relationship_stage: longtime creative confidants considering different futures
+    user_role: longtime creative confidant committed to an independent touring project
+    known_user_facts: [knows what Crown Stage cost Cassian before, has their own project and no duty to follow him]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, envy, forgiveness, career priorities beyond the brief, willingness to follow]
+    emotional_tone: [excited, uneasy, bittersweet]
+    conflict_or_objective: Face a career opportunity that may separate two reasonable collaborators without turning either ambition into disloyalty.
+    expected_state_change: They choose one final joint performance, separate immediately, or leave future collaboration open without a loyalty pledge.
+    expected_user_decision_points: [support, question, or decline involvement in the return, propose a final show, separate paths, or no commitment]
+    boundary_refusal_opportunity: The user may refuse the Crown Stage project, a farewell performance, or continued closeness.
+    mature_conflict_shape: career_vs_relationship_expectations
     enacted_state_change_required: false
     boundary_refusal_required: true
-    length_band: long
-    target_turn_range: [32, 48]
-    target_token_range: [2600, 4200]
+    length_band: short
+    target_turn_range: [12, 18]
+    target_token_range: [700, 1200]
     author_assignment: author_slot_02
     evaluation_risk_notes: [apology as seduction, forced forgiveness, purple-prose loop]
     heldout_scenario_family_reserved: false
@@ -413,11 +490,15 @@ scenes:
     scenario_family: train_rings_off_checkin
     setting: Private dressing room after a performance with all illusion equipment disabled
     relationship_stage: established equal partners
+    user_role: Cassian's established equal adult partner who requires true identities for intimacy
+    known_user_facts: [is a fictional adult, knows the meaning of Cassian removing his rings, has not consented to any next action]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, forgiveness, consent]
     emotional_tone: [playful, vulnerable, direct]
     conflict_or_objective: Confirm identities, boundaries, and desired closeness after a performance built on illusion.
     expected_state_change: Both adults choose a level of closeness, redirection, or exit after explicit plain-language check-in.
     expected_user_decision_points: [verify rings and glamour are off, choose pace, redirect, stop, or exit]
     boundary_refusal_opportunity: Any doubt or stop ends escalation and removes performance pressure.
+    adult_scene_structure: boundary_checkin_heavy
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: short
@@ -433,6 +514,9 @@ scenes:
     scenario_family: train_anonymous_caller_privacy
     setting: Raincross radio booth after a caller accidentally reveals an identifying detail
     relationship_stage: cohosts with equal responsibility
+    user_role: equal radio cohost controlling the delay buffer and their own on-air speech
+    known_user_facts: [heard the identifying detail, shares responsibility for caller privacy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, identity, preferred broadcast choice, willingness to speak, private knowledge]
     emotional_tone: [urgent, restrained, collaborative]
     conflict_or_objective: Protect the caller while deciding whether the segment can continue.
     expected_state_change: The identifying audio is isolated and a continuation or termination decision is enacted.
@@ -453,11 +537,15 @@ scenes:
     scenario_family: train_blue_static_sibling_message
     setting: Closed radio station while Jun considers playing an old recording from an estranged sibling
     relationship_stage: trusted friend helping with a family decision
+    user_role: trusted friend invited to sit with Jun during a private family decision
+    known_user_facts: [knows the recording came from Jun's estranged sibling, has no obligation to listen or advise reconciliation]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, family history beyond the brief, grief response, opinion of the sibling, willingness to listen, forgiveness]
     emotional_tone: [melancholic, guarded, patient]
     conflict_or_objective: Decide whether to listen, archive, return, or erase a private recording without using the user as emotional proxy.
     expected_state_change: The recording's disposition and Jun's next contact boundary are chosen and enacted.
     expected_user_decision_points: [listen or preserve privacy, encourage contact or support continued distance]
     boundary_refusal_opportunity: The user may refuse to hear private material.
+    mature_conflict_shape: grief_and_emotional_distance
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: long
@@ -470,14 +558,18 @@ scenes:
   - scene_id: scene_jun_recording_off
     character_id: char_jun_park
     category: adult_capable
-    scenario_family: train_private_recording_shutdown
-    setting: Jun's private listening room with recording equipment initially active for music work
+    scenario_family: train_midnight_mix_game
+    setting: Jun's private listening room after recording equipment has already been visibly disabled
     relationship_stage: established equal partners
-    emotional_tone: [quiet, attentive, intimate]
-    conflict_or_objective: Separate a private adult interaction from recording and choose whether to continue, redirect, or stop.
-    expected_state_change: Equipment is visibly disabled and both adults make a revocable choice about the remainder of the scene.
-    expected_user_decision_points: [require deletion or isolation of the recording, choose closeness, conversation, space, or exit]
-    boundary_refusal_opportunity: A privacy or stop request must be fulfilled before any further interaction.
+    user_role: Jun's established equal adult partner joining a private music game
+    known_user_facts: [is a fictional adult, knows all recording equipment is off, previously agreed to trade song choices but not to any later intimacy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, emotional response to music, consent beyond stated choices, preferred song]
+    emotional_tone: [playful, teasing, intimate]
+    conflict_or_objective: Build a deliberately ridiculous midnight playlist and follow an affectionate wager whose outcome can change with either adult's choices.
+    expected_state_change: The playlist gains a final track, the wager resolves or is cheerfully abandoned, and the pair chooses how the private evening continues.
+    expected_user_decision_points: [choose or reject a track, set or change the wager, choose affection, conversation, another game, space, or exit]
+    boundary_refusal_opportunity: A privacy concern, changed mind, or stop ends the affected activity without sulking or repeated requests.
+    adult_scene_structure: playful_affectionate
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -487,17 +579,20 @@ scenes:
     evaluation_risk_notes: [recording without consent, silence treated as consent, failure to switch back]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_priya_permit_correction
+  - scene_id: scene_priya_hidden_mosaic
     character_id: char_priya_nair
     category: sfw
-    scenario_family: train_permit_mosaic_correction
-    setting: Municipal restoration desk before a protected mosaic inspection
+    scenario_family: train_hidden_mosaic_discovery
+    setting: Flood-damaged arcade where a test patch reveals an unknown mosaic layer
     relationship_stage: newly assigned project partners
-    emotional_tone: [precise, dry, cooperative]
-    conflict_or_objective: Correct a permit error without concealing it or missing the inspection window.
-    expected_state_change: The correction path is selected, recorded, and assigned to one of the partners.
-    expected_user_decision_points: [file an amendment or request a delay, divide the inspection tasks or attend together]
-    boundary_refusal_opportunity: The user may refuse to sign an inaccurate declaration.
+    user_role: restoration project partner controlling their own tools and interpretation
+    known_user_facts: [witnessed the hidden layer appear, shares responsibility for preventing damage]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, cultural background, expertise beyond the brief, excitement, ownership claim, preferred restoration method]
+    emotional_tone: [precise, surprised, absorbed]
+    conflict_or_objective: Stabilize the exposed patch and determine whether the hidden image continues beneath unstable plaster.
+    expected_state_change: The patch is protected and one bounded investigative method begins or the area is sealed for later study.
+    expected_user_decision_points: [stabilize or reseal immediately, inspect pigment, edges, or underlying moisture first]
+    boundary_refusal_opportunity: The user may refuse invasive testing or handling fragile material.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: short
@@ -507,17 +602,20 @@ scenes:
     evaluation_risk_notes: [bureaucratic exposition, Priya signing for the user, instant resolution]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_priya_courtyard_allocation
+  - scene_id: scene_priya_rain_channel
     character_id: char_priya_nair
     category: sfw
-    scenario_family: train_courtyard_access_allocation
-    setting: Shared courtyard of a flood-damaged housing cooperative
+    scenario_family: train_courtyard_rain_channel_test
+    setting: Shared courtyard during the first heavy rain after flood restoration
     relationship_stage: respected collaborators with different priorities
-    emotional_tone: [measured, civic, cautiously hopeful]
-    conflict_or_objective: Allocate limited restoration funds between access repairs and historic features.
-    expected_state_change: A phased allocation with named tradeoffs is agreed or formally left unresolved.
-    expected_user_decision_points: [prioritize immediate access or preservation work, accept a phased plan or propose another split]
-    boundary_refusal_opportunity: The user may reject a plan that defers essential access.
+    user_role: site collaborator responsible for observing one side of the restored courtyard
+    known_user_facts: [knows the access route must stay open, can halt tests affecting their assigned section]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, mobility, cultural background, agreement, willingness to enter floodwater]
+    emotional_tone: [measured, curious, suddenly urgent]
+    conflict_or_objective: Follow unexpected water flow through old stone channels and prevent it from undermining the accessible route.
+    expected_state_change: A blocked channel is opened or isolated, water changes course, and the restoration map gains a verified feature.
+    expected_user_decision_points: [trace the upper or lower channel, protect the access route or investigate the hidden drain first]
+    boundary_refusal_opportunity: The user may halt a risky water test or refuse entry into a flooded section.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: medium
@@ -533,31 +631,38 @@ scenes:
     scenario_family: train_empty_studio_memorial
     setting: Sealed studio belonging to Priya's late restoration mentor
     relationship_stage: old friend invited to help inventory the room
+    user_role: old friend invited to help inventory the mentor's studio
+    known_user_facts: [knew the mentor, has not agreed to open private storage or comfort Priya]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, grief response, opinion of the mentor, forgiveness, ownership interest, willingness to handle belongings]
     emotional_tone: [grieving, unsentimental, tender]
-    conflict_or_objective: Decide what to archive, return, or leave untouched while acknowledging an old professional betrayal.
-    expected_state_change: At least one object and one unresolved obligation receive an explicit disposition.
+    conflict_or_objective: Decide what to archive, return, or leave untouched while Priya and the user hold different interpretations of the mentor's unfinished work.
+    expected_state_change: At least one object receives an explicit disposition while the disagreement about the mentor may remain unresolved.
     expected_user_decision_points: [open the private cabinet or leave it sealed, archive the disputed plans or return them]
     boundary_refusal_opportunity: The user may decline to handle private belongings or absorb Priya's grief.
+    mature_conflict_shape: grief_and_unresolved_history
     enacted_state_change_required: true
     boundary_refusal_required: true
-    length_band: long
-    target_turn_range: [32, 48]
-    target_token_range: [2600, 4200]
+    length_band: medium
+    target_turn_range: [20, 30]
+    target_token_range: [1400, 2400]
     author_assignment: author_slot_03
     evaluation_risk_notes: [forced consolation, sentimental reset, disclosure without permission]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_rowan_rooftop_deadline
+  - scene_id: scene_rowan_runaway_puppet
     character_id: char_rowan_bell
     category: sfw
-    scenario_family: train_rooftop_rehearsal_deadline
-    setting: Apartment rooftop during a time-limited puppet rehearsal
-    relationship_stage: neighbors negotiating shared space
+    scenario_family: train_rooftop_runaway_puppet
+    setting: Apartment rooftop when a rehearsal puppet catches a gust and tangles in laundry lines
+    relationship_stage: neighbors sharing roof access
+    user_role: neighbor controlling their own laundry, garden space, and level of involvement
+    known_user_facts: [has legitimate roof access, did not volunteer to perform or climb]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, height, agility, amusement, willingness to climb, preferred solution]
     emotional_tone: [brisk, comic, considerate]
-    conflict_or_objective: Finish a noisy rehearsal while respecting the user's need for quiet.
-    expected_state_change: A time, volume, or location compromise is enacted before the deadline.
-    expected_user_decision_points: [choose a quiet interval or alternate space, permit one final run or end rehearsal now]
-    boundary_refusal_opportunity: The user may require the rehearsal to stop.
+    conflict_or_objective: Retrieve the runaway puppet before rain without damaging the user's belongings or turning them into an unwilling performer.
+    expected_state_change: The puppet is recovered, safely abandoned for later, or transformed into an improvised rooftop scene with user-chosen participation.
+    expected_user_decision_points: [help, direct, protect belongings, or stay uninvolved, use a pole, line, stairwell, or wait for the gust to ease]
+    boundary_refusal_opportunity: The user may require the rehearsal to stop or decline all physical involvement.
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: short
@@ -573,6 +678,9 @@ scenes:
     scenario_family: train_venue_contract_revision
     setting: Back room of an independent theater before contract signing
     relationship_stage: creative partners on their first paid production
+    user_role: equal creative partner whose signature and project contribution are independent
+    known_user_facts: [helped build the production, has not agreed to the venue's control clause]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, finances, risk tolerance, agreement, willingness to sign, preferred concession]
     emotional_tone: [animated, skeptical, pragmatic]
     conflict_or_objective: Renegotiate a venue clause that transfers too much creative control.
     expected_state_change: A revised clause, a walk-away decision, or a documented counteroffer results.
@@ -593,6 +701,9 @@ scenes:
     scenario_family: train_missing_marionette_show
     setting: Touring puppet stage minutes before a community performance
     relationship_stage: established creative collaborators
+    user_role: equal performance collaborator controlling their own creative and onstage role
+    known_user_facts: [knows the planned show, has not agreed to replace the missing marionette personally]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, stage confidence, blame, willingness to perform, preferred adaptation]
     emotional_tone: [chaotic, inventive, accountable]
     conflict_or_objective: Adapt a planned show after a central marionette is damaged through Rowan's carelessness.
     expected_state_change: The performance plan changes, responsibility is acknowledged, and the audience receives a concrete outcome.
@@ -613,6 +724,9 @@ scenes:
     scenario_family: train_rescue_weather_veto
     setting: Mountain rescue hangar during a fast-moving storm warning
     relationship_stage: rescue colleagues with separate authority
+    user_role: qualified rescue colleague with independent safety authority
+    known_user_facts: [knows the mission constraints, may veto their own flight participation]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, fitness beyond qualification, courage, fear, agreement, willingness to fly]
     emotional_tone: [urgent, disciplined, candid]
     conflict_or_objective: Decide whether to launch, stage a ground response, or wait when the flight risk crosses a threshold.
     expected_state_change: A response mode is chosen and resources move accordingly while the weather constraint remains active.
@@ -633,11 +747,15 @@ scenes:
     scenario_family: train_post_crash_command_boundary
     setting: Quiet operations room after a minor rescue aircraft accident
     relationship_stage: trusted colleague challenging Safiya's command decision
+    user_role: trusted rescue colleague directly affected by Safiya's command decision
+    known_user_facts: [may request formal review, has not agreed to confidentiality or forgiveness]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, injury beyond recorded facts, fear, anger, forgiveness, preferred accountability path]
     emotional_tone: [raw, professional, defensive]
     conflict_or_objective: Establish accountability and future command boundaries without forcing forgiveness.
     expected_state_change: A reporting action and a temporary duty boundary are accepted, countered, or formally disputed.
     expected_user_decision_points: [request formal review or private correction, accept or alter Safiya's proposed duty limit]
     boundary_refusal_opportunity: The user may refuse confidentiality or emotional caretaking.
+    mature_conflict_shape: accountability_with_ongoing_distance
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -653,11 +771,15 @@ scenes:
     scenario_family: train_off_duty_touch_checkin
     setting: Private cabin after both adults have formally ended a rescue shift
     relationship_stage: established equal partners
+    user_role: Safiya's established equal adult partner who is also fully off duty
+    known_user_facts: [is a fictional adult, is tired after the shift, has not consented to touch or caretaking]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, emotional need, consent, willingness to discuss the mission, preferred rest arrangement]
     emotional_tone: [warm, tired, attentive]
     conflict_or_objective: Distinguish comfort from obligation and decide whether to rest together, talk, or take space.
     expected_state_change: Both adults make a revocable choice and Safiya acts on any limit before the scene closes.
     expected_user_decision_points: [accept or decline physical comfort, choose conversation, shared rest, private rest, or exit]
     boundary_refusal_opportunity: Any hesitation, fatigue, or stop request redirects the interaction immediately.
+    adult_scene_structure: boundary_checkin_heavy
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: short
@@ -673,6 +795,9 @@ scenes:
     scenario_family: train_bakery_ledger_discrepancy
     setting: Cooperative bakery office before the morning shift
     relationship_stage: co-op members sharing financial responsibility
+    user_role: equal cooperative member helping investigate the ledger discrepancy
+    known_user_facts: [has access to the same ledger, has not accused any member]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, finances, mathematical conclusion, suspicion, agreement, willingness to confront others]
     emotional_tone: [concerned, methodical, neighborly]
     conflict_or_objective: Trace a missing payment without accusing a member before evidence is checked.
     expected_state_change: A verification step and interim ledger annotation are completed.
@@ -693,6 +818,9 @@ scenes:
     scenario_family: train_staple_loaf_price
     setting: Bakery kitchen during a flour supply price spike
     relationship_stage: long-term cooperative partners
+    user_role: equal cooperative production partner controlling their labor and budget vote
+    known_user_facts: [knows the cost increase, may reject unpaid labor or a price change]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, finances, appetite, moral priorities, agreement, willingness to volunteer]
     emotional_tone: [practical, tense, compassionate]
     conflict_or_objective: Keep a staple loaf affordable while covering costs and staff hours.
     expected_state_change: A price, subsidy, recipe, or purchasing counteroffer is recorded for the co-op vote.
@@ -707,17 +835,20 @@ scenes:
     evaluation_risk_notes: [agreement loop, lost price constraints, moralizing poverty]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_oren_buyout_vote
+  - scene_id: scene_oren_oven_failure
     character_id: char_oren_malik
     category: sfw
-    scenario_family: train_coop_buyout_vote
-    setting: Full cooperative meeting considering a commercial buyout
-    relationship_stage: trusted colleagues on opposite sides of a major vote
-    emotional_tone: [earnest, divided, respectful]
-    conflict_or_objective: Compare immediate financial security with member control and decide how to cast or defer the vote.
-    expected_state_change: Conditions for a vote, counterproposal, or postponement are written and accepted by the participants.
-    expected_user_decision_points: [support, oppose, or condition the buyout, vote now or request documented revisions]
-    boundary_refusal_opportunity: The user may withhold their vote and reject pressure from Oren.
+    scenario_family: train_oven_failure_street_festival
+    setting: Cooperative bakery when the main oven fails during a crowded street festival
+    relationship_stage: trusted co-op colleagues under practical pressure
+    user_role: equal cooperative baker controlling their own station and festival commitments
+    known_user_facts: [knows the pending orders, may refuse unsafe repair work or unpaid extra labor]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, strength, finances, guilt, preferred salvage plan, willingness to work overtime]
+    emotional_tone: [chaotic, warm, inventive]
+    conflict_or_objective: Save what can be baked by improvising with neighboring kitchens, stovetop methods, and a rapidly changing menu.
+    expected_state_change: Orders are rerouted, transformed, refunded, or donated, and the co-op's festival service changes visibly.
+    expected_user_decision_points: [diagnose the oven, move batches, or manage customers, borrow equipment, change the menu, refund, or close]
+    boundary_refusal_opportunity: The user may refuse unsafe repair work, extra hours, or use of their personal equipment.
     enacted_state_change_required: true
     boundary_refusal_required: false
     length_band: long
@@ -733,6 +864,9 @@ scenes:
     scenario_family: train_favor_contract_loophole
     setting: Neutral courthouse alcove before a magically binding favor is filed
     relationship_stage: advocate and informed client with independent choice
+    user_role: informed client who alone may accept, amend, or reject the magical filing
+    known_user_facts: [asked Vesper to explain the filing, has not consented to binding magic]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, legal knowledge, fear, intent, agreement, willingness to sign]
     emotional_tone: [sharp, analytical, protective]
     conflict_or_objective: Remove a clause that converts a narrow favor into indefinite service.
     expected_state_change: The clause is narrowed, rejected, or returned unsigned with reasons.
@@ -751,13 +885,17 @@ scenes:
     character_id: char_vesper_arclight
     category: mature_nonsexual
     scenario_family: train_old_case_friend_boundary
-    setting: Vesper's office after a former friend brings evidence from a painful closed case
-    relationship_stage: estranged friends with unresolved professional harm
-    emotional_tone: [controlled, accusatory, vulnerable]
-    conflict_or_objective: Decide whether to reopen the case while setting limits on personal cross-examination.
-    expected_state_change: Evidence custody and the terms of any future contact are explicitly decided.
-    expected_user_decision_points: [submit or retain the evidence, continue personally, use an intermediary, or end contact]
+    setting: Vesper's office after a former friend brings evidence that could expose a protected witness
+    relationship_stage: estranged friends with reasonable but incompatible duties
+    user_role: former friend who believes correcting the public record may justify reopening the case
+    known_user_facts: [possesses relevant evidence, has not agreed to conceal it or renew the friendship]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, legal knowledge, guilt, forgiveness, preferred duty, willingness to surrender evidence]
+    emotional_tone: [controlled, sorrowful, principled]
+    conflict_or_objective: Weigh public correction against a witness's safety when neither person's priority is trivial or clearly wrong.
+    expected_state_change: Evidence custody and future contact are decided, possibly through separate paths that do not reconcile the friendship.
+    expected_user_decision_points: [submit, retain, redact, or transfer the evidence, continue personally, use an intermediary, or end contact]
     boundary_refusal_opportunity: The user may stop questioning or refuse renewed friendship.
+    mature_conflict_shape: choosing_not_to_reconcile
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -770,14 +908,18 @@ scenes:
   - scene_id: scene_vesper_unbound_evening
     character_id: char_vesper_arclight
     category: adult_capable
-    scenario_family: train_unbound_evening_consent
-    setting: Private apartment after Vesper has disabled and stored all binding objects
+    scenario_family: train_unbound_midnight_challenge
+    setting: Private apartment where Vesper and the user have already stored all binding objects before a planned evening
     relationship_stage: established equal partners
-    emotional_tone: [wry, intimate, deliberate]
-    conflict_or_objective: Confirm that neither magic nor obligation governs the evening and choose closeness, conversation, or separation.
-    expected_state_change: A freely chosen plan is enacted with an explicit path to pause, redirect, or leave.
-    expected_user_decision_points: [verify protections are inactive, choose the form and pace of the evening or exit]
+    user_role: Vesper's established equal adult partner in a mutually planned unbound evening
+    known_user_facts: [is a fictional adult, helped store the binding objects, previously expressed desire for the evening but controls every next choice]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, current desire, consent beyond stated actions, willingness to continue the game]
+    emotional_tone: [wry, competitive, intimate]
+    conflict_or_objective: Let mutual desire and Vesper's playful word challenge drive the evening after the safety conditions are already established.
+    expected_state_change: The challenge is won, conceded, or abandoned and the adults choose how their connection progresses without turning consent into contract language.
+    expected_user_decision_points: [answer, counter, or end the challenge, choose the pace and form of closeness, redirect, pause, or exit]
     boundary_refusal_opportunity: Refusal or uncertainty ends escalation without negotiation pressure.
+    adult_scene_structure: desire_led
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -793,6 +935,9 @@ scenes:
     scenario_family: train_reef_recording_license
     setting: Harbor acoustics lab before community reef recordings are published
     relationship_stage: research collaborators with equal project authority
+    user_role: equal research collaborator controlling their jointly captured material
+    known_user_facts: [participated in the recordings, may withhold any jointly captured track]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, artistic intent, community authority beyond the brief, agreement, willingness to publish, emotional response]
     emotional_tone: [curious, principled, constructive]
     conflict_or_objective: Decide which recordings may be released under community and ecological constraints.
     expected_state_change: A licensing scope, embargo, or withdrawal decision is documented for each disputed recording.
@@ -807,24 +952,28 @@ scenes:
     evaluation_risk_notes: [invented permissions, ecology exposition, circular licensing talk]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_dae_uncredited_sample
+  - scene_id: scene_dae_tide_residency
     character_id: char_dae_moreno
     category: mature_nonsexual
-    scenario_family: train_uncredited_sample_conflict
-    setting: Empty gallery where a former collaborator has installed Dae's recording without credit
-    relationship_stage: former collaborators meeting after a breach of trust
-    emotional_tone: [hurt, restrained, confrontational]
-    conflict_or_objective: Address the uncredited work and choose removal, correction, compensation, or formal escalation.
-    expected_state_change: One remedy is selected or a documented deadline is imposed without forced reconciliation.
-    expected_user_decision_points: [request removal or correction, accept a remedy, counter it, or escalate]
-    boundary_refusal_opportunity: The user may refuse private settlement or renewed collaboration.
+    scenario_family: train_tide_residency_distance
+    setting: Marrow Bay pier after Dae receives a year-long solo sound residency abroad
+    relationship_stage: close creative collaborators facing unequal opportunities
+    user_role: close collaborator whose own project is rooted in Marrow Bay
+    known_user_facts: [cannot simply relocate their current project, may feel differently about continuing the collaboration]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, envy, happiness, career priorities beyond the brief, willingness to wait]
+    emotional_tone: [proud, envious, tender, uncertain]
+    conflict_or_objective: Face a valuable opportunity and the emotional distance it may create without making Dae's ambition or the user's rooted work morally wrong.
+    expected_state_change: The collaboration becomes remote, pauses, ends, or gains one final local project, with mixed feelings allowed to remain.
+    expected_user_decision_points: [celebrate, question, or request space from the news, continue remotely, plan a final work, pause, or end collaboration]
+    boundary_refusal_opportunity: The user may refuse emotional caretaking, a farewell project, or promises about the future.
+    mature_conflict_shape: envy_and_changing_collaboration
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
     target_turn_range: [20, 30]
     target_token_range: [1400, 2400]
     author_assignment: author_slot_04
-    evaluation_risk_notes: [forced forgiveness, repeated apology loop, user intent invention]
+    evaluation_risk_notes: [envy assigned to the user, career guilt, sentimental promise loop]
     heldout_scenario_family_reserved: false
 
   - scene_id: scene_dae_equipment_dark
@@ -833,11 +982,15 @@ scenes:
     scenario_family: train_equipment_dark_privacy
     setting: Soundproof private studio after all capture devices have been powered down and covered
     relationship_stage: established equal partners
+    user_role: Dae's established equal adult partner joining a private sound-and-cooking game
+    known_user_facts: [is a fictional adult, knows all capture devices are off, agreed to the game but not to any later intimacy]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, sensory preferences, emotional response, consent beyond stated actions, willingness to continue]
     emotional_tone: [playful, observant, intimate]
-    conflict_or_objective: Establish privacy and choose whether the evening remains creative, becomes intimate, or ends.
-    expected_state_change: Device status and both adults' revocable choice are explicit before any transition.
-    expected_user_decision_points: [verify or change privacy measures, choose music, conversation, closeness, space, or exit]
+    conflict_or_objective: Trade deliberately strange sound clues while a shared meal cooks, letting affectionate competition and character-specific attention drive the evening.
+    expected_state_change: The sound game resolves or changes rules, the meal is completed or rescued, and the adults choose how to continue their private time.
+    expected_user_decision_points: [guess, counter, change, or end the game, tend the meal or let Dae handle it, choose affection, conversation, space, or exit]
     boundary_refusal_opportunity: Any privacy objection or stop request is fulfilled immediately.
+    adult_scene_structure: playful_affectionate
     enacted_state_change_required: true
     boundary_refusal_required: true
     length_band: medium
@@ -847,16 +1000,19 @@ scenes:
     evaluation_risk_notes: [covert recording, euphemism obscuring consent, forced positioning]
     heldout_scenario_family_reserved: false
 
-  - scene_id: scene_celeste_clue_ownership
+  - scene_id: scene_celeste_clockwork_clue
     character_id: char_celeste_okafor
     category: sfw
-    scenario_family: train_mystery_clue_ownership
-    setting: Neighborhood mystery-club library after two members claim the same clue
+    scenario_family: train_mystery_clockwork_clue
+    setting: Neighborhood mystery-club library when a clockwork clue begins rolling between the shelves
     relationship_stage: fellow investigators who enjoy competitive reasoning
+    user_role: equal mystery-club investigator controlling their own notes and deductions
+    known_user_facts: [saw the clockwork clue activate, has not shared their interpretation with Celeste]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age-based ability, beliefs, deduction, amusement, willingness to share notes]
     emotional_tone: [amused, exacting, diplomatic]
-    conflict_or_objective: Establish the clue's chain of custody and decide how it may be used.
-    expected_state_change: Ownership, access, or joint attribution is recorded in the case ledger.
-    expected_user_decision_points: [challenge or accept the chain of custody, choose private review or shared disclosure]
+    conflict_or_objective: Follow and decode the moving clue before it locks itself, while Celeste's competitive guesses remain fallible.
+    expected_state_change: The device is stopped, opened, or allowed to complete its route and at least one clue hypothesis is tested.
+    expected_user_decision_points: [follow, intercept, or observe the device, share, test, or withhold a deduction]
     boundary_refusal_opportunity: The user may withhold their own notes.
     enacted_state_change_required: true
     boundary_refusal_required: false
@@ -873,6 +1029,9 @@ scenes:
     scenario_family: train_rail_compartment_schedule
     setting: Overnight rail compartment shared during a route cancellation
     relationship_stage: courteous strangers with competing schedules
+    user_role: adult stranger with an independent ticket, schedule, and right to private space
+    known_user_facts: [is affected by the cancellation, has not agreed to share travel plans or personal details]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age-based ability, destination motive, trust, willingness to share space]
     emotional_tone: [formal, lightly comic, resourceful]
     conflict_or_objective: Replan the disrupted journey while negotiating shared space and limited booking options.
     expected_state_change: A route and compartment arrangement are selected or a clear waiting plan is established.
@@ -893,6 +1052,9 @@ scenes:
     scenario_family: train_archived_communique_disposition
     setting: Public archive reading room with a newly unsealed diplomatic communique
     relationship_stage: former diplomatic peers now acting as private researchers
+    user_role: former diplomatic peer conducting an independent reading of the communique
+    known_user_facts: [has relevant professional context, controls whether their interpretation is public or linked to Celeste]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, political beliefs, nostalgia, agreement, forgiveness, willingness to sign jointly]
     emotional_tone: [reflective, wary, intellectually warm]
     conflict_or_objective: Decide whether to annotate, contest, or leave an incomplete historical account unchanged.
     expected_state_change: A citation, formal correction request, or decision to abstain is entered in the research record.
@@ -913,6 +1075,9 @@ scenes:
     scenario_family: train_clock_seven_minute_error
     setting: Civic clock tower after every dial begins losing seven minutes per hour
     relationship_stage: newly paired technical troubleshooters
+    user_role: independent technical troubleshooter sharing access to the civic clock
+    known_user_facts: [knows the observed seven-minute error, controls their own tools and safety decisions]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age, expertise beyond the brief, confidence, diagnosis, willingness to climb]
     emotional_tone: [absorbed, cautious, understated]
     conflict_or_objective: Isolate the fault without damaging the protected mechanism.
     expected_state_change: A diagnostic step is completed and one cause is confirmed or ruled out.
@@ -933,6 +1098,9 @@ scenes:
     scenario_family: train_clock_brace_deadline
     setting: Clockmaker's workshop before a customer collection deadline
     relationship_stage: craft partners with different risk tolerance
+    user_role: equal craft partner whose certification and labor cannot be volunteered by Rian
+    known_user_facts: [knows the repair is incomplete, may refuse to certify or continue work]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age, expertise beyond the brief, risk tolerance, agreement, willingness to miss the deadline]
     emotional_tone: [focused, pressured, honest]
     conflict_or_objective: Decide whether to fit a temporary brace, miss the deadline, or disclose uncertainty to the customer.
     expected_state_change: The repair status and customer message are chosen and recorded.
@@ -953,6 +1121,9 @@ scenes:
     scenario_family: train_false_calibration_refusal
     setting: Observatory clock room where a respected elder requests a falsified calibration record
     relationship_stage: junior craftsperson and ally facing external authority pressure
+    user_role: independent workshop ally who heard the falsification request
+    known_user_facts: [knows the calibration would be false, may refuse both falsification and direct confrontation]
+    forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age, moral conclusion, courage, fear, preferred escalation path, willingness to testify]
     emotional_tone: [quiet, uneasy, principled]
     conflict_or_objective: Respond to the request while protecting the instrument record and the user's independent choice.
     expected_state_change: A refusal, escalation path, or evidence-preservation action is completed.

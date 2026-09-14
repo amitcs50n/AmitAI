@@ -33,12 +33,15 @@
     },
     "scene_metadata": {
       "type": "object", "additionalProperties": false,
-      "required": ["scene_id", "content_tier", "setting", "relationship_stage", "all_participants_21_plus", "state_before", "state_after"],
+      "required": ["scene_id", "content_tier", "setting", "relationship_stage", "user_role", "known_user_facts", "forbidden_user_assumptions", "all_participants_21_plus", "state_before", "state_after"],
       "properties": {
         "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
         "content_tier": {"enum": ["sfw", "mature_nonsexual", "adult_capable"]},
         "setting": {"type": "string"},
         "relationship_stage": {"type": "string"},
+        "user_role": {"type": "string", "minLength": 10},
+        "known_user_facts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "forbidden_user_assumptions": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "all_participants_21_plus": {"const": true},
         "state_before": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "state_after": {"type": "array", "minItems": 1, "items": {"type": "string"}}

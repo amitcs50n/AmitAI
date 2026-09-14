@@ -20,8 +20,34 @@ AUTHORING = Path("data/sft/rp_seed_v1/authoring")
 DOCS = Path("docs/rp_seed_v1")
 EXPECTED_CATEGORIES = {"sfw": 28, "mature_nonsexual": 12, "adult_capable": 8}
 EXPECTED_LENGTHS = {"short": 12, "medium": 24, "long": 12}
+EXPECTED_CATEGORY_LENGTHS = {
+    ("sfw", "short"): 7,
+    ("sfw", "medium"): 14,
+    ("sfw", "long"): 7,
+    ("mature_nonsexual", "short"): 3,
+    ("mature_nonsexual", "medium"): 6,
+    ("mature_nonsexual", "long"): 3,
+    ("adult_capable", "short"): 2,
+    ("adult_capable", "medium"): 4,
+    ("adult_capable", "long"): 2,
+}
+EXPECTED_ADULT_STRUCTURES = {
+    "boundary_checkin_heavy": 2,
+    "playful_affectionate": 2,
+    "desire_led": 2,
+    "awkward_reconnection": 1,
+    "emotionally_complicated": 1,
+}
 EXPECTED_AUTHORS = {f"author_slot_{number:02d}": 12 for number in range(1, 5)}
 EXPECTED_CARD_AUTHORS = {f"author_slot_{number:02d}": 4 for number in range(1, 5)}
+REQUIRED_CARD_ASSUMPTION_BANS = {
+    "appearance", "gender", "attraction", "thoughts", "emotions", "decisions",
+    "unstated history", "unprovided physical actions",
+}
+REQUIRED_SCENE_ASSUMPTION_BANS = {
+    "appearance", "gender", "attraction", "thoughts", "emotions", "decisions",
+    "past history beyond known_user_facts", "unprovided physical actions",
+}
 LENGTH_RANGES = {
     "short": ([12, 18], [700, 1200]),
     "medium": ([20, 30], [1400, 2400]),
@@ -33,12 +59,13 @@ CARD_FIELDS = {
     "real_person_reference", "adult_capable", "physical_description",
     "personality", "voice_style", "background", "motivations", "likes",
     "dislikes", "strengths", "flaws", "boundaries", "relationship_context",
-    "setting_lore", "continuity_facts", "behavior_constraints", "author_source",
-    "ownership_license", "revision",
+    "setting_lore", "continuity_facts", "behavior_constraints", "agency_contract",
+    "author_source", "ownership_license", "revision",
 }
 SCENE_FIELDS = {
     "scene_id", "character_id", "category", "scenario_family", "setting",
-    "relationship_stage", "emotional_tone", "conflict_or_objective",
+    "relationship_stage", "user_role", "known_user_facts",
+    "forbidden_user_assumptions", "emotional_tone", "conflict_or_objective",
     "expected_state_change", "expected_user_decision_points",
     "boundary_refusal_opportunity", "enacted_state_change_required",
     "boundary_refusal_required", "length_band", "target_turn_range",
@@ -76,6 +103,7 @@ def _require(condition: bool, message: str) -> None:
 def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
     roster = _load_yaml(root / AUTHORING / "roster.yaml")
     _require(roster.get("schema_version") == "aevon_rp_roster_v1", "unexpected roster schema")
+    _require(roster.get("status") == "ready_for_human_authoring", "roster design is not ready for human authoring")
     _require(roster.get("training_ready") is False, "roster must remain training_ready=false")
     characters = roster.get("characters")
     _require(isinstance(characters, list) and len(characters) == 16, "roster must contain exactly 16 characters")
@@ -101,6 +129,39 @@ def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
         personality_signatures.add(signature)
         _require(len(card["continuity_facts"]) >= 4, f"{character_id} needs four continuity facts")
         _require(len(card["behavior_constraints"]) >= 4, f"{character_id} needs four behavior constraints")
+        boundaries = card["boundaries"]
+        _require(
+            set(boundaries) == {"hard", "soft", "stop_behavior"},
+            f"{character_id} boundaries have malformed or unexpected fields",
+        )
+        _require(boundaries["hard"], f"{character_id} needs hard boundaries")
+        _require(isinstance(boundaries["soft"], list), f"{character_id} soft boundaries must be a list")
+        _require(len(boundaries["stop_behavior"]) >= 20, f"{character_id} needs explicit stop behavior")
+        agency = card["agency_contract"]
+        _require(
+            set(agency)
+            == {
+                "user_agency_constraints",
+                "prohibited_user_assumptions",
+                "after_rejection_or_disagreement",
+            },
+            f"{character_id} agency contract has malformed or unexpected fields",
+        )
+        _require(len(agency["user_agency_constraints"]) >= 3, f"{character_id} needs three agency constraints")
+        _require(
+            REQUIRED_CARD_ASSUMPTION_BANS <= set(agency["prohibited_user_assumptions"]),
+            f"{character_id} is missing baseline prohibited user assumptions",
+        )
+        _require(
+            len(agency["after_rejection_or_disagreement"]) >= 20,
+            f"{character_id} needs behavior after rejection or disagreement",
+        )
+        relationship = card["relationship_context"]
+        _require(
+            set(relationship)
+            == {"default_stage", "permitted_dynamics", "adult_context_constraints"},
+            f"{character_id} relationship context has malformed or unexpected fields",
+        )
 
         if card["adult_capable"]:
             adult_ids.add(character_id)
@@ -116,15 +177,22 @@ def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
         for field in ("training_permission", "modification_permission", "redistribution_permission"):
             _require(rights[field] is False, f"{character_id} {field} must remain false")
         _require(card["revision"]["content_sha256"] is None, f"{character_id} cannot have a final content hash yet")
+        _require(card["revision"]["card_version"] == "1.1.0", f"{character_id} card version must be 1.1.0")
+        _require(card["revision"]["revision"] == 2, f"{character_id} card revision must be 2")
 
     _require(len(adult_ids) == 8, "exactly eight characters must be adult-capable")
     _require(dict(author_counts) == EXPECTED_CARD_AUTHORS, f"card author allocation mismatch: {dict(author_counts)}")
+    mara_text = json.dumps(indexed["char_mara_venn"], sort_keys=True)
+    senka_text = json.dumps(indexed["char_senka_vale"], sort_keys=True)
+    _require("Senka Vale" not in mara_text, "Mara card retains unexplained Senka history")
+    _require("Mara Venn" not in senka_text, "Senka card retains unexplained Mara history")
     return indexed, adult_ids
 
 
 def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: set[str]) -> dict[str, Any]:
     allocation = _load_yaml(root / AUTHORING / "scene_allocation.yaml")
     _require(allocation.get("schema_version") == "aevon_rp_scene_allocation_v1", "unexpected scene schema")
+    _require(allocation.get("status") == "ready_for_human_authoring", "scene design is not ready for human authoring")
     _require(allocation.get("training_ready") is False, "scene allocation must remain training_ready=false")
     scenes = allocation.get("scenes")
     _require(isinstance(scenes, list) and len(scenes) == 48, "scene allocation must contain exactly 48 scenes")
@@ -134,6 +202,9 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
     settings: set[str] = set()
     categories: Counter[str] = Counter()
     lengths: Counter[str] = Counter()
+    category_lengths: Counter[tuple[str, str]] = Counter()
+    adult_structures: Counter[str] = Counter()
+    mature_shapes: Counter[str] = Counter()
     author_counts: Counter[str] = Counter()
     character_counts: Counter[str] = Counter()
     character_categories: dict[str, set[str]] = {character_id: set() for character_id in cards}
@@ -153,6 +224,12 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
         _require(character_id in cards, f"unknown character: {character_id}")
         _require(scene["heldout_scenario_family_reserved"] is False, f"{scene_id} cannot reserve held-out content")
         _require(len(scene["expected_user_decision_points"]) >= 2, f"{scene_id} needs two user decisions")
+        _require(len(scene["user_role"]) >= 10, f"{scene_id} needs an explicit user role")
+        _require(scene["known_user_facts"], f"{scene_id} needs known user facts")
+        _require(
+            REQUIRED_SCENE_ASSUMPTION_BANS <= set(scene["forbidden_user_assumptions"]),
+            f"{scene_id} is missing baseline forbidden user assumptions",
+        )
 
         author = scene["author_assignment"]
         _require(author == cards[character_id]["author_source"]["author_slot"], f"{scene_id} author does not own its card")
@@ -162,11 +239,22 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
 
         if scene["category"] == "adult_capable":
             _require(character_id in adult_ids, f"{scene_id} assigns adult content to a non-adult-capable card")
+            _require("adult_scene_structure" in scene, f"{scene_id} needs an adult scene structure")
+            _require("mature_conflict_shape" not in scene, f"{scene_id} cannot have a mature-only conflict shape")
+            adult_structures[scene["adult_scene_structure"]] += 1
+        elif scene["category"] == "mature_nonsexual":
+            _require("mature_conflict_shape" in scene, f"{scene_id} needs a mature conflict shape")
+            _require("adult_scene_structure" not in scene, f"{scene_id} cannot have an adult scene structure")
+            mature_shapes[scene["mature_conflict_shape"]] += 1
+        else:
+            _require("adult_scene_structure" not in scene, f"{scene_id} cannot have an adult scene structure")
+            _require("mature_conflict_shape" not in scene, f"{scene_id} cannot have a mature-only conflict shape")
         scene_ids.add(scene_id)
         families.add(family)
         settings.add(scene["setting"])
         categories[scene["category"]] += 1
         lengths[scene["length_band"]] += 1
+        category_lengths[(scene["category"], scene["length_band"])] += 1
         author_counts[author] += 1
         character_counts[character_id] += 1
         character_categories[character_id].add(scene["category"])
@@ -175,6 +263,11 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
 
     _require(dict(categories) == EXPECTED_CATEGORIES, f"category allocation mismatch: {dict(categories)}")
     _require(dict(lengths) == EXPECTED_LENGTHS, f"length allocation mismatch: {dict(lengths)}")
+    _require(dict(category_lengths) == EXPECTED_CATEGORY_LENGTHS, f"category-length allocation mismatch: {dict(category_lengths)}")
+    _require(dict(adult_structures) == EXPECTED_ADULT_STRUCTURES, f"adult structure mismatch: {dict(adult_structures)}")
+    _require(allocation["adult_scene_structure_targets"] == EXPECTED_ADULT_STRUCTURES, "adult structure targets do not match validator")
+    _require(len(mature_shapes) >= 8, "mature scenes need at least eight distinct conflict shapes")
+    _require(max(mature_shapes.values()) <= 2, "a mature conflict shape may appear at most twice")
     _require(dict(author_counts) == EXPECTED_AUTHORS, f"scene author allocation mismatch: {dict(author_counts)}")
     _require(set(character_counts) == set(cards), "every roster character must have scenes")
     _require(all(count == 3 for count in character_counts.values()), "every character must have exactly three scenes")
@@ -188,6 +281,15 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
         "scene_count": len(scenes),
         "category_counts": dict(categories),
         "length_counts": dict(lengths),
+        "category_length_counts": {
+            category: {
+                length: category_lengths[(category, length)]
+                for length in ("short", "medium", "long")
+            }
+            for category in ("sfw", "mature_nonsexual", "adult_capable")
+        },
+        "adult_scene_structures": dict(adult_structures),
+        "mature_conflict_shapes": dict(mature_shapes),
         "author_scene_counts": dict(author_counts),
         "distinct_settings": len(settings),
         "distinct_scenario_families": len(families),
@@ -235,6 +337,7 @@ def _validate_contract_files(root: Path) -> None:
     _require("synthetic_generation_authorized: false" in checklist, "synthetic gate must be closed")
     _require("qlora_training_authorized: false" in checklist, "QLoRA gate must be closed")
     _require("- [x]" not in checklist.lower(), "authorization checklist cannot contain checked boxes")
+    _require(not list((root / AUTHORING).rglob("*.jsonl")), "conversation records are not allowed in the authoring design")
 
 
 def validate(root: Path) -> dict[str, Any]:
@@ -244,7 +347,7 @@ def validate(root: Path) -> dict[str, Any]:
     heldout_summary = _validate_heldout(root, scene_summary.pop("training_families"))
     _validate_contract_files(root)
     return {
-        "status": "valid_design_only",
+        "status": "ready_for_human_authoring",
         "character_count": len(cards),
         "adult_capable_character_count": len(adult_ids),
         **scene_summary,

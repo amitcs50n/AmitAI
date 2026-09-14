@@ -2,6 +2,8 @@
 
 This is the authoring and governance specification for a future gold RP seed. It creates no training records, contains no scene dialogue, and authorizes neither synthetic generation nor training.
 
+Design status: **ready for human scene authoring**. Rights, review, provenance approval, synthetic generation, and training remain pending or unauthorized.
+
 ## V1 allocation
 
 - 16 original fictional adults, each assigned three scenes.
@@ -12,6 +14,19 @@ This is the authoring and governance specification for a future gold RP seed. It
 - Eight adult-capable characters; every one also has an ordinary SFW scene.
 
 Author slots are workload placeholders, not verified identities. All rights fields remain pending, all permission fields remain false or pending, and every quality decision remains pending until an assigned human completes it.
+
+| Category | Short | Medium | Long | Total |
+|---|---:|---:|---:|---:|
+| SFW | 7 | 14 | 7 | 28 |
+| Mature nonsexual | 3 | 6 | 3 | 12 |
+| Adult-capable | 2 | 4 | 2 | 8 |
+| Total | 12 | 24 | 12 | 48 |
+
+The eight adult-capable briefs intentionally comprise two boundary/check-in-heavy scenes, two playful/affectionate scenes, two desire-led scenes, one awkward reconnection, and one emotionally complicated scene. Consent remains revocable in every structure without making consent scripting the scene's sole dramatic engine.
+
+The mature set now spans incompatible futures, differing priorities, grief, emotional distance, career tension, envy, boundary repair, accountability without reconciliation, and choosing not to reconcile. Only one brief uses the direct breach-to-repair shape.
+
+Mara Venn and Senka Vale no longer have a cross-setting personal history. Mara's rescue debt now belongs entirely to her Kestrel Reach past; Senka's Red Meridian history belongs entirely to Avar.
 
 ## Source of truth
 
