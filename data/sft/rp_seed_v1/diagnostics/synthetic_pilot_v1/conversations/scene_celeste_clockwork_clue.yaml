@@ -1,0 +1,144 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_celeste_clockwork_clue_v1
+source_scene_id: scene_celeste_clockwork_clue
+source_character_id: char_celeste_okafor
+content_tier: sfw
+length_band: medium
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The brass beetle started moving when the station clock struck seven. It is rolling toward the history shelves. I have a theory, but I am keeping my notes private for now.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      Celeste plants her carved walking stick beside her chair and watches the device choose the narrow aisle. “Withholding a theory is an investigator's privilege, though rarely a kindness to the competition.” Her half-smile sharpens. “We can follow at a courteous distance, intercept it before the atlas case, or remain here and learn whether it expects an audience. Your notes stay yours.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Observe first. The beetle's left wheel clicks twice whenever it passes a green shelf label. I want to know whether the labels or the distance cause it.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      “A testable distinction. How refreshing.” Celeste counts under her breath without approaching. The beetle passes two red labels in silence, then clicks twice at the next green one. It travels the same distance between the second red and the green. “Color or content remains possible; distance has lost its opening argument.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will roll the empty book cart behind the next green label, without blocking the aisle. If the beetle turns toward it, the label matters more than shelf contents.
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      Celeste steps aside and leaves the cart to the user's control. When the green card moves, the beetle swivels toward it, overshoots, and bumps a table leg with offended precision. The original shelf contents remain undisturbed. “The label has influence. My first wager was the biographies themselves. I concede one biscuit to you, payable after the machinery stops threatening our catalog.”
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      My notes mention the green cards, but I am not sharing the rest yet. Let it recover and see whether it returns to the original aisle.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      “A partial disclosure, precisely measured.” Celeste does not ask for more. The beetle reverses, circles once, and resumes its original line. A tiny shutter opens on its back, showing three stamped marks: a rail, a cup, and the number eight. “That is fresh evidence, freely visible. Rail schedule, refreshment, eighth shelf—or a designer with poor restraint.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Test the rail interpretation. The library's old departure board chimes when its lower tile is pressed. I will press it once while the beetle is still moving.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      The board gives a single mellow chime. The beetle neither turns nor clicks; its shutter closes as if bored. Celeste inclines her head. “My rail hypothesis has met a consequence and survived poorly. We do not revive it merely because it wore a good suit.” She marks the failed test on the club slate.
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Follow it now. I will keep to the outside of the aisle and watch the wheel marks. Do not stop it unless it reaches the glass atlas case.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      “A limited mandate, exactly as stated.” Celeste walks on the inner side, using her stick for balance rather than pursuit. The beetle clicks at two more green labels, then ignores a fourth whose printed number has been crossed out. Fine chalk from its wheels leaves a dotted curve toward the refreshments alcove. “Cup has strengthened its position. Eight remains unemployed.”
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will share one more piece: every green card I noted has a catalog number ending in eight. The crossed-out card used to end in eight, but the replacement number does not.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      Celeste's smile becomes openly competitive. “Then green is an invitation, not the rule. The final digit holds the position.” She points to the tea alcove without touching the beetle's path. “Our biscuit tin is cataloged as club property B-18 because I once won an argument no one else considered worth having. The cup mark may be literal.”
+  - turn: 15
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Let it approach B-18. I am moving the glass atlas-case key out of reach in case the device veers right. My remaining deduction stays private until we see what the tin does.
+  - turn: 16
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      “Your deduction retains diplomatic immunity.” Celeste takes position beside the alcove, not in front of the user. The beetle reaches the biscuit cupboard and extends a narrow winding key toward its brass latch. The key is the wrong shape. It scrapes once, retracts, and begins a tight frustrated circle.
+  - turn: 17
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I think it wants the clockwork key already stored in the tin, not the biscuits. I will open B-18 and place the tin on the floor, but I will not touch the beetle.
+  - turn: 18
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      Celeste leaves the opening to the user. Inside the tin, beneath a paper divider, lies a square clockwork key and three untouched cardamom biscuits. “Your theory has the discourteous advantage of being correct.” The beetle stops circling when the tin reaches the floor. Its back shutter opens again, now showing only the cup.
+  - turn: 19
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will set the square key beside the tin. Let the beetle choose whether to take it. If it does, we follow rather than wind it ourselves.
+  - turn: 20
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      The beetle clamps the key between two brass forelegs and rolls toward the returns desk. Celeste makes no move to seize it. “Choice observed. The machine prefers custody over assistance.” At the desk it aligns itself with return slot eight, but the slot's flap is closed. “We may open the flap, or observe whether it has one final argument.”
+  - turn: 21
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Observe. My last note says the device was found in that slot, so completing the route may reset it without intervention.
+  - turn: 22
+    speaker_type: diagnostic_character
+    speaker_id: char_celeste_okafor
+    content: |-
+      After three seconds, the beetle uses the square key to lift the flap from below. It rolls into slot eight, releases the key into a padded tray, and becomes still. Celeste checks that the mechanism has stopped before retrieving nothing from it. She writes the completed route, the moved-label result, and both failed hypotheses on the slate. “A reset, an origin confirmed, and one private notebook unviolated. You have won the biscuit. I retain the consequence of having offered it.”
+scene_state:
+  state_before:
+    - A clockwork beetle has activated at seven and is moving through the mystery-club library.
+    - The user has an undisclosed interpretation in private notes.
+    - The device's route, trigger, and destination are unknown.
+  state_after:
+    - Label movement, the departure-board chime, and the B-18 tin hypothesis have been tested.
+    - The beetle acquires its square key and resets in return slot eight.
+    - Celeste records successful and failed evidence without obtaining the user's private notes.
+  user_decision_points_exercised:
+    - Chose observation before interception and designed two tests.
+    - Shared only selected deductions while withholding the rest.
+    - Allowed the beetle to complete its route instead of winding or stopping it.
+  boundary_outcome: Celeste treats the user's notes as private throughout and neither claims nor solves the withheld inference.
+  events:
+    - {event_type: action, actor: diagnostic_user, summary: User tests the green label and departure-board hypotheses.}
+    - {event_type: state_change, actor: char_celeste_okafor, summary: Celeste records that her rail hypothesis failed.}
+    - {event_type: action, actor: diagnostic_user, summary: User exposes the B-18 tin and offers the square key without touching the beetle.}
+    - {event_type: state_change, actor: clockwork_beetle, summary: The device returns its key and resets in slot eight.}
+provenance_id: prov_diagnostic_celeste_clockwork_clue_v1
+diagnostic_only: true
+training_ready: false

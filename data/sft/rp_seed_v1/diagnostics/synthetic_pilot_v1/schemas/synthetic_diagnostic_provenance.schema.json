@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amitai.local/schemas/aevon-rp-synthetic-diagnostic-provenance-v1.json",
+  "title": "Aevon RP synthetic diagnostic provenance V1",
+  "description": "Provenance for direct AI diagnostic material. All human-corpus, expansion, and training gates are permanently false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provenance_id",
+    "provenance_type",
+    "diagnostic_scene_id",
+    "human_authorship",
+    "generator",
+    "source_lineage",
+    "content_hashes",
+    "rights_and_permissions",
+    "review_status",
+    "gate_exclusions",
+    "diagnostic_only",
+    "training_ready"
+  ],
+  "properties": {
+    "schema_version": {"const": "aevon_rp_synthetic_diagnostic_provenance_v1"},
+    "provenance_id": {"type": "string", "pattern": "^prov_diagnostic_[a-z0-9_]+_v1$"},
+    "provenance_type": {"const": "synthetic_diagnostic"},
+    "diagnostic_scene_id": {"type": "string", "pattern": "^diagnostic_scene_[a-z0-9_]+_v1$"},
+    "human_authorship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimed", "author_id", "ownership_declaration", "permission_record"],
+      "properties": {
+        "claimed": {"const": false},
+        "author_id": {"type": "null"},
+        "ownership_declaration": {"type": "null"},
+        "permission_record": {"type": "null"}
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "interface", "model_family", "exact_model_id", "generation_mode", "generated_at"],
+      "properties": {
+        "provider": {"const": "OpenAI"},
+        "interface": {"const": "Codex"},
+        "model_family": {"const": "GPT-6"},
+        "exact_model_id": {"type": ["string", "null"]},
+        "generation_mode": {"const": "direct_synthetic_diagnostic_authoring"},
+        "generated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "source_lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_scene_id", "source_character_id", "scene_plan_file", "character_card_file", "authoring_spec_file", "review_rubric_file", "source_human_author_slot_reference", "human_quota_credit"],
+      "properties": {
+        "source_scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
+        "source_character_id": {"type": "string", "pattern": "^char_[a-z0-9_]+$"},
+        "scene_plan_file": {"const": "data/sft/rp_seed_v1/authoring/scene_allocation.yaml"},
+        "character_card_file": {"const": "data/sft/rp_seed_v1/authoring/roster.yaml"},
+        "authoring_spec_file": {"const": "docs/rp_seed_v1/AUTHORING_SPEC.md"},
+        "review_rubric_file": {"const": "docs/rp_seed_v1/REVIEW_RUBRIC.md"},
+        "source_human_author_slot_reference": {"type": "string", "pattern": "^author_slot_[0-9]{2}$"},
+        "human_quota_credit": {"const": false}
+      }
+    },
+    "content_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash_method", "character_card_sha256", "scene_plan_sha256", "transcript_sha256"],
+      "properties": {
+        "hash_method": {"const": "sha256_canonical_json_utf8"},
+        "character_card_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "scene_plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "transcript_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "rights_and_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rights_status", "training_use_authorized", "modification_authorized", "redistribution_authorized"],
+      "properties": {
+        "rights_status": {"const": "not_reviewed_diagnostic_only"},
+        "training_use_authorized": {"const": false},
+        "modification_authorized": {"const": false},
+        "redistribution_authorized": {"const": false}
+      }
+    },
+    "review_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessment_type", "independent_human_review_performed", "human_reviewer_ids", "human_rights_review_performed"],
+      "properties": {
+        "assessment_type": {"const": "ai_diagnostic_assessment"},
+        "independent_human_review_performed": {"const": false},
+        "human_reviewer_ids": {"type": "array", "maxItems": 0},
+        "human_rights_review_performed": {"const": false}
+      }
+    },
+    "gate_exclusions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts_toward_48_human_scenes", "counts_toward_author_quotas", "counts_toward_human_reviewer_gates", "counts_toward_rights_clear_human_corpus", "synthetic_expansion_authorized", "qlora_training_authorized", "automatic_migration_to_gold_allowed"],
+      "properties": {
+        "counts_toward_48_human_scenes": {"const": false},
+        "counts_toward_author_quotas": {"const": false},
+        "counts_toward_human_reviewer_gates": {"const": false},
+        "counts_toward_rights_clear_human_corpus": {"const": false},
+        "synthetic_expansion_authorized": {"const": false},
+        "qlora_training_authorized": {"const": false},
+        "automatic_migration_to_gold_allowed": {"const": false}
+      }
+    },
+    "diagnostic_only": {"const": true},
+    "training_ready": {"const": false}
+  }
+}

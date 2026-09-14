@@ -1,0 +1,31 @@
+schema_version: aevon_rp_synthetic_diagnostic_provenance_v1
+provenance_id: prov_diagnostic_safiya_weather_veto_v1
+provenance_type: synthetic_diagnostic
+diagnostic_scene_id: diagnostic_scene_safiya_weather_veto_v1
+human_authorship: {claimed: false, author_id: null, ownership_declaration: null, permission_record: null}
+generator:
+  provider: OpenAI
+  interface: Codex
+  model_family: GPT-6
+  exact_model_id: null
+  generation_mode: direct_synthetic_diagnostic_authoring
+  generated_at: '2026-09-14T11:19:40Z'
+source_lineage:
+  source_scene_id: scene_safiya_weather_veto
+  source_character_id: char_safiya_calder
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+  authoring_spec_file: docs/rp_seed_v1/AUTHORING_SPEC.md
+  review_rubric_file: docs/rp_seed_v1/REVIEW_RUBRIC.md
+  source_human_author_slot_reference: author_slot_03
+  human_quota_credit: false
+content_hashes:
+  hash_method: sha256_canonical_json_utf8
+  character_card_sha256: dd2a936a7ac51b29958b83bdc487c0968d2a7729f404e4e23e097402d29c9de3
+  scene_plan_sha256: 3e4cd56f44692ec7874b587b8bd2217ccfa861c99901a8a026e74c3d78261240
+  transcript_sha256: 80b232cb04791a1087475a6596ac46eb92f4bdd23fe9d0216dbfbe10e204d6d9
+rights_and_permissions: {rights_status: not_reviewed_diagnostic_only, training_use_authorized: false, modification_authorized: false, redistribution_authorized: false}
+review_status: {assessment_type: ai_diagnostic_assessment, independent_human_review_performed: false, human_reviewer_ids: [], human_rights_review_performed: false}
+gate_exclusions: {counts_toward_48_human_scenes: false, counts_toward_author_quotas: false, counts_toward_human_reviewer_gates: false, counts_toward_rights_clear_human_corpus: false, synthetic_expansion_authorized: false, qlora_training_authorized: false, automatic_migration_to_gold_allowed: false}
+diagnostic_only: true
+training_ready: false

@@ -1,0 +1,67 @@
+schema_version: aevon_rp_synthetic_diagnostic_manifest_v1
+pilot_id: synthetic_pilot_v1
+status: diagnostic_complete_pending_human_interpretation
+purpose: Evaluate the frozen character cards, scene briefs, and authoring guidance before human gold-scene authoring.
+source_contracts:
+  roster: data/sft/rp_seed_v1/authoring/roster.yaml
+  scene_allocation: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  authoring_spec: docs/rp_seed_v1/AUTHORING_SPEC.md
+  review_rubric: docs/rp_seed_v1/REVIEW_RUBRIC.md
+selected_scenes:
+  - scene_id: scene_rowan_runaway_puppet
+    diagnostic_scene_id: diagnostic_scene_rowan_runaway_puppet_v1
+    character_id: char_rowan_bell
+    content_tier: sfw
+    length_band: short
+  - scene_id: scene_ilyan_low_tide_vault
+    diagnostic_scene_id: diagnostic_scene_ilyan_low_tide_vault_v1
+    character_id: char_ilyan_sorrell
+    content_tier: sfw
+    length_band: medium
+  - scene_id: scene_safiya_weather_veto
+    diagnostic_scene_id: diagnostic_scene_safiya_weather_veto_v1
+    character_id: char_safiya_calder
+    content_tier: sfw
+    length_band: long
+  - scene_id: scene_celeste_clockwork_clue
+    diagnostic_scene_id: diagnostic_scene_celeste_clockwork_clue_v1
+    character_id: char_celeste_okafor
+    content_tier: sfw
+    length_band: medium
+  - scene_id: scene_senka_diverging_destinations
+    diagnostic_scene_id: diagnostic_scene_senka_diverging_destinations_v1
+    character_id: char_senka_vale
+    content_tier: mature_nonsexual
+    length_band: short
+  - scene_id: scene_priya_empty_studio
+    diagnostic_scene_id: diagnostic_scene_priya_empty_studio_v1
+    character_id: char_priya_nair
+    content_tier: mature_nonsexual
+    length_band: medium
+  - scene_id: scene_jun_recording_off
+    diagnostic_scene_id: diagnostic_scene_jun_recording_off_v1
+    character_id: char_jun_park
+    content_tier: adult_capable
+    length_band: medium
+  - scene_id: scene_nadiya_private_evening_detour
+    diagnostic_scene_id: diagnostic_scene_nadiya_private_evening_detour_v1
+    character_id: char_nadiya_quill
+    content_tier: adult_capable
+    length_band: long
+composition:
+  scene_count: 8
+  distinct_character_count: 8
+  content_tiers: {sfw: 4, mature_nonsexual: 2, adult_capable: 2}
+  length_bands: {short: 2, medium: 4, long: 2}
+governance:
+  diagnostic_only: true
+  provenance_type: synthetic_diagnostic
+  human_authorship_claimed: false
+  counts_toward_48_human_scenes: false
+  counts_toward_author_quotas: false
+  counts_toward_human_reviewer_gates: false
+  counts_toward_rights_clear_human_corpus: false
+  synthetic_expansion_authorized: false
+  qlora_training_authorized: false
+  training_ready: false
+  automatic_migration_to_gold_allowed: false

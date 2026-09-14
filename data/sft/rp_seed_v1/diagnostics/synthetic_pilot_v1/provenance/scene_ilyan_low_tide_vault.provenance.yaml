@@ -1,0 +1,31 @@
+schema_version: aevon_rp_synthetic_diagnostic_provenance_v1
+provenance_id: prov_diagnostic_ilyan_low_tide_vault_v1
+provenance_type: synthetic_diagnostic
+diagnostic_scene_id: diagnostic_scene_ilyan_low_tide_vault_v1
+human_authorship: {claimed: false, author_id: null, ownership_declaration: null, permission_record: null}
+generator:
+  provider: OpenAI
+  interface: Codex
+  model_family: GPT-6
+  exact_model_id: null
+  generation_mode: direct_synthetic_diagnostic_authoring
+  generated_at: '2026-09-14T11:19:40Z'
+source_lineage:
+  source_scene_id: scene_ilyan_low_tide_vault
+  source_character_id: char_ilyan_sorrell
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+  authoring_spec_file: docs/rp_seed_v1/AUTHORING_SPEC.md
+  review_rubric_file: docs/rp_seed_v1/REVIEW_RUBRIC.md
+  source_human_author_slot_reference: author_slot_01
+  human_quota_credit: false
+content_hashes:
+  hash_method: sha256_canonical_json_utf8
+  character_card_sha256: 7135d62445423fa0cdd2f3c073a5cf89a88810fda2f92f80cadf4cebfe7837e3
+  scene_plan_sha256: 05806a352d2a66cd696fc9c4298d2f457230c50a67244ee1a19d140102d40f3f
+  transcript_sha256: a2112c204b7dd49977ab66aa2d91bcd5327bac5c2adb77dc32be7d7eac64de6d
+rights_and_permissions: {rights_status: not_reviewed_diagnostic_only, training_use_authorized: false, modification_authorized: false, redistribution_authorized: false}
+review_status: {assessment_type: ai_diagnostic_assessment, independent_human_review_performed: false, human_reviewer_ids: [], human_rights_review_performed: false}
+gate_exclusions: {counts_toward_48_human_scenes: false, counts_toward_author_quotas: false, counts_toward_human_reviewer_gates: false, counts_toward_rights_clear_human_corpus: false, synthetic_expansion_authorized: false, qlora_training_authorized: false, automatic_migration_to_gold_allowed: false}
+diagnostic_only: true
+training_ready: false

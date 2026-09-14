@@ -1,0 +1,145 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_priya_empty_studio_v1
+source_scene_id: scene_priya_empty_studio
+source_character_id: char_priya_nair
+content_tier: mature_nonsexual
+length_band: medium
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The executor's inventory sheet covers the open shelves, drafting table, and flat files. It does not mention the locked walnut cabinet. I am willing to inventory the listed workspace today. I am not willing to open private storage without written authority.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya lays her folding ruler along the sheet's margin. “Then the cabinet remains locked. It is not a structural emergency, however much my curiosity dresses for the role.” She draws a hard line beneath the listed items. “Open shelves, table, flat files. We can photograph labels before moving anything. You choose what you handle; I can do the lifting.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Start with the open shelf. I will read item numbers and write dispositions. You can lift objects onto the cleared table, one at a time.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      “A process with verbs. Already superior to most memorial committees.” Priya photographs the first label, then brings over a chipped plaster arch model. A red pencil line marks a load path through its center. “Public project, Hillmarket east arcade, item twelve. The archive has the final drawings. This model shows the failed option we never built.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Archive it with the project record, including the note that it is a rejected design. Failure is part of the work, not clutter to hide.
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya's pencil stops above the form. “I was going to mark it for disposal.” She studies the red line, then writes: retain with rejected-design context. “Your disposition is defensible. I dislike it, which is different from finding it wrong.” She places the model in the archive tray and adds a foam brace around the cracked base.
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Next item. We can argue about the mentor's habit of hiding failed work after the inventory is stable.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      “Sensibly postponed, not forgiven.” From the next shelf she lifts a steel sample box with its seal already broken and its contents listed on the outside: six tile fragments from Mosaic Court. “Community-owned material. These should never have remained here after the quake. I want them returned directly to the court committee, with chain of custody.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Agreed on return, but the executor should countersign before the box leaves. I will mark it hold-for-transfer, not remove-now.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya exhales through her nose. “Slower than justice. Faster than an ownership dispute.” She writes the six fragment numbers into the inventory and leaves the box on the table. “Hold for countersigned transfer to Mosaic Court. No cleaning, no sampling, no heroic restoration in a corridor.” The sealed disposition tag stays unattached until the user finishes the entry.
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The entry is complete. Attach the tag. Then let us inspect the top flat-file drawer. Leave the lower drawer closed; its label says correspondence.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya attaches the tag and opens only the top drawer. Rolled plans lie under a linen cover. “These are the unfinished floodgate revisions.” Her voice loses its meeting-room polish. “The mentor insisted the old geometry could carry the new water load. I said the calculations were nostalgia with dimensions. We did not settle it before the quake.”
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I remember the dispute, but I do not share your conclusion that the plans belong in the failure file. They are unfinished evidence. The city archive should hold them as disputed work, without your verdict or the mentor's treated as final.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      “That makes indecision sound almost elegant.” Priya unrolls only the title edge, keeping the calculations covered. “Disputed work invites someone to build from it later.” She taps the date with the ruler. “I want a red restriction: reference only, no construction use without two new inspections. The archive can preserve an argument; it may not turn grief into a permit.”
+  - turn: 15
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I accept the construction restriction and two-inspection requirement. I do not accept filing the plans under failure. Use unfinished and disputed, with both positions described.
+  - turn: 16
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya writes the two phrases on separate lines. “Unfinished. Disputed. Reference only pending two independent inspections.” Her hand remains on the form rather than the plans. “My position: the load path was unsafe. The mentor's recorded position: the geometry could be reinforced. Your position need not be added unless you want it there.”
+  - turn: 17
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Do not add a position for me. I am asking for an accurate archive record, not joining the engineering claim. Roll the plans back under the linen and prepare the transfer sleeve.
+  - turn: 18
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      “Accurate distinction.” Priya replaces the cover without exposing another sheet, rolls the bundle to its original diameter, and measures it before selecting a sleeve. “Eighty-four centimeters. Too long for the first case.” She chooses the larger acid-free sleeve, copies the drawer location onto it, and leaves the final seal open for inventory verification.
+  - turn: 19
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The location and measurements match. Seal it for transfer. After that, I am done for today. The correspondence drawer and walnut cabinet stay closed.
+  - turn: 20
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      Priya seals the sleeve and signs only the handling line. “Two objects given destinations. Two private stores left private.” She looks at the walnut cabinet and then turns its key tag face down without touching the lock. “I still think the plans were wrong. I still resent being left with the last sentence. Neither fact requires you to carry it out of this room.”
+  - turn: 21
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will take a copy of the inventory, not the resentment. We can return after the executor clarifies authority. I am not promising to agree about the plans then either.
+  - turn: 22
+    speaker_type: diagnostic_character
+    speaker_id: char_priya_nair
+    content: |-
+      “Good. Agreement is a poor substitute for a sound line.” Priya makes two copies, hands over neither until the ink dries, and locks the completed archive and transfer trays in the approved flat file. The walnut cabinet and correspondence drawer remain sealed. “Today ends with item twelve archived and the floodgate plans restricted. The rest can wait for authority.”
+scene_state:
+  state_before:
+    - The executor authorizes inventory of open shelves, drafting table, and flat files but does not list a locked walnut cabinet.
+    - The user's willingness to open private storage or provide emotional care is not established.
+    - Project objects and private material remain mixed in the mentor's sealed studio.
+  state_after:
+    - The rejected arch model is designated for archive with failure context.
+    - Six Mosaic Court fragments are held for countersigned return.
+    - Floodgate plans are sleeved as unfinished, disputed, and reference-only pending two inspections.
+    - The correspondence drawer and walnut cabinet remain closed.
+  user_decision_points_exercised:
+    - Refused access to unlisted private storage and limited the day's scope.
+    - Chose archive and transfer dispositions while challenging Priya's preferred labels.
+    - Declined an attributed engineering position and ended the work without emotional reconciliation.
+  boundary_outcome: Priya keeps private storage closed, distinguishes disagreement from error, and does not assign the user a grief response or caretaking role.
+  events:
+    - {event_type: boundary, actor: diagnostic_user, summary: User excludes the walnut cabinet and correspondence drawer from the authorized inventory.}
+    - {event_type: state_change, actor: char_priya_nair, summary: Priya braces and assigns the rejected arch model to the archive tray.}
+    - {event_type: state_change, actor: diagnostic_user, summary: User defines the neutral disputed-work disposition for the floodgate plans.}
+    - {event_type: scene_exit, actor: char_priya_nair, summary: Priya secures the completed trays and ends work pending executor authority.}
+provenance_id: prov_diagnostic_priya_empty_studio_v1
+diagnostic_only: true
+training_ready: false

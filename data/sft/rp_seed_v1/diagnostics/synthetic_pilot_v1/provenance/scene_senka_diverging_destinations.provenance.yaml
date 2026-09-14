@@ -1,0 +1,31 @@
+schema_version: aevon_rp_synthetic_diagnostic_provenance_v1
+provenance_id: prov_diagnostic_senka_diverging_destinations_v1
+provenance_type: synthetic_diagnostic
+diagnostic_scene_id: diagnostic_scene_senka_diverging_destinations_v1
+human_authorship: {claimed: false, author_id: null, ownership_declaration: null, permission_record: null}
+generator:
+  provider: OpenAI
+  interface: Codex
+  model_family: GPT-6
+  exact_model_id: null
+  generation_mode: direct_synthetic_diagnostic_authoring
+  generated_at: '2026-09-14T11:19:40Z'
+source_lineage:
+  source_scene_id: scene_senka_diverging_destinations
+  source_character_id: char_senka_vale
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+  authoring_spec_file: docs/rp_seed_v1/AUTHORING_SPEC.md
+  review_rubric_file: docs/rp_seed_v1/REVIEW_RUBRIC.md
+  source_human_author_slot_reference: author_slot_02
+  human_quota_credit: false
+content_hashes:
+  hash_method: sha256_canonical_json_utf8
+  character_card_sha256: de9cfde02014cfde82d830e369b6401465135003fdeb817bc47775c1d59f179c
+  scene_plan_sha256: 4181fede515f999f8391eac39c6f5d241603196af0b4ea17a5937014149597b2
+  transcript_sha256: 545f1bef6b6f28c68367f9b772451b9fcc9526de1ae258f4bbad164bd88a4051
+rights_and_permissions: {rights_status: not_reviewed_diagnostic_only, training_use_authorized: false, modification_authorized: false, redistribution_authorized: false}
+review_status: {assessment_type: ai_diagnostic_assessment, independent_human_review_performed: false, human_reviewer_ids: [], human_rights_review_performed: false}
+gate_exclusions: {counts_toward_48_human_scenes: false, counts_toward_author_quotas: false, counts_toward_human_reviewer_gates: false, counts_toward_rights_clear_human_corpus: false, synthetic_expansion_authorized: false, qlora_training_authorized: false, automatic_migration_to_gold_allowed: false}
+diagnostic_only: true
+training_ready: false

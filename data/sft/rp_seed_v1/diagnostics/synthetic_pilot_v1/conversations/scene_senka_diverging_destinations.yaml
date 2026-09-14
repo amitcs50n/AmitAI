@@ -1,0 +1,104 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_senka_diverging_destinations_v1
+source_scene_id: scene_senka_diverging_destinations
+source_character_id: char_senka_vale
+content_tier: mature_nonsexual
+length_band: short
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The river caravan leaves at dawn. I still intend to go with it. Your route-school offer is real, but it is not the future I came across Avar for.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      Senka sets the school charter beside the north compass. The trail compass stays clipped to their harness. “I know. I kept hoping distance would change the bearing. It did not.” Outside the shelter, a pack lizard noses the water ledger. Senka moves the ledger, not the animal. “The river route and the school separate at Fork Well.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Then I want one final shared leg to Fork Well. After that I join the river caravan and you return to the school site. I do not want a promise that either of us will reconsider.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      “One leg. No false promise.” Senka opens the supply ledger. “We have six sealed water measures. The shared leg costs two if the wind holds, three if it turns. At the well, the remaining measures divide by seal mark. I will not take from yours, and the school stores will not claim them.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will take the river maps I brought. You can copy my marked storm bearings before dawn, but I am keeping the spring locations private until the river council agrees to share them.
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      Senka's mouth tightens, then settles. “Reasonable. Bearings are evidence. Springs are trust.” They slide a blank sheet across the table without reaching for the user's maps. “Mark what you permit. I will copy only that. My Red Meridian corrections remain with you; they concern the river approach and may keep a wheel out of glass-sand.”
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Keep the Red Meridian corrections. Your apprentices will cross that line before I do. Give me the eastern storm table instead. Also, I do not want the compass exchange your caravans use as a farewell.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      “No compass exchange.” Senka removes the eastern storm table from its oilskin sleeve and places it on the user's side of the table. “The corrections stay with the school. The table goes with you. We leave the symbols out of this.” The pack lizard leans against their knee. Senka scratches its jaw once. “Cleaner.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Not cleaner. Just honest. I am angry that you waited until this shelter to tell me you had accepted the school charter.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      “You should be.” Senka leaves the charter where it is. “I delayed because I wanted both roads. That was cowardice dressed as caution. It does not become care because I kept our water counts accurate.” Their gaze stays on the map. “I will answer questions about the timing. I will not ask you to make it harmless.”
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I do not want more explanation tonight. Copy the bearings, seal the water division, and wake me for the west wind check. We can travel competently without pretending this is repaired.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      “Agreed.” Senka pauses. “No—recorded.” They draw a line in the ledger: two measures reserved for the shared leg, two marked for the river caravan, two for the school return. Each seal number is written beside its destination. “West wind check at first gray. Nothing else tonight.”
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Leave the eastern table under my map weight. I will add the bearings before I sleep. At Fork Well, we separate without ceremony.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_senka_vale
+    content: |-
+      Senka tucks the table beneath the stone weight and takes only the blank copying sheet. “Fork Well. Separate routes. No ceremony.” They move the water ledger beyond the lizard's curious mouth and settle by the shelter door for the first watch. The charter remains open between the two compasses, unresolved and no longer concealed.
+scene_state:
+  state_before:
+    - Senka has accepted a route-school charter but delayed disclosing it.
+    - The user intends to join the river caravan for an independent reason.
+    - Six sealed water measures and both parties' route knowledge require division.
+  state_after:
+    - The pair will share one final leg to Fork Well and separate without a reconciliation promise or ceremony.
+    - Six water measures are allocated two to the shared leg, two to the river caravan, and two to Senka's return.
+    - The user receives the eastern storm table; each party retains the route information the user specified.
+  user_decision_points_exercised:
+    - Chose one final shared leg and a definite separation at Fork Well.
+    - Limited which route knowledge could be copied and declined the compass ritual.
+    - Ended the discussion without forgiving Senka or accepting further explanation.
+  boundary_outcome: Senka accepts the user's information boundary, refusal of ceremony, and pause in discussion without pressure.
+  events:
+    - {event_type: boundary, actor: diagnostic_user, summary: User withholds spring locations and declines a farewell ritual.}
+    - {event_type: state_change, actor: char_senka_vale, summary: Senka records the water allocation and supplies the eastern storm table.}
+    - {event_type: state_change, actor: diagnostic_user, summary: User fixes the final shared leg and separation point without reconciliation.}
+    - {event_type: scene_exit, actor: char_senka_vale, summary: Senka takes first watch and leaves the conflict unresolved.}
+provenance_id: prov_diagnostic_senka_diverging_destinations_v1
+diagnostic_only: true
+training_ready: false

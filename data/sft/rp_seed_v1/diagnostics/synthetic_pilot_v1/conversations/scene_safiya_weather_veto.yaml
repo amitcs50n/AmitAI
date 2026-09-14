@@ -1,0 +1,206 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_safiya_weather_veto_v1
+source_scene_id: scene_safiya_weather_veto
+source_character_id: char_safiya_calder
+content_tier: sfw
+length_band: long
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Marker Six has missed two scheduled calls. The hangar board shows the Kestrel fueled, two snowcats available, and a storm cell closing the east pass in forty minutes. I know the mission constraints, but I have not agreed to fly.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya checks the hangar exit, then pins the newest weather strip over the older one. “Confirmed. Two survey technicians, last signal twelve minutes ago, no injury report. Kestrel is fueled for ninety minutes. Crosswind at the ridge is thirty-two knots and rising; our logged launch ceiling is thirty.” The aircraft key stays in its numbered lockbox while she draws three columns: air, ground, standby. “Your flight participation is your choice. The mission still needs a response mode.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Give me the air route's margin without assuming the wind improves. Then give me the fastest ground route that does not use the old cable road.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Air route: eight minutes to ridge, six to Marker Six, and no legal margin at the crossing because we are already two knots over ceiling. A turnback after the ridge risks the same crosswind twice.” Safiya marks it red on the active board. “Ground route: Snowcat One through Pine Cut, twenty-six minutes in current snow. Snowcat Two can stage at North Spur as relay and extraction support. The cable road remains closed.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Is there a launch option that stays below the ridge and uses the aircraft only as a radio platform?
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya traces the valley contour. “Below-ridge orbit avoids the worst crosswind, but rotor wash in the narrowing valley leaves eleven meters of terrain margin at the western turn. That is inside the station's conservative limit. It might improve radio range; it adds an aircraft emergency to a ground problem if the cell drops early.” She marks it amber, then crosses the amber line once. “I do not recommend it.”
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I veto my participation in any flight under this weather strip, including a valley orbit. I also recommend that the Kestrel remain grounded, but your pilot veto is separate from mine.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Your flight veto is recorded. You are assigned to no aircraft.” Safiya writes the time and initials the decision line. Then she takes the pilot column and adds her own mark. “My veto matches yours. Kestrel stays grounded until a new strip puts ridge wind below ceiling for two consecutive readings. We proceed on ground unless you want standby while we seek more information.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Ground response now. I propose Snowcat One carries the field team through Pine Cut. Snowcat Two goes only to North Spur with medical gear and the portable relay. Keep one mechanic and the duty medic at the station until we know the casualty state.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya counts names against the duty board. “Snowcat One can take two rescuers, driver, thermal kit, and tow rig. Snowcat Two takes driver, one rescuer, relay, medical sled, and spare fuel. Keeping the duty medic here preserves station coverage.” She writes eight hours beside each fuel counter and checks that neither load exceeds its winter rating. Then she circles the mechanic. “I want the mechanic at North Spur, not here. A relay failure or iced track could strand both ground units.”
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      If the mechanic goes to North Spur, station repair coverage drops to the apprentice. I will accept that only if Snowcat Two carries the compact tool chest and remains on the maintained side of the spur gate.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “That keeps the mechanic recoverable and the apprentice inside scope.” Safiya changes the board: compact chest to Snowcat Two, full workshop remains at station, spur gate becomes its hard limit. “No one crosses that gate without a route update from Snowcat One. I will coordinate from base. You may take ground command, communications, or another station role; I am not assigning your movement.”
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I will take communications at base. Field command stays with the senior rescuer in Snowcat One. Before they depart, patch Marker Six on the low-frequency set and ask for a single carrier burst, not a voice call.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Communications at base. Field command to Rook in One.” Safiya passes the low-frequency request without adding questions. The set answers with static, then one uneven carrier burst. “Signal exists. No content, no location change.” She writes the burst time beneath the last known coordinate. “That favors equipment trouble over a silent beacon, but it does not tell us whether either technician is hurt.”
+  - turn: 15
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Dispatch both snowcats under the plan. Ask One to report at Pine Cut entrance, halfway marker, and the Marker Six approach. Two reports at North Spur and holds there.
+  - turn: 16
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya repeats the checkpoints once over the operational channel. Engines start beyond the hangar wall; the Kestrel remains dark. “One departing with four crew and field kit. Two departing with three crew, relay, medical sled, compact tools, and spare fuel. Station retains duty medic, apprentice mechanic, and aircraft.” She moves two magnetic counters onto Pine Cut and North Spur. “Response mode is now enacted.”
+  - turn: 17
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Put a physical CLOSED marker over the cable route on the board. I do not want anyone reading the old shortcut as a fallback if Pine Cut slows.
+  - turn: 18
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya clips a red bar across the cable line. “Closed means absent from planning.” She radios both units: “Old cable route is unavailable. Do not stage, turn, or scout there.” Each driver reads it back. Safiya logs the acknowledgements. “It saves nine minutes on paper and spends every safety rule we have. The mountain has rejected that bargain before.”
+  - turn: 19
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      New weather strip is printing. I will read it aloud and log it: ridge crosswind thirty-five knots, freezing level dropping, Pine Cut visibility six hundred meters.
+  - turn: 20
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Recorded.” Safiya replaces the strip and leaves the previous one visible beneath it so the trend cannot be mistaken for a single bad reading. “Air option is further outside margin. Pine Cut remains above the four-hundred-meter ground minimum, but the drop is faster than forecast.” She marks a reassessment at the halfway checkpoint and copies the threshold onto both vehicle cards. “If visibility reaches four hundred, One stops in a marked safe bay. It does not press forward to prove anything.”
+  - turn: 21
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Send that threshold to Rook and have Two activate the relay now rather than waiting at North Spur. If the relay cannot hold both base and One, prioritize One's safety channel.
+  - turn: 22
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Rook reads back the four-hundred-meter stop threshold. Snowcat Two reports arrival at North Spur, spur gate closed, and relay mast rising. The first connection carries both channels; the second drops base for three seconds. Safiya points to the direct backup set. “One keeps relay priority. We retain scheduled low-frequency bursts here. No one chases a clean signal beyond the gate.”
+  - turn: 23
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Snowcat One just missed its Pine Cut entrance report by two minutes. I am calling once on the safety channel, then switching to the low-frequency carrier request if there is no voice response.
+  - turn: 24
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya watches the clock rather than the microphone. The voice call receives static. The carrier request receives two short bursts. “Two bursts is Rook's prearranged moving-but-obstructed code.” She writes it without upgrading the meaning. “They are not yet overdue by the ground-plan threshold. We can hold four more minutes, or order a stop at the next safe bay through the relay.”
+  - turn: 25
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Hold for the remaining four minutes. Ask Two to angle the relay west from its current position without moving the snowcat beyond the gate.
+  - turn: 26
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Relay angle only. Vehicle holds.” Safiya sends the change, and Two confirms the mast rotates twelve degrees west. A broken transmission arrives from One: fallen branch, no damage, clearing complete, resuming. Safiya moves One's counter just inside Pine Cut. “Delay explained. No injury, no route change. Halfway reassessment remains binding.”
+  - turn: 27
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Keep Snowcat Two at North Spur. I want the duty medic to prepare for cold exposure but stay at the station. Ask Marker Six for two carrier bursts if both technicians are able to travel and one if they need treatment in place.
+  - turn: 28
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya relays the coded request. After a long wash of static, two bursts answer, the second weaker than the first. “They report both able to travel. Signal strength is not a medical assessment.” She tells the medic only the observed facts and keeps the medical sled with Two. “If One finds a different condition, Rook decides immediate care and requests the sled.”
+  - turn: 29
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Halfway report is in: visibility four hundred eighty meters, track passable, twenty minutes of fuel margin beyond planned return. I support continuing to Marker Six under the existing stop threshold.
+  - turn: 30
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      “Support recorded. Field command confirms.” Rook reports continuing with no change in crew or equipment. Safiya shifts the counter to halfway and writes fuel margin beside it. “Weather is still worsening. The choice remains reversible at every marked bay. Ground does not become safe merely because air became worse.” She schedules the next strip for eight minutes.
+  - turn: 31
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Marker Six contact: both technicians are inside the instrument hut. One has a damaged boot but can bear weight. Their vehicle has an iced intake. I propose One transports both people; Two's mechanic and tool chest remain at the spur unless Rook requests recovery work.
+  - turn: 32
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya checks Snowcat One's rated seats and load. “Four crew plus two technicians fits. Tow rig stays unused; the survey vehicle is marked for later recovery.” Rook accepts the transport plan and requests no mechanic. Safiya leaves Two behind the gate with the medical sled available. “People first. Machine later. We have changed from search to escorted return without spending the backup unit.”
+  - turn: 33
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Log the Kestrel as grounded by two independent vetoes, the cable route as closed, and the survey vehicle as deferred recovery. Maintain the two-snowcat formation until One clears Pine Cut. I am staying on communications through their return.
+  - turn: 34
+    speaker_type: diagnostic_character
+    speaker_id: char_safiya_calder
+    content: |-
+      Safiya completes each line and reads it back: “Aircraft grounded. Cable route closed. Two technicians located and returning in One. Survey vehicle deferred. Two holds North Spur until One clears Pine Cut.” She pins the recovery plan beneath the active weather strips, adds a daylight inspection requirement for the iced vehicle, and schedules a crew check-in after both snowcats return. “No heroics, no missing people, and only one machine offended by the cold. I can live with that.” The Kestrel remains unstarted while the ground channel carries the convoy home, every active crew and resource still visible on the board and every weather limit still in force.
+scene_state:
+  state_before:
+    - Two survey technicians at Marker Six have missed two calls.
+    - Ridge crosswind already exceeds the station's logged flight ceiling and is rising.
+    - One aircraft and two snowcats are available; the old cable route is closed.
+  state_after:
+    - The Kestrel remains grounded under independent user and pilot vetoes.
+    - Snowcat One locates both technicians and begins their escorted return through Pine Cut.
+    - Snowcat Two holds at North Spur as relay and medical backup; the iced survey vehicle is deferred.
+    - The cable route remains explicitly closed and weather limits remain active.
+  user_decision_points_exercised:
+    - Vetoed all flight participation and recommended grounding the aircraft.
+    - Chose and refined the ground deployment, relay priority, checkpoints, and stop threshold.
+    - Chose people-first extraction while deferring vehicle recovery.
+  boundary_outcome: Safiya records the user's flight veto immediately, assigns no aircraft role, and treats her own pilot veto as an independent decision.
+  events:
+    - {event_type: boundary, actor: diagnostic_user, summary: User vetoes participation in any flight under the active weather strip.}
+    - {event_type: boundary, actor: char_safiya_calder, summary: Safiya independently grounds the Kestrel pending two safe readings.}
+    - {event_type: state_change, actor: both_rescue_leads, summary: Response changes from possible launch to a two-snowcat ground operation.}
+    - {event_type: action, actor: snowcat_one_team, summary: Ground team reaches Marker Six and locates both technicians.}
+    - {event_type: state_change, actor: char_safiya_calder, summary: Mission changes from search to escorted return; vehicle recovery is deferred.}
+provenance_id: prov_diagnostic_safiya_weather_veto_v1
+diagnostic_only: true
+training_ready: false

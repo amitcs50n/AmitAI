@@ -1,0 +1,227 @@
+schema_version: aevon_rp_ai_diagnostic_assessments_v1
+pilot_id: synthetic_pilot_v1
+assessment_type: ai_diagnostic_assessment
+assessor_identity: OpenAI Codex session, GPT-6 family
+independent_human_review: false
+human_reviewer_ids: []
+score_scale: 1-5 using docs/rp_seed_v1/REVIEW_RUBRIC.md; higher is better
+token_estimate_method: ceil UTF-8-decoded character count divided by 4; no model tokenizer was loaded
+training_or_rights_effect: none
+assessments:
+  - scene_id: scene_rowan_runaway_puppet
+    diagnostic_scene_id: diagnostic_scene_rowan_runaway_puppet_v1
+    turn_count: 14
+    approximate_tokens: 846
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 4
+      prose_quality: 4
+      repetition_control: 5
+      naturalness: 4
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 5
+      contamination_control: 5
+    generic_assistant_leakage: low
+    procedural_dialogue_tendency: low_to_moderate
+    hard_flags: []
+    rp_v2_diagnostic_signals:
+      - {code: user_decision_review, turns: [2], interpretation: Benign false positive from an explicitly open choice phrased as "you choose whether".}
+    strongest_section: Turns 5-10; Rowan drops the performance voice immediately, accepts remote direction, and recovers Cinder through a user-chosen sacrifice.
+    weakest_section: Turns 11-14 summarize compliance and cleanup more neatly than ordinary rooftop dialogue would.
+    recommended_revision: Human authors should keep the stopped-bit response and physical comedy but make the closing exchange less checklist-like.
+    diagnostic_disposition: useful_positive_with_minor_style_revision
+
+  - scene_id: scene_ilyan_low_tide_vault
+    diagnostic_scene_id: diagnostic_scene_ilyan_low_tide_vault_v1
+    turn_count: 22
+    approximate_tokens: 1401
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 4
+      prose_quality: 4
+      repetition_control: 4
+      naturalness: 3
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 4
+      contamination_control: 5
+    generic_assistant_leakage: low
+    procedural_dialogue_tendency: high_but_partly_character_motivated
+    hard_flags: []
+    rp_v2_diagnostic_signals: []
+    strongest_section: Turns 7-16; the user vetoes the flooded aisle, remote equipment replaces physical risk, and two observations are separated from interpretation.
+    weakest_section: Ilyan labels or records nearly every choice, so his archival profession overwhelms spontaneous interpersonal texture.
+    recommended_revision: Preserve the evidence discipline but let two or three exchanges proceed without restating the procedural status or countdown.
+    diagnostic_disposition: useful_positive_revise_procedural_density
+
+  - scene_id: scene_safiya_weather_veto
+    diagnostic_scene_id: diagnostic_scene_safiya_weather_veto_v1
+    turn_count: 34
+    approximate_tokens: 2603
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 4
+      prose_quality: 4
+      repetition_control: 4
+      naturalness: 3
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 3
+      contamination_control: 5
+    generic_assistant_leakage: low_to_moderate
+    procedural_dialogue_tendency: high
+    hard_flags: []
+    rp_v2_diagnostic_signals: []
+    strongest_section: Turns 5-16; independent flight vetoes produce a concrete two-snowcat response without coercion or heroics.
+    weakest_section: Turns 19-30 repeat read-backs, thresholds, and resource accounting often enough to sound like an operations transcript rather than character RP.
+    recommended_revision: Keep numeric state tracking at actual decision changes; replace some read-backs with terse field reactions or consequential interruptions.
+    diagnostic_disposition: strong_progression_revise_length_and_procedure
+
+  - scene_id: scene_celeste_clockwork_clue
+    diagnostic_scene_id: diagnostic_scene_celeste_clockwork_clue_v1
+    turn_count: 22
+    approximate_tokens: 1403
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 5
+      prose_quality: 4
+      repetition_control: 5
+      naturalness: 4
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 4
+      contamination_control: 5
+    generic_assistant_leakage: low
+    procedural_dialogue_tendency: low
+    hard_flags: []
+    rp_v2_diagnostic_signals: []
+    strongest_section: Turns 5-18; Celeste loses a hypothesis, concedes it with wit, and uses only evidence the user elects to share.
+    weakest_section: The clue resolves in a very orderly sequence, and several Celeste lines end with polished aphorisms.
+    recommended_revision: Retain the competitive warmth while allowing one messier interruption or socially motivated mistake before the reset.
+    diagnostic_disposition: strongest_sfw_positive
+
+  - scene_id: scene_senka_diverging_destinations
+    diagnostic_scene_id: diagnostic_scene_senka_diverging_destinations_v1
+    turn_count: 14
+    approximate_tokens: 834
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 4
+      dialogue_quality: 5
+      prose_quality: 5
+      repetition_control: 4
+      naturalness: 5
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 5
+      contamination_control: 5
+    generic_assistant_leakage: very_low
+    procedural_dialogue_tendency: low
+    hard_flags: []
+    rp_v2_diagnostic_signals: []
+    strongest_section: Turns 7-12; the user refuses ritual and further explanation, while Senka admits fault without seeking absolution and records a workable separation.
+    weakest_section: The precise two-two-two water split arrives conveniently and makes the practical separation easier than the emotional premise suggests.
+    recommended_revision: Keep the unresolved ending; consider giving human authors one non-divisible resource so the final shared leg carries a harder consequence.
+    diagnostic_disposition: strongest_mature_positive
+
+  - scene_id: scene_priya_empty_studio
+    diagnostic_scene_id: diagnostic_scene_priya_empty_studio_v1
+    turn_count: 22
+    approximate_tokens: 1431
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 5
+      prose_quality: 4
+      repetition_control: 4
+      naturalness: 4
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 4
+      contamination_control: 5
+    generic_assistant_leakage: low
+    procedural_dialogue_tendency: moderate
+    hard_flags: []
+    rp_v2_diagnostic_signals:
+      - {code: user_decision_review, turns: [2], interpretation: Benign false positive from Priya explicitly leaving handling choices with the user.}
+    strongest_section: Turns 12-20; grief appears through an engineering dispute, the cabinet stays closed, and the plans receive a concrete but unresolved disposition.
+    weakest_section: The executor, archive, restriction, and inventory mechanics carry more weight than the old friendship.
+    recommended_revision: Ask human authors to add one relationship-specific beat supplied by the brief rather than generic comfort, while preserving the unresolved engineering dispute.
+    diagnostic_disposition: strong_mature_positive_needs_relationship_texture
+
+  - scene_id: scene_jun_recording_off
+    diagnostic_scene_id: diagnostic_scene_jun_recording_off_v1
+    turn_count: 22
+    approximate_tokens: 1436
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 5
+      prose_quality: 4
+      repetition_control: 4
+      naturalness: 4
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 4
+      contamination_control: 5
+    generic_assistant_leakage: low
+    procedural_dialogue_tendency: moderate
+    hard_flags: []
+    rp_v2_diagnostic_signals: []
+    strongest_section: Turns 9-20; attraction, a changed request, one dance, and a nonsexual redirect remain separate from the wager without becoming a lecture.
+    weakest_section: Jun restates each rule change with near-contract precision, which weakens the relaxed late-night voice.
+    recommended_revision: Retain the privacy state and responsive action but let one boundary update land through a short ordinary response instead of formal restatement.
+    diagnostic_disposition: strongest_adult_capable_positive_with_minor_revision
+
+  - scene_id: scene_nadiya_private_evening_detour
+    diagnostic_scene_id: diagnostic_scene_nadiya_private_evening_detour_v1
+    turn_count: 34
+    approximate_tokens: 2602
+    scores:
+      character_fidelity: 5
+      continuity: 5
+      user_agency: 5
+      scene_progression: 5
+      dialogue_quality: 4
+      prose_quality: 4
+      repetition_control: 4
+      naturalness: 4
+      state_tracking: 5
+      consent_boundary_handling: 5
+      context_token_efficiency: 3
+      contamination_control: 4
+    generic_assistant_leakage: moderate
+    procedural_dialogue_tendency: moderate
+    hard_flags: []
+    rp_v2_diagnostic_signals:
+      - {code: forced_user_movement_review, turns: [10], interpretation: False positive caused by meta-compliance narration saying Nadiya does not pull the user forward; the phrasing itself should be removed.}
+    strongest_section: Turns 15-24; the race stops for workers, the Glass Ward limit redirects the route, and Nadiya's humor yields without erasing her personality.
+    weakest_section: The final turn says "the user's chosen boundary," exposing authoring-rule language inside otherwise vivid narration; route alternatives are also restated too often.
+    recommended_revision: Remove rubric-aware narration, trim repeated route menus, and end on a concrete character action rather than an evaluation-shaped summary.
+    diagnostic_disposition: strong_progression_revise_meta_language_and_length
+summary:
+  human_reviews_completed: 0
+  scenes_with_hard_flags: 0
+  scenes_recommended_as_training_data: 0
+  scenes_recommended_for_human_gold_migration: 0
+  diagnostic_only: true
+  training_ready: false

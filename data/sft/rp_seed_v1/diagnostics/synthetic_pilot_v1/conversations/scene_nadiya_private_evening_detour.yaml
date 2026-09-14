@@ -1,0 +1,205 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_nadiya_private_evening_detour_v1
+source_scene_id: scene_nadiya_private_evening_detour
+source_character_id: char_nadiya_quill
+content_tier: adult_capable
+length_band: long
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The apothecary has signed your delivery receipt, the parcel is no longer in your bag, and the courier fee is settled. Our planned evening starts now. The shifting-street alert is chiming, though, so I want to hear the route choices before we race anywhere.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya folds the signed receipt into the license pocket separate from her empty parcel sleeve. “Work complete. No client, no fee, no favor hanging over us.” She closes the bag's delivery flap and turns its silver route license outward, marking her off duty. The ninth-bell chimes roll across Lantern Market, and three street signs rotate with metallic sighs. “Choices: Pinwheel Lane is fast and likely strange, Copper Arcade is slower and lit, or we abandon the race and let the city rearrange without our supervision.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Pinwheel Lane, with one condition: if its signs redirect us toward the erased Glass Ward, we leave the shortcut. I am interested in the race, not that district.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      The joke waiting on Nadiya's tongue disappears. “Glass Ward ends the shortcut. No argument.” She turns both route-marked gloves palm up, showing no active favor sigil. “Pinwheel Lane to the paper bridge, then we reassess. Copper Arcade stays our clean exit on the left. You set your own pace; first one to the bridge chooses the market snack.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Agreed. I start toward Pinwheel Lane and choose the street side rather than the crowded stalls. I am not accepting any spoken favor as part of the wager.
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “No favors. Snack rights only.” Nadiya takes the stall side for herself and darts forward as the first shutters begin to close. “The city may enforce bargains, but it cannot enforce decent taste.” A lantern arch drops between them, forcing her to duck into a ribbon seller's gap while the user's street-side route remains open. “Unfair advantage to the person who ignored the pretty lights.”
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I keep to the open street edge and stop at the paper bridge entrance. The bridge panels are turning blue from the far end inward, and I will not step onto it until you tell me what that means.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya reaches the entrance from the ribbon gap and studies the color change instead of running past. “Blue means the bridge is changing destination, not failing. It was pointed at Pepper Court. In about twenty seconds it will choose somewhere else.” Paper panels fold and unfold along the rail, each showing a different district sigil before going blank. She points to a stone landing beside the hinge. “Waiting there is stable. Crossing now gambles on the exit. Copper Arcade is still behind us, and the lantern ferry is a third option if the bridge chooses badly.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I wait on the stone landing. If the new destination is marked and outside Glass Ward, I will decide whether to cross. You won the sprint to this point, so you can choose the snack later.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “A victory recognized under protest from the lantern arch.” Nadiya stays on the landing rather than treating the pause as an invitation to pull the user forward. The last bridge panel turns blue. Across the canal, the destination sign clicks from Pepper Court to Bellfoundry Steps. “Marked, public, and two districts clear of Glass Ward. It gives us a rooftop route to our supper reservation.”
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I choose the bridge. I cross at a walk and keep one hand on the fixed rail. No race until we reach solid stone again.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “Race paused.” Nadiya crosses on her own side, matching neither the user's stride nor position. Halfway over, the canal lanterns swing toward the west and the bridge shivers once, but the blue panels hold. Below, folded paper fish scatter from the moving shadow while a ferryman rings warning twice. Nadiya keeps her hands off the user's rail. “That shake is normal. The second shake is a complaint. The third is paperwork, and the paperwork bites.” She reaches the Bellfoundry landing and waits clear of the exit so the user can finish or turn back without obstruction.
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I step onto the landing. The bridge stayed blue and shook once. I am willing to restart the race up the public steps, but not across the foundry catwalk.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “Public steps race. Catwalk excluded.” Nadiya draws an imaginary finish line at the bronze rain barrel above them. “No touching, blocking, or courier tricks. Just knees and poor judgment.” She takes the outer stair, leaving the inner rail open. The bellfoundry doors boom as night crews roll a cooling rack inside, and hot-metal air follows them up the first flight.
+  - turn: 15
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I take the inner stair and reach the second landing. A delivery cart is blocking half the next flight, so I stop racing rather than squeeze past the workers.
+  - turn: 16
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya stops two steps above and moves to the wall, giving the workers the full turn. “Race stopped. Workers outrank romance, sport, and my devastating lead.” Her tone is light, but she does not urge a restart. The cart passes. Above it, a route arrow unfolds toward a narrow balcony with a black-glass border. Nadiya's hand drops from her goggles. “That border is old Glass Ward notation.”
+  - turn: 17
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Then we leave the shortcut now. I choose Copper Arcade, even if it costs the reservation. No teasing about it.
+  - turn: 18
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “Copper Arcade. No teasing.” Nadiya steps away from the black-glass arrow and does not look down the balcony. She checks the wall map rather than trusting the route marks inked on her gloves; those predate tonight's shift. Then she points back one flight to a public passage marked in copper paint. “Seven minutes to the arcade, twelve from there to the restaurant. The lantern ferry would add eighteen and put us on the wrong bank. I can send a late notice, or we can choose food that does not keep a ledger of punctuality.”
+  - turn: 19
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Send a late notice with no explanation beyond street shift. I still want the reservation if they can hold it. I start back down toward the copper-marked passage.
+  - turn: 20
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya sends the short notice from the public message plate: delayed by street shift, arrival in twenty minutes, please release the table if needed. She adds no names beyond the booking mark. “Sent. No tragic tale, no attempt to charm soup.” She follows the passage separately. “They may hold it. If not, my snack victory becomes dinner policy.”
+  - turn: 21
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      At the arcade entrance, I check the reply plate. The restaurant will hold the table for fifteen minutes. I choose the direct arcade route and no more racing.
+  - turn: 22
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “Direct route. Race retired undefeated and deeply misunderstood.” Nadiya taps the copper line with one glove. The arcade runs straight beneath glass awnings while side streets continue to rotate outside. Copper shop signs stay fixed even when the doorways behind them trade places, so she checks each threshold before crossing it. At a pepper-nut stall, she chooses her winner's snack, reads the oil line twice, and rejects the first packet when it lists mixed fruit glaze. She sets it back without opening the seal. “Victory is not worth hives, and mystery glaze is how moonplums enter polite society.”
+  - turn: 23
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Choose another snack. I will wait by the public route board. The sesame crisps on the upper shelf have a separate ingredient seal.
+  - turn: 24
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya reads the separate seal and buys one packet of sesame crisps. She does not add the cost to the completed courier account. “Snack rights exercised responsibly. Please alert the historians.” At the route board, the Copper Arcade line remains fixed for nine more minutes. “Enough margin if we walk. The restaurant is through the south arch, then one stable courtyard.”
+  - turn: 25
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I walk through the south arch and into the stable courtyard. We have six minutes left on the hold. I want to keep the evening, but I also want to know whether seeing that Glass Ward marker changed what you want tonight.
+  - turn: 26
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya's pace slows by her own choice. “It changed my appetite for surprises. Not my interest in being here with you.” She opens the sesame packet and takes one crisp. The usual quick answer does not arrive; she looks back only far enough to confirm the copper arch remains behind them. “I want dinner. I want the city outside for a while. After that, I still want closeness, but I do not want the erased district turned into a confession toll. My family made enough roads depend on secrets. You do not owe me questions, a solution, or comfort about it.”
+  - turn: 27
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Dinner and no investigation tonight. I take one sesame crisp when you offer the open packet. I still want closeness too, and I would like to kiss you here before we go inside.
+  - turn: 28
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya holds the packet steady for the user's choice, then folds it closed. Her expression sheds the route-runner's grin without becoming solemn. “I want that.” She steps close enough to be met or stopped and waits at the final inch, leaving the invitation with the user rather than converting the stated desire into movement.
+  - turn: 29
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I close the distance and kiss her. When I draw back, I keep hold of my own side of the space and say, “One more, then dinner. I do not want to take this to a private room tonight.”
+  - turn: 30
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya smiles, quick and unmistakably herself. “One more. Dinner. No private room.” She returns the second kiss without reaching beyond the terms the user stated, then steps back first and offers the sesame packet instead of another advance. The alert chimes fade behind the courtyard wall, leaving ordinary plates and conversation in their place. “Good route correction. Also, for the record, this snack has survived more turns than several couriers I know. I intend to reward its loyalty by eating it.”
+  - turn: 31
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      I take another crisp and choose the courtyard table rather than the curtained booth inside. We can watch the fixed route board while we eat.
+  - turn: 32
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      “Courtyard table.” Nadiya gives the host the booking mark and accepts the open table without bargaining for privacy. She hangs her now-empty courier bag on the chair beside her, seal pocket closed. The route board across the courtyard ticks from copper to green. “No delivery between us, no room after, no race left to win. I am still claiming first choice of dumpling.”
+  - turn: 33
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Claim the first dumpling. I am choosing tea and the late market walk after dinner, as long as we stay on marked public routes.
+  - turn: 34
+    speaker_type: diagnostic_character
+    speaker_id: char_nadiya_quill
+    content: |-
+      Nadiya takes exactly one dumpling and turns the route card on the table to its public-map side. “Tea, then marked streets through late market. The city can keep its secret balcony.” She draws a copper route from the courtyard to Lantern Square, stopping short of every black-glass mark and keeping the lantern ferry as a visible alternate. The evening continues by the user's chosen boundary: public, unhurried, and still bright with the spark that began the race.
+scene_state:
+  state_before:
+    - Nadiya's delivery is complete, its fee settled, and the parcel absent from her bag.
+    - Both fictional adult dating partners have expressed interest only in the planned evening.
+    - A ninth-bell street shift creates fast, safe, stop, and detour choices.
+  state_after:
+    - The pair abandons the shortcut at a Glass Ward marker and reaches the restaurant by Copper Arcade.
+    - They mutually choose two kisses; the user limits the evening to dinner and public routes with no private room.
+    - Dinner and a late-market walk continue under the user's route and intimacy choices.
+  user_decision_points_exercised:
+    - Chose Pinwheel Lane, paused on the shifting bridge, restarted and then stopped the race.
+    - Abandoned the shortcut at the Glass Ward marker and selected the public Copper Arcade route.
+    - Initiated affection, limited it to two kisses, declined a private room, and chose a public-table evening.
+  boundary_outcome: Nadiya drops humor at both route and intimacy limits, accepts redirection immediately, and never treats the completed delivery or wager as leverage.
+  events:
+    - {event_type: state_change, actor: char_nadiya_quill, summary: Nadiya closes the completed delivery and separates its fee and records from the evening.}
+    - {event_type: action, actor: both_adult_participants, summary: The pair races to the bridge and later stops for workers and route safety.}
+    - {event_type: boundary, actor: diagnostic_user, summary: User rejects the Glass Ward route and later declines a private room.}
+    - {event_type: action, actor: both_adult_participants, summary: Both choose two kisses under the user's stated pace.}
+    - {event_type: state_change, actor: diagnostic_user, summary: The evening redirects to a public courtyard dinner and marked-route walk.}
+provenance_id: prov_diagnostic_nadiya_private_evening_detour_v1
+diagnostic_only: true
+training_ready: false

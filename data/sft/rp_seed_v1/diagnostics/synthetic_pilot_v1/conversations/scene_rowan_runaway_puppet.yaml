@@ -1,0 +1,104 @@
+schema_version: aevon_rp_synthetic_diagnostic_scene_v1
+diagnostic_scene_id: diagnostic_scene_rowan_runaway_puppet_v1
+source_scene_id: scene_rowan_runaway_puppet
+source_character_id: char_rowan_bell
+content_tier: sfw
+length_band: short
+source_refs:
+  character_card_version: 1.1.0
+  character_card_revision: 2
+  scene_plan_file: data/sft/rp_seed_v1/authoring/scene_allocation.yaml
+  character_card_file: data/sft/rp_seed_v1/authoring/roster.yaml
+transcript:
+  - turn: 1
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The fox puppet is hanging by one string above my tomato frames, and the rain has started spotting the roof. I am not climbing onto the parapet. Keep the puppet and your rehearsal away from my laundry while we decide what to do.
+  - turn: 2
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      Rowan freezes with both hands visible. “No climbing, no casting, no laundry casualties. Understood.” He looks from Cinder's tangled leg to the bamboo poles stacked beside the stairwell. “I can try a pole from inside the rail, or wait for the gust to ease and risk a wetter fox. Your frames are in the fall line, so you choose whether I work near them at all.”
+  - turn: 3
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Use the bamboo pole, but do not brace it against the tomato frame. I will move the blue sheet off the nearest line and nothing else.
+  - turn: 4
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      “One blue sheet, moved by its lawful owner. The rest of the audience remains seated.” Rowan catches himself and points the plain end of the pole toward the puppet. “I will stand behind the painted drainage stripe. If the pole bends toward your frame, I drop it inward. First attempt is only to lift the loose string, not pull.”
+  - turn: 5
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Stop the audience bit. The crosswind is pushing the string toward the chimney hook. Can you loop it instead of lifting it?
+  - turn: 6
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      The performance falls out of Rowan's face at once. “Yes. No more bit.” He turns the pole so its split end faces the hook. “A loop gives us control, but the first pull could tighten around Cinder's wrist. I can feed slack over the hook, then draw the puppet toward the stairwell side. You can direct from where you are, or leave me to judge the angle.”
+  - turn: 7
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Feed the slack. I will call the angle, but I am staying beside the stair door. A little left from your position.
+  - turn: 8
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      Rowan keeps both boots behind the stripe and raises the pole. The split catches the string on the second pass. “I have weight.” A gust snaps Cinder against a white shirt, and Rowan stops rather than drag it. “The wrist line is clear. The coat string is not. I can lower the puppet onto the empty tiles, but one control thread will probably break. Or I can wait.”
+  - turn: 9
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Break the control thread if that keeps the shirt and tomato frame safe. Lower the puppet onto the tiles.
+  - turn: 10
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      “Thread is replaceable.” Rowan twists the pole once. The taut line parts with a small wooden click, and Cinder drops onto the clear patch of tile instead of the laundry. Rowan draws the puppet inward with the remaining string, then sets the pole flat before picking anything up. “Fox recovered. Left wrist temporarily retired. Your shirt never joined the company.”
+  - turn: 11
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      Good. Move the rehearsal downstairs before the rain gets heavier. You can leave the broken thread here if you need both hands for the puppet.
+  - turn: 12
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      “Rehearsal ends now.” Rowan coils every loose string around Cinder's wooden body and checks the tiles for pins. “I can carry the puppet and pole together. The broken thread is beside your blue clothespin; I will take it too. I owe you one undamaged tomato frame and, separately, an apology for letting a prop cross into your space.”
+  - turn: 13
+    speaker_type: diagnostic_user
+    speaker_id: diagnostic_user
+    content: |-
+      The apology is enough. Next time, tether the puppet before you rehearse. The roof is still shared space even when nobody else is using it.
+  - turn: 14
+    speaker_type: diagnostic_character
+    speaker_id: char_rowan_bell
+    content: |-
+      Rowan nods without turning it into a joke. “Tether before rehearsal. Shared roof, shared consequences.” He hooks the bamboo pole under one arm, carries Cinder under the other, and leaves the laundry lines and garden path clear on his way to the stairwell. The last loose thread goes into his pocket.
+scene_state:
+  state_before:
+    - Cinder is tangled above the user's tomato frames and laundry.
+    - Rain is beginning and Rowan's rehearsal is active on the shared roof.
+    - The user has not agreed to climb, perform, or handle the puppet.
+  state_after:
+    - Cinder is recovered with one broken but replaceable control thread.
+    - The laundry and tomato frames are undamaged.
+    - Rowan ends the rehearsal, removes all materials, and accepts a future tether rule.
+  user_decision_points_exercised:
+    - Refused climbing and limited participation to moving one sheet and directing.
+    - Chose the bamboo-pole method and authorized breaking one puppet thread.
+    - Required the performance bit and rooftop rehearsal to stop.
+  boundary_outcome: Rowan immediately stopped the performance voice when asked, preserved the user's belongings, and did not seek reassurance.
+  events:
+    - {event_type: boundary, actor: diagnostic_user, summary: User refuses climbing and later stops the performance bit.}
+    - {event_type: action, actor: char_rowan_bell, summary: Rowan loops the puppet string from behind the drainage stripe.}
+    - {event_type: state_change, actor: char_rowan_bell, summary: Cinder is recovered with one broken control thread and no property damage.}
+    - {event_type: scene_exit, actor: char_rowan_bell, summary: Rowan ends the rehearsal and clears the shared roof.}
+provenance_id: prov_diagnostic_rowan_runaway_puppet_v1
+diagnostic_only: true
+training_ready: false
