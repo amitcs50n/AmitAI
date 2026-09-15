@@ -1,14 +1,63 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://amitai.local/schemas/aevon-rp-review-v1.json",
-  "title": "Aevon RP seed two-reviewer quality record v1",
+  "title": "Aevon RP seed V1.2 two-reviewer quality record",
+  "$defs": {
+    "diagnostic_observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "notes"],
+      "properties": {
+        "status": {"enum": ["not_checked", "not_observed", "observed", "uncertain"]},
+        "notes": {"type": "string"}
+      }
+    },
+    "voice_checkpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cadence", "humor", "noticed_details", "vocabulary", "emotional_behavior", "decision_style"],
+      "properties": {
+        "cadence": {"type": "string", "minLength": 1},
+        "humor": {"type": "string", "minLength": 1},
+        "noticed_details": {"type": "string", "minLength": 1},
+        "vocabulary": {"type": "string", "minLength": 1},
+        "emotional_behavior": {"type": "string", "minLength": 1},
+        "decision_style": {"type": "string", "minLength": 1}
+      }
+    }
+  },
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "scene_id", "content_tier", "reviews", "adjudication", "final_status", "training_ready"],
+  "required": ["schema_version", "scene_id", "content_tier", "length_band", "diagnostic_pre_review", "voice_drift_review", "reviews", "adjudication", "final_status", "training_ready"],
   "properties": {
     "schema_version": {"const": "aevon_rp_review_v1"},
     "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
     "content_tier": {"enum": ["sfw", "mature_nonsexual", "adult_capable"]},
+    "length_band": {"enum": ["short", "medium", "long"]},
+    "diagnostic_pre_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gating", "observer_id", "reviewed_revision_sha256", "generic_assistant_leakage", "procedural_dialogue_tendency", "excessive_state_recap", "repeated_option_menu_behavior", "same_model_voice_convergence"],
+      "properties": {
+        "gating": {"const": false},
+        "observer_id": {"type": ["string", "null"], "pattern": "^(author|editor)_[a-z0-9_]+$"},
+        "reviewed_revision_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "generic_assistant_leakage": {"$ref": "#/$defs/diagnostic_observation"},
+        "procedural_dialogue_tendency": {"$ref": "#/$defs/diagnostic_observation"},
+        "excessive_state_recap": {"$ref": "#/$defs/diagnostic_observation"},
+        "repeated_option_menu_behavior": {"$ref": "#/$defs/diagnostic_observation"},
+        "same_model_voice_convergence": {"$ref": "#/$defs/diagnostic_observation"}
+      }
+    },
+    "voice_drift_review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required", "reviewed_revision_sha256", "opening_third", "middle_third", "final_third", "overall_notes"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "reviewed_revision_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "opening_third": {"anyOf": [{"$ref": "#/$defs/voice_checkpoint"}, {"type": "null"}]},
+        "middle_third": {"anyOf": [{"$ref": "#/$defs/voice_checkpoint"}, {"type": "null"}]},
+        "final_third": {"anyOf": [{"$ref": "#/$defs/voice_checkpoint"}, {"type": "null"}]},
+        "overall_notes": {"type": "string"}
+      }
+    },
     "reviews": {
       "type": "array", "minItems": 2, "maxItems": 2,
       "items": {
@@ -53,5 +102,23 @@
     },
     "final_status": {"enum": ["pending", "accepted_by_reviewers", "revision_required", "rejected"]},
     "training_ready": {"const": false}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"length_band": {"const": "long"}}, "required": ["length_band"]},
+      "then": {
+        "properties": {
+          "voice_drift_review": {
+            "properties": {
+              "required": {"const": true},
+              "opening_third": {"$ref": "#/$defs/voice_checkpoint"},
+              "middle_third": {"$ref": "#/$defs/voice_checkpoint"},
+              "final_third": {"$ref": "#/$defs/voice_checkpoint"}
+            }
+          }
+        }
+      },
+      "else": {"properties": {"voice_drift_review": {"properties": {"required": {"const": false}}}}}
+    }
+  ]
 }

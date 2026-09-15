@@ -78,7 +78,7 @@ def test_diagnostic_provenance_cannot_claim_human_or_training_status():
         assert item["rights_and_permissions"]["training_use_authorized"] is False
 
 
-def test_human_authoring_provenance_meanings_and_frozen_plan_remain_unchanged():
+def test_human_authoring_provenance_meanings_and_allocation_gates_remain_closed():
     human_schema = json.loads(
         (AUTHORING / "schemas/provenance.schema.json").read_text(encoding="utf-8")
     )

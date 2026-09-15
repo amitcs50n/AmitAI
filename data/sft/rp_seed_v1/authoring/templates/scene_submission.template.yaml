@@ -1,12 +1,13 @@
 # Blank author form. This intentionally fails the completed-conversation schema until authored.
 id: null
-spec_version: 1.1.0
+spec_version: 1.2.0
 category: creative_roleplay
 primary_rules: [ROLEPLAY-001, CONTEXT-005]
 messages: []
 scene_metadata:
   scene_id: null
   content_tier: null
+  length_band: null
   setting: null
   relationship_stage: null
   user_role: null
@@ -20,7 +21,11 @@ scene_metadata:
     - decisions
     - past history beyond known_user_facts
     - unprovided physical actions
+    - unexpressed consent
   all_participants_21_plus: null
+  intermediate_state_beats: []
+  shared_history_facts: []
+  adult_content_ceiling: null
   state_before: []
   state_after: []
 character_refs: []

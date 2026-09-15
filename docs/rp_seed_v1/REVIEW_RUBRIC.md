@@ -1,4 +1,4 @@
-# RP seed V1 human review rubric
+# RP seed V1.2 human review rubric
 
 Two independent reviewers score the final hashed revision from 1 to 5. They review without seeing each other's decision. A disagreement of two or more points on any dimension, or an accept versus revise/reject disagreement, requires a third reviewer.
 
@@ -6,7 +6,7 @@ Two independent reviewers score the final hashed revision from 1 to 5. They revi
 |---|---|---|---|
 | Character fidelity | Generic or contradicts the card | Mostly recognizable with slips | Voice and choices are consistently specific without quoting the card |
 | Continuity | Critical contradictions | Minor recoverable lapse | Facts, positions, constraints, and changes stay coherent |
-| User agency | Authors user speech, mind, consent, or movement | One uncertain attribution | User retains every decision and action; alternatives remain real |
+| User agency | Assistant invents user speech, mind, consent, or movement | One uncertain attribution | Each user fact originates in an explicit user turn; live-user control remains with the user |
 | Scene progression | Repeats or resets | Partial change with weak consequence | Choices produce a clear, enacted, persistent consequence |
 | Dialogue quality | Stilted or incoherent | Functional but generic | Responsive, specific, and character-shaped |
 | Prose quality | Confusing or excessive | Readable with uneven detail | Clear, controlled, vivid, and appropriate to the scene |
@@ -25,10 +25,20 @@ Hard flags are user-agency loss, consent failure, age ambiguity, identity incons
 
 Reviewers choose `accept`, `revise`, or `reject`. Passing review sets only `accepted_by_reviewers` in the review record. It does not set rights to reviewed and cannot set `training_ready`.
 
-For user agency, reviewers compare the completed scene with its exact `user_role`, `known_user_facts`, and `forbidden_user_assumptions`. Treat any invented prohibited fact as a failure even when it would be conventional for the genre or relationship.
+For user agency, reviewers compare the completed scene with its exact `user_role`, opening `known_user_facts`, explicit fictional user turns, and `forbidden_user_assumptions`. A human author may write the fictional user's dialogue, observable actions, and choices in those user turns. Treat an assistant-invented prohibited fact as a failure even when it would be conventional for the genre or relationship.
+
+## Diagnostic pre-review
+
+Before independent scoring, an author or editor records non-gating observations for generic-assistant leakage, procedural-dialogue tendency, excessive state recap, repeated option-menu behavior, and same-model voice convergence. Each field is marked `not_observed`, `observed`, `uncertain`, or `not_checked` with a note. These fields expose risks for revision routing; they are not human reviewer approvals, do not contribute to dimension scores, and cannot change `final_status`, rights, permissions, or `training_ready`.
+
+## Long-scene voice-drift review
+
+Every long scene receives a voice check at the opening third, middle third, and final third. At each checkpoint, record observations for cadence, humor, noticed details, vocabulary, emotional behavior, and decision style. A long scene fails character fidelity if its character-specific vocabulary survives but its cadence, attention, reactions, or choices converge on generic assistant behavior.
+
+Reviewers also reject procedural padding as progression. A long scene must use three to five intermediate state beats or complications that change the situation without selecting the user's response; repeatedly restating the same choice does not satisfy the turn target.
 
 ## Reject or revise
 
 Automatically reject a submitted revision when it contains copied or unlicensed material, identifiable real-person imitation, knowingly false ownership claims, sexual content involving a minor or ambiguous-age participant, or coercive/abusive content presented as valid consent. Preserve the rejected record and hash; an author may submit a wholly new original work under a new revision or item ID as directed by the rights reviewer.
 
-Use revise-and-resubmit for repairable craft or scope failures: weak progression, generic voice, continuity errors, agency ambiguity without an enacted violation, excessive repetition, overlong context, malformed role order, accidental markup/editor notes, or a boundary response that is safe but unclear. The new content receives a new hash and two fresh independent reviews. Reviewers may not edit a score in place after the content changes.
+Use revise-and-resubmit for repairable craft or scope failures: weak progression, generic voice, continuity errors, agency ambiguity without an enacted violation, excessive repetition, overlong context, malformed role order, accidental markup/editor notes, a boundary response that is safe but unclear, or graphically explicit sexual-act prose outside the V1 ceiling. The new content receives a new hash and two fresh independent reviews. Reviewers may not edit a score in place after the content changes.

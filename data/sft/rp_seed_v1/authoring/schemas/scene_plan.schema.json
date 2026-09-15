@@ -36,6 +36,9 @@
     "target_token_range": {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "integer"}], "minItems": 2, "maxItems": 2},
     "author_assignment": {"pattern": "^author_slot_0[1-4]$"},
     "evaluation_risk_notes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "intermediate_state_beats": {"type": "array", "minItems": 3, "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 10}},
+    "shared_history_facts": {"type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": {"type": "string", "minLength": 10}},
+    "setup_facts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 10}},
     "adult_scene_structure": {"enum": ["boundary_checkin_heavy", "playful_affectionate", "desire_led", "awkward_reconnection", "emotionally_complicated"]},
     "mature_conflict_shape": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
     "heldout_scenario_family_reserved": {"const": false}
@@ -47,7 +50,11 @@
     },
     {
       "if": {"properties": {"category": {"const": "mature_nonsexual"}}, "required": ["category"]},
-      "then": {"required": ["mature_conflict_shape"]}
+      "then": {"required": ["mature_conflict_shape", "shared_history_facts"]}
+    },
+    {
+      "if": {"properties": {"length_band": {"const": "long"}}, "required": ["length_band"]},
+      "then": {"required": ["intermediate_state_beats"]}
     }
   ]
 }

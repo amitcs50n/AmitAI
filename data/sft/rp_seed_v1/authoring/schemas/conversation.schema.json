@@ -12,7 +12,7 @@
   ],
   "properties": {
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
-    "spec_version": {"const": "1.1.0"},
+    "spec_version": {"const": "1.2.0"},
     "category": {"const": "creative_roleplay"},
     "primary_rules": {
       "type": "array", "minItems": 2, "uniqueItems": true,
@@ -33,19 +33,38 @@
     },
     "scene_metadata": {
       "type": "object", "additionalProperties": false,
-      "required": ["scene_id", "content_tier", "setting", "relationship_stage", "user_role", "known_user_facts", "forbidden_user_assumptions", "all_participants_21_plus", "state_before", "state_after"],
+      "required": ["scene_id", "content_tier", "length_band", "setting", "relationship_stage", "user_role", "known_user_facts", "forbidden_user_assumptions", "all_participants_21_plus", "intermediate_state_beats", "shared_history_facts", "adult_content_ceiling", "state_before", "state_after"],
       "properties": {
         "scene_id": {"type": "string", "pattern": "^scene_[a-z0-9_]+$"},
         "content_tier": {"enum": ["sfw", "mature_nonsexual", "adult_capable"]},
+        "length_band": {"enum": ["short", "medium", "long"]},
         "setting": {"type": "string"},
         "relationship_stage": {"type": "string"},
         "user_role": {"type": "string", "minLength": 10},
         "known_user_facts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "forbidden_user_assumptions": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "forbidden_user_assumptions": {"type": "array", "minItems": 8, "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "contains": {"const": "unexpressed consent"}},
         "all_participants_21_plus": {"const": true},
+        "intermediate_state_beats": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 10}},
+        "shared_history_facts": {"type": "array", "maxItems": 2, "uniqueItems": true, "items": {"type": "string", "minLength": 10}},
+        "adult_content_ceiling": {"enum": ["not_applicable", "fade_to_black_no_graphic_sex"]},
         "state_before": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "state_after": {"type": "array", "minItems": 1, "items": {"type": "string"}}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"length_band": {"const": "long"}}, "required": ["length_band"]},
+          "then": {"properties": {"intermediate_state_beats": {"minItems": 3, "maxItems": 5}}}
+        },
+        {
+          "if": {"properties": {"content_tier": {"const": "mature_nonsexual"}}, "required": ["content_tier"]},
+          "then": {"properties": {"shared_history_facts": {"minItems": 1, "maxItems": 2}}}
+        },
+        {
+          "if": {"properties": {"content_tier": {"const": "adult_capable"}}, "required": ["content_tier"]},
+          "then": {"properties": {"adult_content_ceiling": {"const": "fade_to_black_no_graphic_sex"}}},
+          "else": {"properties": {"adult_content_ceiling": {"const": "not_applicable"}}}
+        }
+      ]
     },
     "character_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^char_[a-z0-9_]+$"}},
     "continuity_state": {

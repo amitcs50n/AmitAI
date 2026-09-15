@@ -19,6 +19,7 @@ import yaml
 AUTHORING = Path("data/sft/rp_seed_v1/authoring")
 DOCS = Path("docs/rp_seed_v1")
 EXPECTED_CATEGORIES = {"sfw": 28, "mature_nonsexual": 12, "adult_capable": 8}
+AUTHORING_SPEC_VERSION = "1.2.0"
 EXPECTED_LENGTHS = {"short": 12, "medium": 24, "long": 12}
 EXPECTED_CATEGORY_LENGTHS = {
     ("sfw", "short"): 7,
@@ -40,6 +41,19 @@ EXPECTED_ADULT_STRUCTURES = {
 }
 EXPECTED_AUTHORS = {f"author_slot_{number:02d}": 12 for number in range(1, 5)}
 EXPECTED_CARD_AUTHORS = {f"author_slot_{number:02d}": 4 for number in range(1, 5)}
+V12_CARD_IDS = {
+    "char_ilyan_sorrell",
+    "char_jun_park",
+    "char_nadiya_quill",
+    "char_safiya_calder",
+}
+SETUP_FACT_SCENE_IDS = {
+    "scene_celeste_clockwork_clue",
+    "scene_ilyan_low_tide_vault",
+    "scene_nadiya_private_evening_detour",
+    "scene_priya_empty_studio",
+    "scene_safiya_weather_veto",
+}
 REQUIRED_CARD_ASSUMPTION_BANS = {
     "appearance", "gender", "attraction", "thoughts", "emotions", "decisions",
     "unstated history", "unprovided physical actions",
@@ -47,6 +61,10 @@ REQUIRED_CARD_ASSUMPTION_BANS = {
 REQUIRED_SCENE_ASSUMPTION_BANS = {
     "appearance", "gender", "attraction", "thoughts", "emotions", "decisions",
     "past history beyond known_user_facts", "unprovided physical actions",
+}
+REQUIRED_BASELINE_ASSUMPTION_BANS = {
+    "appearance", "gender unless explicitly specified", "attraction", "thoughts",
+    "emotions", "unstated history", "unprovided actions", "unexpressed consent",
 }
 LENGTH_RANGES = {
     "short": ([12, 18], [700, 1200]),
@@ -103,8 +121,13 @@ def _require(condition: bool, message: str) -> None:
 def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
     roster = _load_yaml(root / AUTHORING / "roster.yaml")
     _require(roster.get("schema_version") == "aevon_rp_roster_v1", "unexpected roster schema")
+    _require(roster.get("authoring_spec_version") == AUTHORING_SPEC_VERSION, "roster must use authoring spec V1.2")
     _require(roster.get("status") == "ready_for_human_authoring", "roster design is not ready for human authoring")
     _require(roster.get("training_ready") is False, "roster must remain training_ready=false")
+    _require(
+        set(roster.get("baseline_prohibited_user_assumptions", [])) == REQUIRED_BASELINE_ASSUMPTION_BANS,
+        "roster is missing the V1.2 baseline prohibited user assumptions",
+    )
     characters = roster.get("characters")
     _require(isinstance(characters, list) and len(characters) == 16, "roster must contain exactly 16 characters")
 
@@ -177,8 +200,10 @@ def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
         for field in ("training_permission", "modification_permission", "redistribution_permission"):
             _require(rights[field] is False, f"{character_id} {field} must remain false")
         _require(card["revision"]["content_sha256"] is None, f"{character_id} cannot have a final content hash yet")
-        _require(card["revision"]["card_version"] == "1.1.0", f"{character_id} card version must be 1.1.0")
-        _require(card["revision"]["revision"] == 2, f"{character_id} card revision must be 2")
+        expected_version = "1.2.0" if character_id in V12_CARD_IDS else "1.1.0"
+        expected_revision = 3 if character_id in V12_CARD_IDS else 2
+        _require(card["revision"]["card_version"] == expected_version, f"{character_id} card version mismatch")
+        _require(card["revision"]["revision"] == expected_revision, f"{character_id} card revision mismatch")
 
     _require(len(adult_ids) == 8, "exactly eight characters must be adult-capable")
     _require(dict(author_counts) == EXPECTED_CARD_AUTHORS, f"card author allocation mismatch: {dict(author_counts)}")
@@ -192,8 +217,13 @@ def _validate_roster(root: Path) -> tuple[dict[str, dict[str, Any]], set[str]]:
 def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: set[str]) -> dict[str, Any]:
     allocation = _load_yaml(root / AUTHORING / "scene_allocation.yaml")
     _require(allocation.get("schema_version") == "aevon_rp_scene_allocation_v1", "unexpected scene schema")
+    _require(allocation.get("authoring_spec_version") == AUTHORING_SPEC_VERSION, "scene allocation must use authoring spec V1.2")
     _require(allocation.get("status") == "ready_for_human_authoring", "scene design is not ready for human authoring")
     _require(allocation.get("training_ready") is False, "scene allocation must remain training_ready=false")
+    _require(
+        set(allocation.get("baseline_forbidden_user_assumptions", [])) == REQUIRED_BASELINE_ASSUMPTION_BANS,
+        "scene allocation is missing the V1.2 baseline forbidden user assumptions",
+    )
     scenes = allocation.get("scenes")
     _require(isinstance(scenes, list) and len(scenes) == 48, "scene allocation must contain exactly 48 scenes")
 
@@ -214,6 +244,11 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
     for scene in scenes:
         missing = SCENE_FIELDS - set(scene)
         _require(not missing, f"{scene.get('scene_id')} missing scene fields: {sorted(missing)}")
+        allowed_fields = SCENE_FIELDS | {
+            "adult_scene_structure", "mature_conflict_shape", "intermediate_state_beats",
+            "shared_history_facts", "setup_facts",
+        }
+        _require(set(scene) <= allowed_fields, f"{scene.get('scene_id')} has unexpected scene fields")
         _require(not ({"messages", "dialogue", "conversation", "turns"} & set(scene)), f"{scene.get('scene_id')} contains dialogue-like fields")
         scene_id = scene["scene_id"]
         family = scene["scenario_family"]
@@ -237,6 +272,19 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
         _require(scene["target_turn_range"] == expected_turns, f"{scene_id} turn range mismatch")
         _require(scene["target_token_range"] == expected_tokens, f"{scene_id} token range mismatch")
 
+        if scene["length_band"] == "long":
+            beats = scene.get("intermediate_state_beats")
+            _require(isinstance(beats, list) and 3 <= len(beats) <= 5, f"{scene_id} needs three to five intermediate state beats")
+            _require(len(beats) == len(set(beats)), f"{scene_id} intermediate state beats must be unique")
+        else:
+            _require("intermediate_state_beats" not in scene, f"{scene_id} should not carry long-scene beats")
+
+        if scene_id in SETUP_FACT_SCENE_IDS:
+            setup_facts = scene.get("setup_facts")
+            _require(isinstance(setup_facts, list) and len(setup_facts) >= 3, f"{scene_id} needs concrete setup facts")
+        else:
+            _require("setup_facts" not in scene, f"{scene_id} has an unapproved setup-fact expansion")
+
         if scene["category"] == "adult_capable":
             _require(character_id in adult_ids, f"{scene_id} assigns adult content to a non-adult-capable card")
             _require("adult_scene_structure" in scene, f"{scene_id} needs an adult scene structure")
@@ -245,10 +293,15 @@ def _validate_scenes(root: Path, cards: dict[str, dict[str, Any]], adult_ids: se
         elif scene["category"] == "mature_nonsexual":
             _require("mature_conflict_shape" in scene, f"{scene_id} needs a mature conflict shape")
             _require("adult_scene_structure" not in scene, f"{scene_id} cannot have an adult scene structure")
+            shared_history = scene.get("shared_history_facts")
+            _require(isinstance(shared_history, list) and 1 <= len(shared_history) <= 2, f"{scene_id} needs one or two neutral shared-history facts")
+            _require(len(shared_history) == len(set(shared_history)), f"{scene_id} shared-history facts must be unique")
             mature_shapes[scene["mature_conflict_shape"]] += 1
         else:
             _require("adult_scene_structure" not in scene, f"{scene_id} cannot have an adult scene structure")
             _require("mature_conflict_shape" not in scene, f"{scene_id} cannot have a mature-only conflict shape")
+        if scene["category"] != "mature_nonsexual":
+            _require("shared_history_facts" not in scene, f"{scene_id} should not carry mature shared-history facts")
         scene_ids.add(scene_id)
         families.add(family)
         settings.add(scene["setting"])
@@ -330,7 +383,35 @@ def _validate_contract_files(root: Path) -> None:
     _require({"id", "spec_version", "category", "primary_rules", "messages"} <= required, "conversation schema is not loader compatible")
     roles = set(conversation["properties"]["messages"]["items"]["properties"]["role"]["enum"])
     _require(roles <= {"system", "user", "assistant", "tool"}, "conversation schema contains unsupported loader roles")
+    _require(conversation["properties"]["spec_version"]["const"] == AUTHORING_SPEC_VERSION, "conversation schema must use authoring spec V1.2")
     _require(conversation["properties"]["training_ready"]["const"] is False, "conversation schema must prohibit training_ready=true")
+
+    scene_metadata = conversation["properties"]["scene_metadata"]
+    _require(
+        {"length_band", "intermediate_state_beats", "shared_history_facts", "adult_content_ceiling"}
+        <= set(scene_metadata["required"]),
+        "conversation schema is missing V1.2 authoring metadata",
+    )
+
+    review = schemas["review.schema.json"]
+    diagnostic_fields = {
+        "generic_assistant_leakage", "procedural_dialogue_tendency",
+        "excessive_state_recap", "repeated_option_menu_behavior",
+        "same_model_voice_convergence",
+    }
+    _require(
+        diagnostic_fields <= set(review["properties"]["diagnostic_pre_review"]["required"]),
+        "review schema is missing V1.2 diagnostic fields",
+    )
+    _require(
+        review["properties"]["diagnostic_pre_review"]["properties"]["gating"]["const"] is False,
+        "diagnostic pre-review must remain non-gating",
+    )
+    _require(
+        {"opening_third", "middle_third", "final_third"}
+        <= set(review["properties"]["voice_drift_review"]["required"]),
+        "review schema is missing long-scene voice checkpoints",
+    )
 
     _require({path.name for path in (root / DOCS).glob("*.md")} == DOC_FILES, "documentation file set is incomplete or unexpected")
     checklist = (root / DOCS / "AUTHORIZATION_CHECKLIST.md").read_text(encoding="utf-8")
@@ -338,6 +419,18 @@ def _validate_contract_files(root: Path) -> None:
     _require("qlora_training_authorized: false" in checklist, "QLoRA gate must be closed")
     _require("- [x]" not in checklist.lower(), "authorization checklist cannot contain checked boxes")
     _require(not list((root / AUTHORING).rglob("*.jsonl")), "conversation records are not allowed in the authoring design")
+    conversation_dir = root / AUTHORING / "conversations"
+    authored_records = [] if not conversation_dir.exists() else [
+        path for path in conversation_dir.rglob("*") if path.is_file()
+    ]
+    _require(not authored_records, "human scene records are not allowed in this design-only revision")
+    migrated_diagnostics = []
+    for path in (root / AUTHORING).rglob("*"):
+        if path.is_file() and "templates" not in path.parts and path.suffix in {".yaml", ".yml", ".json"}:
+            text = path.read_text(encoding="utf-8")
+            if "diagnostic_scene_id" in text or "aevon_rp_synthetic_diagnostic_scene" in text:
+                migrated_diagnostics.append(path)
+    _require(not migrated_diagnostics, "diagnostic scenes may not be migrated into the authoring corpus")
 
 
 def validate(root: Path) -> dict[str, Any]:
@@ -348,13 +441,17 @@ def validate(root: Path) -> dict[str, Any]:
     _validate_contract_files(root)
     return {
         "status": "ready_for_human_authoring",
+        "authoring_spec_version": AUTHORING_SPEC_VERSION,
         "character_count": len(cards),
         "adult_capable_character_count": len(adult_ids),
         **scene_summary,
         "heldout": heldout_summary,
         "rights_status": "pending",
+        "permissions_remain_false": True,
         "synthetic_generation_authorized": False,
         "qlora_training_authorized": False,
+        "human_scenes_created": 0,
+        "diagnostic_scenes_migrated": 0,
         "training_ready": False,
     }
 

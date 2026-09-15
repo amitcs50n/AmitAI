@@ -1,8 +1,10 @@
 schema_version: aevon_rp_scene_allocation_v1
+authoring_spec_version: 1.2.0
 status: ready_for_human_authoring
 corpus: aevon_original_rp_seed_v1
-revised_on: 2026-09-14
+revised_on: 2026-09-15
 training_ready: false
+baseline_forbidden_user_assumptions: [appearance, gender unless explicitly specified, attraction, thoughts, emotions, unstated history, unprovided actions, unexpressed consent]
 length_bands:
   short: {target_turn_range: [12, 18], target_token_range: [700, 1200]}
   medium: {target_turn_range: [20, 30], target_token_range: [1400, 2400]}
@@ -45,6 +47,9 @@ scenes:
     relationship_stage: trusted Kestrel Reach crew peers carrying an old rescue debt and incompatible future plans
     user_role: equal crew peer who once helped Mara during a Kestrel Reach emergency
     known_user_facts: [shares a documented rescue history with Mara, plans to remain near Kestrel Reach while Mara considers a long convoy]
+    shared_history_facts:
+      - Mara and the user once repaired a failed Kestrel Reach communications relay during the documented rescue.
+      - Their later maintenance watches included a standing habit of sharing bitter tea without discussing the debt ledger.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, forgiveness, willingness to maintain contact]
     emotional_tone: [guarded, sincere, uneasy]
     conflict_or_objective: Decide what the friendship can realistically become when Mara may leave on a long convoy and the user does not share that future.
@@ -69,6 +74,11 @@ scenes:
     relationship_stage: established equal partners reconnecting after strain
     user_role: Mara's established equal adult partner after a mutually acknowledged period of strain
     known_user_facts: [is a fictional adult, has an established relationship with Mara, knows Mara may accept a six-month salvage convoy]
+    intermediate_state_beats:
+      - The convoy office advances Mara's answer deadline from next week to the following morning.
+      - A maintenance alert closes the observation blister and makes a public galley or separate quarters the available locations.
+      - An old one-way contact token is found with a cracked transmitter, so it cannot function as an automatic promise of mutual contact.
+      - The incoming watch interrupts to claim the blister, leaving the pair to decide whether and where the evening continues.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, consent, willingness to wait]
     emotional_tone: [tender, guarded, emotionally divided]
     conflict_or_objective: Share a desired evening while facing Mara's possible departure and the fact that closeness will not settle the future.
@@ -116,6 +126,10 @@ scenes:
     relationship_stage: cautious research partners
     user_role: capable research partner authorized for the low-tide expedition
     known_user_facts: [knows the vault access window is limited, has equal say over retreat and document priorities]
+    setup_facts:
+      - A ceiling track reaches the flooded aisle and can carry either the maintenance mirror or the dry copy frame, but only one carriage at a time.
+      - The mirror can show labels and exposed pages but cannot turn pages, move weights, or open a closed volume.
+      - The copy frame can record visible salt-reactive ink without contact; it cannot recover obscured text or manipulate an original.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, swimming ability, courage, document interest beyond stated goals, risk consent, unprovided movement]
     emotional_tone: [urgent, methodical, curious]
     conflict_or_objective: Choose which records to inspect under time, preservation, and safety constraints.
@@ -139,6 +153,14 @@ scenes:
     relationship_stage: estranged former colleagues
     user_role: former archive colleague directly affected by the incomplete record
     known_user_facts: [knows Ilyan omitted material, has not promised forgiveness or renewed collaboration]
+    shared_history_facts:
+      - Ilyan and the user previously cataloged North Quay flood-tunnel testimony at the same long council table.
+      - They once disagreed, without personal fallout, about whether marginal notes belonged in the public index.
+    intermediate_state_beats:
+      - A council clerk supplies a filing deadline that narrows the available correction paths.
+      - A newly located index reference changes which part of the omission can be supported by observed evidence.
+      - An interruption from a records custodian introduces a custody or access constraint without deciding the user's participation.
+      - The first correction form proves unable to carry the disputed testimony attachment, requiring a different filing path.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, beliefs, forgiveness, desired remedy, willingness to testify]
     emotional_tone: [painful, restrained, unresolved]
     conflict_or_objective: Admit responsibility and pursue repair without demanding forgiveness or reconciliation.
@@ -163,6 +185,11 @@ scenes:
     relationship_stage: courier and unintended recipient
     user_role: unintended recipient holding a sealed parcel addressed elsewhere
     known_user_facts: [received the parcel by mistake, has no obligation to open it or accompany Nadiya]
+    intermediate_state_beats:
+      - A neutral seal check confirms the parcel remains intact but reveals two potentially valid handoff marks.
+      - The ninth-bell shift closes the west stair, the most direct public route, before custody is resolved.
+      - The sender contact returns only a destination district, not an authorized recipient or handoff instruction.
+      - Market wardens close the nearest transfer kiosk and move neutral verification to the east arcade.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, curiosity, willingness to travel, consent to handle magic]
     emotional_tone: [quick, suspicious, playful]
     conflict_or_objective: Recover a misdirected sealed parcel without opening it or coercing cooperation.
@@ -186,6 +213,9 @@ scenes:
     relationship_stage: close friends whose future priorities have begun to diverge
     user_role: close friend who values safety and is not bound by Nadiya's courier ambitions
     known_user_facts: [knows the Glass Ward frightens Nadiya, may prefer that their shared plans remain local]
+    shared_history_facts:
+      - Nadiya and the user previously completed a public rooftop-route map that still hangs in the Bellwether courier hall.
+      - They have a harmless routine of choosing street food after late route checks.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, fear, loyalty, agreement, willingness to enter the Glass Ward]
     emotional_tone: [hopeful, hurt, candid]
     conflict_or_objective: Face Nadiya's desire to map the Glass Ward and the user's possibly incompatible hopes without making either priority a betrayal.
@@ -210,6 +240,15 @@ scenes:
     relationship_stage: dating peers with established trust
     user_role: Nadiya's established equal adult dating partner on a mutually planned evening
     known_user_facts: [is a fictional adult, already expressed interest in the evening, retains control over route and intimacy choices]
+    setup_facts:
+      - The completed delivery leaves no active client, fee, favor, or courier obligation between Nadiya and the user.
+      - Their planned destination is a supper reservation in the South Arch courtyard beyond Copper Arcade.
+      - Public routes have posted district markers and appear on fixed route boards; service catwalks, private passages, and black-glass Glass Ward marks are not public-route continuations.
+    intermediate_state_beats:
+      - A ninth-bell street shift redirects the first route toward Bellfoundry Steps while Copper Arcade remains marked as public.
+      - A foundry crew crossing the steps interrupts the race and requires a fresh choice about whether to resume.
+      - A black-glass route marker points toward the Glass Ward and makes the public-route constraint newly relevant.
+      - The restaurant shortens its table hold to fifteen minutes, creating a consequence without deciding whether the evening continues.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, current desire, consent to any next step, appetite for risk]
     emotional_tone: [playful, adventurous, intimate]
     conflict_or_objective: Pursue a mutually anticipated evening through a shifting-street detour while deciding whether the alert becomes part of the adventure.
@@ -234,6 +273,11 @@ scenes:
     relationship_stage: co-organizers and performers with equal authority
     user_role: equal festival co-organizer controlling one part of the live response
     known_user_facts: [knows the event layout, may perform or coordinate without being assigned either role]
+    intermediate_state_beats:
+      - Emergency lighting fails in the east audience aisle and removes that side of the stage from use.
+      - The next percussion act offers three hand drums but retains the choice to withdraw them for its own set.
+      - The crowd shifts toward the north exit and reduces the clear aisle below the festival's safety width.
+      - The power crew extends its restoration estimate by thirty minutes, forcing a decision about the next program segment.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, stage confidence, willingness to perform, preferred solution, agreement]
     emotional_tone: [energetic, comic, urgent]
     conflict_or_objective: Keep the crowd safe and the festival alive through drums, call-and-response signals, and improvised staging while power crews work.
@@ -257,6 +301,9 @@ scenes:
     relationship_stage: close friends with an established expectation of separate commitments
     user_role: close friend whom Tomas volunteered for a public duty without asking
     known_user_facts: [did not consent to the commitment, controls whether the friendship continues unchanged]
+    shared_history_facts:
+      - Tomas and the user have previously divided festival kitchen work by writing separate names beside each task.
+      - They once disagreed harmlessly over the color of public festival signs and kept both sample boards.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, embarrassment, anger, forgiveness, willingness to help]
     emotional_tone: [awkward, accountable, restrained]
     conflict_or_objective: Repair a boundary breach without treating apology as automatic forgiveness.
@@ -351,6 +398,9 @@ scenes:
     relationship_stage: long-term expedition partners
     user_role: long-term expedition partner whose destination preference differs from Senka's
     known_user_facts: [has traveled safely with Senka before, has an independent reason to favor the river route]
+    shared_history_facts:
+      - Senka and the user previously shared first watch at the Salt Needle shelter during a sandstorm.
+      - They maintain a routine of exchanging route notes before choosing separate sleeping places.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, loyalty, willingness to abandon their destination, desire to reconcile]
     emotional_tone: [wistful, restrained, unresolved]
     conflict_or_objective: Decide whether two competent partners separate when Senka chooses the route school and the user favors continued expedition work.
@@ -375,6 +425,11 @@ scenes:
     relationship_stage: research peers
     user_role: greenhouse research peer sharing custody of the uncertain seed samples
     known_user_facts: [knows the samples cannot be trusted by label, controls whether their own samples enter testing]
+    intermediate_state_beats:
+      - Condensation erases one remaining tray mark and reduces the reliable evidence.
+      - Magnification reveals the same saline ridge on samples from both trays, weakening a visual-identification hypothesis.
+      - An unrelated urgent delivery claims one of the quarantine rack's two remaining spaces.
+      - A bounded germination-strip test returns the same ambiguous color for both trays and requires a new choice.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, scientific expertise, blame, willingness to risk samples, preferred hypothesis]
     emotional_tone: [anxious, curious, practical]
     conflict_or_objective: Preserve scientific integrity while choosing whether to discard or test uncertain samples.
@@ -421,6 +476,14 @@ scenes:
     relationship_stage: close friends and research partners
     user_role: close friend and research partner sharing the aftermath of the crop loss
     known_user_facts: [lost work in the collapse, may value immediate salvage differently from Elara]
+    shared_history_facts:
+      - Elara and the user propagated the first heirloom tray together from six numbered cuttings.
+      - They share a routine of recording bed-seven salt readings at dawn on separate lines of the same log.
+    intermediate_state_beats:
+      - The backup humidity system drops below its preservation target and shortens the safe exposure window.
+      - Inspection reveals one green cutting among the collapsed crop without establishing its recovery priority.
+      - A roof leak reaches the shelf between the living samples and the paper growth log.
+      - The supply boat announces a twenty-minute pickup window for either samples or records, but not both crates.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, grief response, blame, forgiveness, work capacity, preferred recovery priority]
     emotional_tone: [grieving, divided, patient]
     conflict_or_objective: Face different but reasonable responses to the loss when Elara needs to salvage living material and the user may need documentation, rest, or distance.
@@ -445,6 +508,11 @@ scenes:
     relationship_stage: performer and skeptical investigator
     user_role: skeptical independent investigator with equal control over evidence handling
     known_user_facts: [was invited to investigate the residue, has not accepted Cassian's sabotage theory]
+    intermediate_state_beats:
+      - Moving the scenery exposes matching residue on a counterweight that was outside the first suspected path.
+      - The stage-right trapdoor jams closed while the lighting ring and rigging path remain available for inspection.
+      - A crew member reports the counterweight was untouched, contradicting its fresh scrape marks.
+      - The stage manager reduces the time before the final set moves again to twelve minutes.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, magical ability, beliefs, admiration, trust, willingness to enter hazards]
     emotional_tone: [suspicious, theatrical, focused]
     conflict_or_objective: Trace silver residue through shifting stage machinery and catch the source before the final set collapses.
@@ -468,6 +536,9 @@ scenes:
     relationship_stage: longtime creative confidants considering different futures
     user_role: longtime creative confidant committed to an independent touring project
     known_user_facts: [knows what Crown Stage cost Cassian before, has their own project and no duty to follow him]
+    shared_history_facts:
+      - Cassian and the user previously built Lantern Court's final-curtain sequence together.
+      - They once kept both versions of a blue-footlight cue after a harmless creative disagreement.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, envy, forgiveness, career priorities beyond the brief, willingness to follow]
     emotional_tone: [excited, uneasy, bittersweet]
     conflict_or_objective: Face a career opportunity that may separate two reasonable collaborators without turning either ambition into disloyalty.
@@ -539,6 +610,14 @@ scenes:
     relationship_stage: trusted friend helping with a family decision
     user_role: trusted friend invited to sit with Jun during a private family decision
     known_user_facts: [knows the recording came from Jun's estranged sibling, has no obligation to listen or advise reconciliation]
+    shared_history_facts:
+      - Jun and the user once repaired the station booth clock during a membership drive.
+      - They have a routine of bringing separate noodle orders to the closed station after late fundraising meetings.
+    intermediate_state_beats:
+      - The tape sleeve reveals a date or custody note that changes the available context without revealing the recording's content.
+      - A station member briefly arrives for unrelated equipment and interrupts the private decision.
+      - The preservation deck's capstan fails its non-destructive test and rules out immediate playback on that machine.
+      - A scheduled transmitter restart creates a twenty-minute deadline for remaining in the booth.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, family history beyond the brief, grief response, opinion of the sibling, willingness to listen, forgiveness]
     emotional_tone: [melancholic, guarded, patient]
     conflict_or_objective: Decide whether to listen, archive, return, or erase a private recording without using the user as emotional proxy.
@@ -633,6 +712,13 @@ scenes:
     relationship_stage: old friend invited to help inventory the room
     user_role: old friend invited to help inventory the mentor's studio
     known_user_facts: [knew the mentor, has not agreed to open private storage or comfort Priya]
+    shared_history_facts:
+      - Priya and the user once measured the studio windows with the mentor before the quake.
+      - The mentor kept both of their competing stair-layout sketches in a public project folder.
+    setup_facts:
+      - The executor authorizes inventory of the open shelves, drafting table, and project flat files, including photography and one-at-a-time handling of listed objects.
+      - Listed project objects include a chipped Hillmarket arch model, a numbered box of community-owned tile fragments, and a rolled floodgate drawing set.
+      - The correspondence drawer and locked walnut cabinet are unlisted private storage and remain outside the authorization unless written authority changes.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, grief response, opinion of the mentor, forgiveness, ownership interest, willingness to handle belongings]
     emotional_tone: [grieving, unsentimental, tender]
     conflict_or_objective: Decide what to archive, return, or leave untouched while Priya and the user hold different interpretations of the mentor's unfinished work.
@@ -703,6 +789,11 @@ scenes:
     relationship_stage: established creative collaborators
     user_role: equal performance collaborator controlling their own creative and onstage role
     known_user_facts: [knows the planned show, has not agreed to replace the missing marionette personally]
+    intermediate_state_beats:
+      - Inspection reveals that the damaged marionette cannot safely perform its planned overhead swing.
+      - The substitute hand puppet arrives without its control rod and cannot perform the same blocking unchanged.
+      - A lighting fault makes stage right unavailable and shortens the usable preparation window to ten minutes.
+      - The children's chorus begins the opening refrain early, creating a visible consequence for further delay without assigning the user's role.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, stage confidence, blame, willingness to perform, preferred adaptation]
     emotional_tone: [chaotic, inventive, accountable]
     conflict_or_objective: Adapt a planned show after a central marionette is damaged through Rowan's carelessness.
@@ -726,6 +817,16 @@ scenes:
     relationship_stage: rescue colleagues with separate authority
     user_role: qualified rescue colleague with independent safety authority
     known_user_facts: [knows the mission constraints, may veto their own flight participation]
+    setup_facts:
+      - Two survey technicians at Marker Six have missed two scheduled calls; their last position is known but injury and vehicle status are not.
+      - Northglass has the fueled Kestrel aircraft, two winter-rated snowcats, a portable relay, medical sled, tow rig, and duty rescue staff available for assignment.
+      - Station protocol treats aircraft launch approval, each person's flight participation, and ground-response assignment as separate decisions; the old cable route remains closed.
+      - The current weather strip puts the ridge crossing at the logged flight-risk threshold while Pine Cut and North Spur remain possible ground staging points.
+    intermediate_state_beats:
+      - A new weather strip raises the ridge crosswind by two knots without resolving the ground or standby choices.
+      - A single carrier burst from Marker Six confirms functioning radio equipment but does not establish casualty status.
+      - A fallen branch blocks part of Pine Cut and changes the ground timing and turnaround margin.
+      - The portable relay drops the base channel when it carries the field safety channel, forcing a communications allocation choice.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, fitness beyond qualification, courage, fear, agreement, willingness to fly]
     emotional_tone: [urgent, disciplined, candid]
     conflict_or_objective: Decide whether to launch, stage a ground response, or wait when the flight risk crosses a threshold.
@@ -749,6 +850,9 @@ scenes:
     relationship_stage: trusted colleague challenging Safiya's command decision
     user_role: trusted rescue colleague directly affected by Safiya's command decision
     known_user_facts: [may request formal review, has not agreed to confidentiality or forgiveness]
+    shared_history_facts:
+      - Safiya and the user previously completed North Spur winter-route training on the same crew.
+      - After an earlier uneventful return, they played one documentedly ruthless game of gin rummy in the operations room.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, injury beyond recorded facts, fear, anger, forgiveness, preferred accountability path]
     emotional_tone: [raw, professional, defensive]
     conflict_or_objective: Establish accountability and future command boundaries without forcing forgiveness.
@@ -843,6 +947,12 @@ scenes:
     relationship_stage: trusted co-op colleagues under practical pressure
     user_role: equal cooperative baker controlling their own station and festival commitments
     known_user_facts: [knows the pending orders, may refuse unsafe repair work or unpaid extra labor]
+    intermediate_state_beats:
+      - The backup oven falls below one hundred fifty degrees and removes the largest pending batch from its current schedule.
+      - A neighboring kitchen limits its loan to two racks for twenty minutes.
+      - Thirty new festival orders arrive alongside a request to donate any unsold bread at closing.
+      - A sesame cross-contact warning removes one improvised stovetop item from the public menu.
+      - The utility crew extends the power-restoration estimate to ninety minutes before the service plan is final.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, strength, finances, guilt, preferred salvage plan, willingness to work overtime]
     emotional_tone: [chaotic, warm, inventive]
     conflict_or_objective: Save what can be baked by improvising with neighboring kitchens, stovetop methods, and a rapidly changing menu.
@@ -889,6 +999,9 @@ scenes:
     relationship_stage: estranged friends with reasonable but incompatible duties
     user_role: former friend who believes correcting the public record may justify reopening the case
     known_user_facts: [possesses relevant evidence, has not agreed to conceal it or renew the friendship]
+    shared_history_facts:
+      - Vesper and the user previously sorted the old case chronology at a Copper Court cafe.
+      - They once disagreed harmlessly about whether exhibits should be filed by witness or by date.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, legal knowledge, guilt, forgiveness, preferred duty, willingness to surrender evidence]
     emotional_tone: [controlled, sorrowful, principled]
     conflict_or_objective: Weigh public correction against a witness's safety when neither person's priority is trivial or clearly wrong.
@@ -960,6 +1073,9 @@ scenes:
     relationship_stage: close creative collaborators facing unequal opportunities
     user_role: close collaborator whose own project is rooted in Marrow Bay
     known_user_facts: [cannot simply relocate their current project, may feel differently about continuing the collaboration]
+    shared_history_facts:
+      - Dae and the user previously recorded the Pier Seven tide bells for a shared installation.
+      - They keep a routine of labeling their own cable ends before packing a joint field case.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, envy, happiness, career priorities beyond the brief, willingness to wait]
     emotional_tone: [proud, envious, tender, uncertain]
     conflict_or_objective: Face a valuable opportunity and the emotional distance it may create without making Dae's ambition or the user's rooted work morally wrong.
@@ -1008,6 +1124,11 @@ scenes:
     relationship_stage: fellow investigators who enjoy competitive reasoning
     user_role: equal mystery-club investigator controlling their own notes and deductions
     known_user_facts: [saw the clockwork clue activate, has not shared their interpretation with Celeste]
+    setup_facts:
+      - The palm-sized brass device can roll, pivot, click, and expose a small symbol shutter, but it cannot climb shelving or force a latch.
+      - It has one active winding cycle before it self-locks; manual rewinding would erase the current route evidence.
+      - The library has an empty rolling cart, movable shelf labels, a public departure board, and ordinary display covers available for non-destructive tests.
+      - No one knows the device's destination, trigger pattern, or intended answer at scene opening.
     forbidden_user_assumptions: [appearance, gender, attraction, thoughts, emotions, decisions, past history beyond known_user_facts, unprovided physical actions, age-based ability, beliefs, deduction, amusement, willingness to share notes]
     emotional_tone: [amused, exacting, diplomatic]
     conflict_or_objective: Follow and decode the moving clue before it locks itself, while Celeste's competitive guesses remain fallible.

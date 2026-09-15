@@ -1,6 +1,23 @@
 schema_version: aevon_rp_review_v1
 scene_id: null
 content_tier: null
+length_band: null
+diagnostic_pre_review:
+  gating: false
+  observer_id: null
+  reviewed_revision_sha256: null
+  generic_assistant_leakage: {status: not_checked, notes: ''}
+  procedural_dialogue_tendency: {status: not_checked, notes: ''}
+  excessive_state_recap: {status: not_checked, notes: ''}
+  repeated_option_menu_behavior: {status: not_checked, notes: ''}
+  same_model_voice_convergence: {status: not_checked, notes: ''}
+voice_drift_review:
+  required: false
+  reviewed_revision_sha256: null
+  opening_third: null
+  middle_third: null
+  final_third: null
+  overall_notes: ''
 reviews:
   - reviewer_id: null
     reviewed_revision_sha256: null

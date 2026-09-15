@@ -2,7 +2,7 @@
 
 This is the authoring and governance specification for a future gold RP seed. It creates no training records, contains no scene dialogue, and authorizes neither synthetic generation nor training.
 
-Design status: **ready for human scene authoring**. Rights, review, provenance approval, synthetic generation, and training remain pending or unauthorized.
+Design status: **V1.2 ready for a bounded real-human authoring pilot**. The pilot is not started here. Rights, review, provenance approval, synthetic generation, and training remain pending or unauthorized.
 
 ## V1 allocation
 
@@ -24,7 +24,11 @@ Author slots are workload placeholders, not verified identities. All rights fiel
 
 The eight adult-capable briefs intentionally comprise two boundary/check-in-heavy scenes, two playful/affectionate scenes, two desire-led scenes, one awkward reconnection, and one emotionally complicated scene. Consent remains revocable in every structure without making consent scripting the scene's sole dramatic engine.
 
+V1.2 permits consensual adult romantic or sexual context, flirtation, affectionate non-explicit intimacy, sexual intent, and a clear fade to black. It excludes graphically explicit sexual-act prose from this seed while leaving any future adult-extension dataset to separate governance.
+
 The mature set now spans incompatible futures, differing priorities, grief, emotional distance, career tension, envy, boundary repair, accountability without reconciliation, and choosing not to reconcile. Only one brief uses the direct breach-to-repair shape.
+
+All long briefs now provide three to five response-neutral progression beats. Mature briefs carry neutral shared-history texture, and the five diagnostic-pilot setup gaps are concretely bounded without supplying a solution. Four cards receive targeted V1.2 voice guidance; the remaining twelve cards are unchanged.
 
 Mara Venn and Senka Vale no longer have a cross-setting personal history. Mara's rescue debt now belongs entirely to her Kestrel Reach past; Senka's Red Meridian history belongs entirely to Avar.
 

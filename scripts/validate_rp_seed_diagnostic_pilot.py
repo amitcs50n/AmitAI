@@ -35,6 +35,44 @@ EXPECTED_SCENES = {
     ),
 }
 
+# The completed pilot is bound to the V1.1 source snapshots recorded at generation
+# time. V1.2 legitimately revises current cards and briefs, so provenance must be
+# checked against these historical hashes rather than re-hashing today's sources.
+PILOT_SOURCE_HASHES = {
+    "scene_celeste_clockwork_clue": (
+        "86067fa0029f1ce59f6119a6d1c4e2f10a0456afcfd76773cc54de595a084fd2",
+        "f2bf734cd738329833bf1e34840a3b8c2f7818be121830456d97c2e7776f2b4d",
+    ),
+    "scene_ilyan_low_tide_vault": (
+        "7135d62445423fa0cdd2f3c073a5cf89a88810fda2f92f80cadf4cebfe7837e3",
+        "05806a352d2a66cd696fc9c4298d2f457230c50a67244ee1a19d140102d40f3f",
+    ),
+    "scene_jun_recording_off": (
+        "8a5a6aa8b6ba26632a5966688e8ebd507d0eea7cd3487434c24f7e662acec2bb",
+        "53a8717b76df67e00945dba43df224721b01e3f42676bc8be8feac195d9a5129",
+    ),
+    "scene_nadiya_private_evening_detour": (
+        "abca12b6f4cd82b34cc02187d604c1cc3cc29286885d3e1ef2341884de9088e5",
+        "5f073e0a420e492ff3638e1240d1749c17d70d317b3ae96ba2f7adf2959ccead",
+    ),
+    "scene_priya_empty_studio": (
+        "0b92ae55eec1962d9ba0b6a8be398765333f3782c298883f2947b29df996e474",
+        "5f623666f6b64f32f8e2fa32beba0344c898d6b7bc62efac3326fe051fc8b152",
+    ),
+    "scene_rowan_runaway_puppet": (
+        "fdd770ffa91fb185e2fc3850d981eca345e340e02669e0075f42335598cbefc5",
+        "353456560e9965a08b8216bce12880a4132b29033eff3dc932c4ba833a168f84",
+    ),
+    "scene_safiya_weather_veto": (
+        "dd2a936a7ac51b29958b83bdc487c0968d2a7729f404e4e23e097402d29c9de3",
+        "3e4cd56f44692ec7874b587b8bd2217ccfa861c99901a8a026e74c3d78261240",
+    ),
+    "scene_senka_diverging_destinations": (
+        "de9cfde02014cfde82d830e369b6401465135003fdeb817bc47775c1d59f179c",
+        "4181fede515f999f8391eac39c6f5d241603196af0b4ea17a5937014149597b2",
+    ),
+}
+
 GATE_FIELDS = {
     "counts_toward_48_human_scenes",
     "counts_toward_author_quotas",
@@ -113,6 +151,7 @@ def _validate_schema_guards(root: Path) -> None:
 def validate(root: Path) -> dict[str, Any]:
     root = root.resolve()
     diagnostic_root = root / DIAGNOSTIC
+    _require(set(PILOT_SOURCE_HASHES) == set(EXPECTED_SCENES), "historical source hash set is incomplete")
     _validate_schema_guards(root)
     _require(not list(diagnostic_root.rglob("*.jsonl")), "diagnostic artifacts cannot be JSONL")
 
@@ -214,8 +253,9 @@ def validate(root: Path) -> dict[str, Any]:
             f"{scene_id} has an open gate",
         )
         hashes = provenance["content_hashes"]
-        _require(hashes["character_card_sha256"] == _canonical_sha256(card), f"{scene_id} card hash mismatch")
-        _require(hashes["scene_plan_sha256"] == _canonical_sha256(plan), f"{scene_id} plan hash mismatch")
+        expected_card_hash, expected_plan_hash = PILOT_SOURCE_HASHES[scene_id]
+        _require(hashes["character_card_sha256"] == expected_card_hash, f"{scene_id} historical card hash mismatch")
+        _require(hashes["scene_plan_sha256"] == expected_plan_hash, f"{scene_id} historical plan hash mismatch")
         _require(hashes["transcript_sha256"] == _canonical_sha256(transcript), f"{scene_id} transcript hash mismatch")
         tiers[tier] += 1
         lengths[length] += 1
