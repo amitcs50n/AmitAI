@@ -1,0 +1,50 @@
+schema_version: aevon_rp_human_pilot_manifest_v1
+pilot_id: rp_seed_v1_2_bounded_human_pilot
+authoring_spec_version: 1.2.0
+status: awaiting_real_human_assignment
+pilot_scene_count: 4
+completed_scene_count: 0
+human_authoring_started: false
+author_ids: []
+scenes:
+  - scene_id: scene_rowan_runaway_puppet
+    content_tier: sfw
+    focus: action_humor
+    author_placeholder: author_slot_03
+    author_id: null
+    authorship_status: pending_human_authorship
+    training_ready: false
+  - scene_id: scene_senka_diverging_destinations
+    content_tier: mature_nonsexual
+    focus: unresolved_disagreement_and_incompatible_futures
+    author_placeholder: author_slot_02
+    author_id: null
+    authorship_status: pending_human_authorship
+    training_ready: false
+  - scene_id: scene_jun_recording_off
+    content_tier: adult_capable
+    focus: relationship_and_playful_affectionate_behavior
+    author_placeholder: author_slot_02
+    author_id: null
+    authorship_status: pending_human_authorship
+    training_ready: false
+  - scene_id: scene_safiya_weather_veto
+    content_tier: sfw
+    focus: long_action_and_operational_pressure
+    author_placeholder: author_slot_03
+    author_id: null
+    authorship_status: pending_human_authorship
+    training_ready: false
+governance:
+  all_scenes_pending_human_authorship: true
+  scene_complete_only_after_real_human_authorship: true
+  training_ready: false
+  rights_status: pending
+  quality_reviews_required_per_scene: 2
+  independent_quality_reviews_completed: 0
+  separate_human_rights_and_provenance_approval_required: true
+  human_rights_and_provenance_approvals_completed: 0
+  synthetic_material_included: false
+  synthetic_expansion_authorized: false
+  qlora_training_authorized: false
+

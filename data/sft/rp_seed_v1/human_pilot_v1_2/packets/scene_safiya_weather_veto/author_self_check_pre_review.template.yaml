@@ -1,0 +1,35 @@
+schema_version: aevon_rp_author_self_check_v1
+scene_id: null
+author_placeholder: null
+author_id: null
+reviewed_revision_sha256: null
+author_checklist:
+  assigned_real_human_author: null
+  original_human_authorship: null
+  fictional_user_turns_are_explicit_source_material: null
+  no_invented_user_private_state_or_consent: null
+  natural_questions_and_varied_interaction: null
+  repeated_option_menus_avoided: null
+  excessive_state_recap_avoided: null
+  character_voice_preserved: null
+  meaningful_consequences_present: null
+  refusal_and_unresolved_outcomes_preserved: null
+  no_model_synthetic_or_outside_prose: null
+  adult_v1_ceiling_respected_or_not_applicable: null
+diagnostic_pre_review:
+  gating: false
+  generic_assistant_leakage: {status: not_checked, notes: ''}
+  procedural_dialogue_tendency: {status: not_checked, notes: ''}
+  excessive_state_recap: {status: not_checked, notes: ''}
+  repeated_option_menu_behavior: {status: not_checked, notes: ''}
+  same_model_voice_convergence: {status: not_checked, notes: ''}
+voice_drift_review:
+  required: null
+  opening_third: null
+  middle_third: null
+  final_third: null
+  overall_notes: ''
+human_quality_approval: pending
+human_rights_and_provenance_approval: pending
+training_ready: false
+
